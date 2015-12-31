@@ -1,0 +1,824 @@
+<?xml version="1.0" encoding="utf-8"?>
+<application name="OFRTDICR" code="100" log_level="DEBUG">
+  <before>
+    <set name="DWZ_ERROR_CODE"    value="300" />
+    <set name="DWZ_SUCCESS_CODE"  value="200" />
+    <set name="DWZ_TIME_OUT_CODE" value="301" />
+    <set name="NumPerPag"         value="19" />
+    <do func="GetOwnButton" />
+    <do func="DumpMsg" />
+  </before>
+  <after>
+    <do func="DumpMsg" />
+  </after>
+  
+  <!-- 公共宏文件引入-->
+  <include file="etc/public/Params_MACRO.XML"/>
+
+  <transaction code="412060" desc="费率维护查询">
+    <sql name="queryFeeRates">
+    	select fee_code,fee_name,ccy,cal_mode,multi_section_mode,TO_CHAR(to_number(max_fee)/100,'FM9999,999,999,990.00') as max_fee,TO_CHAR(to_number(min_fee)/100,'FM9999,999,999,990.00') as min_fee,TO_CHAR(to_number(start_cal_amt)/100,'FM9999,999,999,990.00') as start_cal_amt 
+    	from FeeRate ${tj}
+    </sql>
+    <process>
+      <set name="tj" value="where 1=1 " />
+      <!--计费方式-->
+      <if condition="AND(NOT(ISNULL(CAL_MODE)),IS_NOEQUAL_STRING(CAL_MODE,'-1'))">
+        <set name="tj" expr="STRCAT(tj,' and CAL_MODE= \'', CAL_MODE ,'\'')" />
+      </if>
+      <else>
+        <set name="CAL_MODE" value="-1" />
+      </else>
+      <!--分档方法-->
+      <if condition="AND(NOT(ISNULL(MULTI_SECTION_MODE)),IS_NOEQUAL_STRING(MULTI_SECTION_MODE,'-1'))">
+        <set name="tj" expr="STRCAT(tj,' and MULTI_SECTION_MODE = \'', MULTI_SECTION_MODE ,'\'')" />
+      </if>
+      <else>
+        <set name="MULTI_SECTION_MODE" value="-1" />
+      </else>
+      <!-- 费率代码 -->
+      <if condition="AND(NOT(ISNULL(FEE_CODE)),IS_NOEQUAL_STRING(FEE_CODE,''))">
+        <set name="tj" expr="STRCAT(tj,' and FEE_CODE = \'', FEE_CODE ,'\'')" />
+      </if>
+      <!-- 费用名称 -->
+      <set name="tj" expr="STRCAT(tj,' and FEE_NAME like \'%' ,FEE_NAME,'%\'')" />
+      <!--MAX_FEE 最高收费 转成分-->
+      <if condition="NOT(ISNULL(MAX_FEE))">
+        <if condition="NOT(ISNUMBER(MAX_FEE))">
+          <set name="Z_MAX_FEE" expr="AMTPOWER(REPALLSTR(MAX_FEE,',',''),2)" />
+          <set name="tj" expr="STRCAT(tj,' and MAX_FEE = \'', Z_MAX_FEE ,'\'')" />
+        </if>
+      </if>
+      <!--MIN_FEE 最低收费 转成分-->
+      <if condition="NOT(ISNULL(MIN_FEE))">
+        <if condition="NOT(ISNUMBER(MIN_FEE))">
+          <set name="Z_MIN_FEE" expr="AMTPOWER(REPALLSTR(MIN_FEE,',',''),2)" />
+          <set name="tj" expr="STRCAT(tj,' and MIN_FEE = \'', Z_MIN_FEE ,'\'')" />
+        </if>
+      </if>
+      <!--START_CAL_AMT 起费额 转成分-->
+      <if condition="NOT(ISNULL(START_CAL_AMT))">
+        <if condition="NOT(ISNUMBER(START_CAL_AMT))">
+          <set name="Z_START_CAL_AMT" expr="AMTPOWER(REPALLSTR(START_CAL_AMT,',',''),2)" />
+          <set name="tj" expr="STRCAT(tj,' and START_CAL_AMT = \'', Z_START_CAL_AMT ,'\'')" />
+        </if>
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum"   value="1" />
+      </if>
+      <if condition="ISNULL(NumPerPag)">
+        <set name="NumPerPag" expr="NUMPERPAG" />
+      </if>
+      <!--查询费率信息-->
+      <do func="PagedQuery" error="IGNORE">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="sql"       sql="queryFeeRates" />
+      </do>
+      <if condition="#RetCod==0">
+        <!--查询成功-->
+        <set name="RSPCOD" value="00000" />
+        <set name="RSPMSG" value="费率信息查询成功!" />
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/fee/rateInfoMians.jsp" />
+        <return />
+      </if>
+      <elseif condition="#RetCod==2">
+        <!--查询成功-->
+        <set name="RSPCOD" value="01002" />
+        <set name="RSPMSG" value="没有符合条件的记录" />
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/fee/rateInfoMians.jsp" />
+        <return />
+      </elseif>
+      <else>
+        <set name="RSPCOD" value="00001" />
+        <set name="RSPMSG" value="费率信息查询失败!" />
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/fee/rateInfoMians.jsp" />
+        <return />
+      </else>
+    </process>
+  </transaction>
+  
+  <transaction code="412061" desc="费率维护添加页面">
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/fee/add_ratez.jsp" />
+      <return />
+    </process>
+  </transaction>
+  
+  <transaction code="412062" desc="费率维护详情查询">
+    <sql name="queryFeeRatez">
+    	select fee_code,fee_name,ccy,(case when cal_mode='0' then '定额收费' when cal_mode='1' then '按比例收费' else '未知' end) as cal_mode,
+    	       (case when multi_section_mode='0' then '不套档' when multi_section_mode='1' then '套档' when multi_section_mode='2' then '分段累计' else '未知' end) as multi_section_mode,TO_CHAR(to_number(max_fee)/100,'FM9999,999,999,990.00') as max_fee,TO_CHAR(to_number(min_fee)/100,'FM9999,999,999,990.00') as min_fee,TO_CHAR(to_number(start_cal_amt)/100,'FM9999,999,999,990.00') as start_cal_amt 
+    	from FeeRate 
+    	where fee_code=#{FEE_CODE}
+    </sql>
+    <sql name="queryFeeSections">
+    	select seq_no , fee_code,TO_CHAR(to_number(max_amt)/100,'FM9999,999,999,990.00') as max_amt,TO_CHAR(to_number(fee_amt)/100,'FM9999,999,999,990.00') as fee_amt,TO_CHAR(to_number(fee_ratio)/100,'FM9999,999,999,990.00') as fee_ratio 
+    	from FeeSection 
+    	where fee_code=#{FEE_CODE}
+    </sql>
+    <process>
+      <set name="FEE_CODE" expr="FEE_CODE" />
+      <!--费率代码-->
+      <if condition="OR(ISNULL(DELSPACE(FEE_CODE,'all')),ISNULL(DELSPACE(FEE_CODE,'all')))">
+        <set name="RSPCOD" value="02038" />
+        <set name="RSPMSG" value="获取该项费率信息失败!" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+        <return />
+      </if>
+      <!--查询关联的费率档次信息-->
+      <do func="QueryInGroup" error="IGNORE">
+        <para name="SqlCmd" sql="queryFeeSections" />
+        <para name="RecordName" value="BIZ_LST" />
+      </do>
+      <if condition="#RetCod==-1">
+        <set name="RSPCOD" value="00002" />
+        <set name="RSPMSG" value="查询关联费率档次信息失败!" />
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/fee/rateInfoMians.jsp" />
+        <return />
+      </if>
+      <!--查询基本信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="queryFeeRatez" />
+      </do>
+      <if condition="#RetCod!=0">
+        <if condition="#RetCod==2">
+          <set name="RSPCOD" value="02038" />
+          <set name="RSPMSG" value="该业务类型大类信息为空,修改失败!" />
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+          <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+          <return />
+        </if>
+        <else>
+          <set name="RSPCOD" value="02138" />
+          <set name="RSPMSG" value="获取该费率信息失败!" />
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+          <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+          <return />
+        </else>
+      </if>
+      <else>
+        <!--针对有问题数据做处理-->
+        <if condition="OR(ISNULL(CAL_MODE),IS_EQUAL_STRING(DELSPACE(CAL_MODE,'all'),''))">
+          <set name="CAL_MODE" value="-1" />
+        </if>
+        <if condition="OR(ISNULL(MULTI_SECTION_MODE),IS_EQUAL_STRING(DELSPACE(MULTI_SECTION_MODE,'all'),''))">
+          <set name="MULTI_SECTION_MODE" value="-1" />
+        </if>
+        <set name="RSPCOD" value="00000" />
+        <set name="RSPMSG" value="成功该费率信息" />
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/fee/rateinfoz.jsp" />
+        <return />
+      </else>
+    </process>
+  </transaction>
+  
+  <transaction code="412063" desc="费率维护删除">
+    <sql name="deleteFeeRate">
+    	delete from FeeRate where FEE_CODE=#{FEE_CODE}
+    </sql>
+    <sql name="deleteFeeSection">
+    	delete from FeeSection where FEE_CODE=#{FEE_CODE}
+    </sql>
+    <sql name="chkMerFee">
+    	select fee_code from ARP_CUST_FEE where fee_code=#{fee_code}
+    	union
+    	select fee_code from STPMERSIG  where fee_code=#{fee_code}
+    </sql>
+    <process>
+      <set name="FEE_CODE" expr="FEE_CODE" />
+      <!--费率代码-->
+      <if condition="OR(ISNULL(DELSPACE(FEE_CODE,'all')),ISNULL(DELSPACE(FEE_CODE,'all')))">
+        <set name="RSPCOD"          value="02038" />
+        <set name="RSPMSG"          value="获取该项费率信息失败!" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <!--与客户关联的费率代码不能删除-->
+      <do func="ExecSql" error="IGNORE">
+        <para name="SqlCmd" sql="chkMerFee" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RSPCOD"          value="02089" />
+        <set name="RSPMSG"          value="该费率代码正在使用!" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=2">
+        <set name="RSPCOD"          value="09999" />
+        <set name="RSPMSG"          value="数据库操作有误" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </elseif>
+      <!--与客户关联的费率代码不能删除-->
+      <do func="DataAdd" error="ignore">
+        <para name="TableName" value="FeeSection" />
+        <para name="Method"    value="Delete" />
+        <para name="Columns"   value="*" />
+        <para name="Keys"      value="FEE_CODE" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RSPCOD"          value="09999" />
+        <set name="RSPMSG"          value="数据库操作有误" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <do func="DataEntry" error="ignore">
+        <para name="TableName" value="FeeRate" />
+        <para name="Method"    value="Delete" />
+        <para name="Columns"   value="*" />
+        <para name="Keys"      value="FEE_CODE" />
+      </do>
+      <if condition="#RetCod==1">
+        <do func="RollBackWork" />
+        <set name="RSPCOD"          value="00000" />
+        <set name="RSPMSG"          value="费率删除提交复核成功！" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_SUCCESS_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <do func="RollBackWork" />
+        <set name="RSPCOD"          value="09999" />
+        <set name="RSPMSG"          value="数据库操作有误" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </elseif>
+      <else>
+        <set name="RSPCOD"            value="00000" />
+        <set name="RSPMSG"            value="费率删除成功!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+      </else>
+    </process>
+  </transaction>
+  
+  <transaction code="412064" desc="费率维护添加">
+    <sql name="queryCodeExist">
+    	select count(fee_code) as FeeCount from FeeRate where fee_code=#{FEE_CODE}
+    </sql>
+    <sql name="inserFeeRate">
+    	insert into FeeRate (fee_code,fee_name,ccy,cal_mode,multi_section_mode,max_fee,min_fee,start_cal_amt) 
+    	values (#{FEE_CODE},#{FEE_NAME},#{CCY},#{CAL_MODE1},#{MULTI_SECTION_MODE1},#{MAX_FEE},#{MIN_FEE},#{START_CAL_AMT})
+    </sql>
+    <sql name="insertFeeSection">
+    	insert into FeeSection (fee_code,max_amt,fee_amt,fee_ratio) values (#{FEE_CODE},#{MAX_AMT},#{FEE_AMT},#{FEE_RATIO})
+    </sql>
+    <sql name="queryFeeSectionExist">
+    	select count(seq_no) as seqCount from FeeSection where fee_code=#{FEE_CODE}
+    </sql>
+    <process>
+      <!--判断费率代码的正确性-->
+      <if condition="OR(ISNULL(FEE_CODE),IS_EQUAL_STRING(DELSPACE(FEE_CODE,'all'),''))">
+        <set name="RSPCOD"          value="02038" />
+        <set name="RSPMSG"          value="费率代码不能空,请重新输入" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="queryCodeExist" />
+      </do>
+      <if condition="INTCMP(FeeCount,3,1)">
+        <set name="RSPCOD"          value="02039" />
+        <set name="RSPMSG"          value="该费率代码已经存在,请重新输入" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <!--校验用户输入信息-->
+      <quote name="CheckFeeInfo" />
+      <!--插入费率表信息-->
+      <!--转换金额-->
+      <set name="Z_MAX_FEE"          expr="AMTPOWER(REPALLSTR(MAX_FEE,',',''),2)" />
+      <set name="Z_MIN_FEE"          expr="AMTPOWER(REPALLSTR(MIN_FEE,',',''),2)" />
+      <set name="Z_START_CAL_AMT"    expr="AMTPOWER(REPALLSTR(START_CAL_AMT,',',''),2)" />
+
+      <set name="cal_mode"           expr="CAL_MODE1" />
+      <set name="multi_section_mode" expr="MULTI_SECTION_MODE1" />
+      <set name="max_fee"            expr="Z_MAX_FEE" />
+      <set name="min_fee"            expr="Z_MIN_FEE" />
+      <set name="start_cal_amt"      expr="Z_START_CAL_AMT" />
+      <!-- 复核参数 -->
+      <set name="OperaterId"         expr="SESSIONS.UID" />
+      <!--判断相应费率项是否选中相应费率档次-->
+      <if condition="AND(IS_EQUAL_STRING(CAL_MODE1,'0'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'0'))">
+        <!--set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT1,',',''),2)" />
+        <set name="FEE_AMT"   expr="AMTPOWER(REPALLSTR(FEE_AMT1,',',''),2)" /-->
+        <set name="MAX_AMT"    expr="MAX_AMT1"/>
+        <set name="FEE_AMT"    expr="FEE_AMT1"/>
+        <set name="FEE_RATIO" value="0" />
+        <do func="DataAdd" error="ignore">
+          <para name="TableName" value="FeeSection" />
+          <para name="Method"    value="Insert" />
+          <para name="Columns"   value="*" />
+        </do>
+        <if condition="#RetCod == 1">
+          <set name="RSPCOD"            value="02038" />
+          <set name="RSPMSG"            value="新增费率复核成功!" />
+          <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+          <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+          <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+          <return />
+        </if>
+        <elseif condition="#RetCod !=0">
+          <do func="RollBackWork" />
+          <set name="RSPCOD"            value="02038" />
+          <set name="RSPMSG"            value="新增费率档次失败!" />
+          <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE" />
+          <set name="DWZ_CALLBACK_TYPE" value="forward" />
+          <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+          <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+          <return />
+        </elseif>
+        <else>
+          <set name="RSPCOD"            value="00000" />
+          <set name="RSPMSG"            value="新增费率成功!" />
+          <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+          <set name="DWZ_CALLBACK_TYPE" value="forward" />
+          <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+          <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+        </else>
+      </if>
+      <!--计费方式: 按比例收费 分档方法:不套档-->
+      <elseif condition="AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'0'))">
+        <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT2,',',''),2)" />
+        <set name="FEE_AMT"   value="0" />
+        <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO2,',',''),2)" />
+       
+        <do func="DataAdd" error="ignore">
+          <para name="TableName" value="FeeSection" />
+          <para name="Method"    value="Insert" />
+          <para name="Columns"   value="*" />
+        </do>
+        <if condition="#RetCod == 1">
+          <set name="RSPCOD"            value="02038" />
+          <set name="RSPMSG"            value="新增费率复核成功!" />
+          <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+          <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+          <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+          <return />
+        </if>
+        <if condition="#RetCod !=0">
+          <do func="RollBackWork" />
+          <set name="RSPCOD" value="02038" />
+          <set name="RSPMSG" value="新增费率档次失败!" />
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+          <set name="DWZ_CALLBACK_TYPE" value="forward" />
+          <set name="DWZ_FORWARD_URL" value="412060.stp" />
+          <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+          <return />
+        </if>
+        <else>
+          <set name="RSPCOD" value="00000" />
+          <set name="RSPMSG" value="新增费率成功!" />
+          <set name="DWZ_STATUS_CODE" expr="DWZ_SUCCESS_CODE" />
+          <set name="DWZ_CALLBACK_TYPE" value="forward" />
+          <set name="DWZ_FORWARD_URL" value="412060.stp" />
+          <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+        </else>
+      </elseif>
+      <!--计费方式: 按比例收费 分档方法:套档或分段累计-->
+      <elseif condition="OR(AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'1')),AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'2')))">
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT3,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO3,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO3,',',''),2),1,10000))">
+          <set name="MAX_AMT" expr="AMTPOWER(REPALLSTR(MAX_AMT3,',',''),2)" />
+          <set name="FEE_AMT" value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO3,',',''),2)" />
+          <!-- 如果后一个档次计费量上限为0，则此为最后一个 -->
+          <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT4,',',''),2),2,0)">
+            <set name="MAX_AMT" value="9999999999999" />
+          </if>
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT4,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO4,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO4,',',''),2),1,10000))">
+          <set name="MAX_AMT" expr="AMTPOWER(REPALLSTR(MAX_AMT4,',',''),2)" />
+          <set name="FEE_AMT" value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO4,',',''),2)" />
+          <!-- 如果后一个档次计费量上限为0，则此为最后一个 -->
+          <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT5,',',''),2),2,0)">
+            <set name="MAX_AMT" value="9999999999999" />
+          </if>
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT5,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO5,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO5,',',''),2),1,10000))">
+          <set name="MAX_AMT" expr="AMTPOWER(REPALLSTR(MAX_AMT5,',',''),2)" />
+          <set name="FEE_AMT" value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO5,',',''),2)" />
+          <!-- 如果后一个档次计费量上限为0，则此为最后一个 -->
+          <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT6,',',''),2),2,0)">
+            <set name="MAX_AMT" value="9999999999999" />
+          </if>
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT6,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO6,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO6,',',''),2),1,10000))">
+          <set name="MAX_AMT" expr="AMTPOWER(REPALLSTR(MAX_AMT6,',',''),2)" />
+          <set name="FEE_AMT" value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO6,',',''),2)" />
+          <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT7,',',''),2),2,0)">
+            <set name="MAX_AMT" value="9999999999999" />
+          </if>
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT7,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO7,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO7,',',''),2),1,10000))">
+          <set name="MAX_AMT" expr="AMTPOWER(REPALLSTR(MAX_AMT7,',',''),2)" />
+          <set name="FEE_AMT" value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO7,',',''),2)" />
+          <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT8,',',''),2),2,0)">
+            <set name="MAX_AMT" value="9999999999999" />
+          </if>
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT8,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO8,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO8,',',''),2),1,10000))">
+          <set name="MAX_AMT" expr="AMTPOWER(REPALLSTR(MAX_AMT8,',',''),2)" />
+          <set name="FEE_AMT" value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO8,',',''),2)" />
+          <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT9,',',''),2),2,0)">
+            <set name="MAX_AMT" value="9999999999999" />
+          </if>
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT9,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO9,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO9,',',''),2),1,10000))">
+          <set name="MAX_AMT" expr="AMTPOWER(REPALLSTR(MAX_AMT9,',',''),2)" />
+          <set name="FEE_AMT" value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO9,',',''),2)" />
+          <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT10,',',''),2),2,0)">
+            <set name="MAX_AMT" value="9999999999999" />
+          </if>
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(DOUBLECMP(AMTPOWER(REPALLSTR(MAX_AMT10,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO10,',',''),2),6,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO10,',',''),2),1,10000))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT10,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO10,',',''),2)" />
+          <set name="MAX_AMT"   value="9999999999999" />
+          <do func="DataEntry" error="ignore">
+            <para name="TableName" value="FeeSection" />
+            <para name="Method"    value="Insert" />
+            <para name="Columns"   value="*" />
+          </do>
+          <if condition="#RetCod==1">
+            <set name="RSPCOD"            value="00000" />
+            <set name="RSPMSG"            value="复核提交成功!" />
+            <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+            <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+            <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+            <return />
+          </if>
+          <elseif condition="#RetCod ==3">
+            <do func="RollBackWork" />
+            <set name="RSPCOD" value="02038" />
+            <set name="RSPMSG" value="该数据已提交复核,不可重复提交!" />
+            <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE" />
+            <set name="DWZ_CALLBACK_TYPE" value="forward" />
+            <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+            <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+            <return />
+          </elseif>
+          <elseif condition="#RetCod !=0">
+            <do func="RollBackWork" />
+            <set name="RSPCOD" value="02038" />
+            <set name="RSPMSG" value="新增费率档次失败!" />
+            <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE" />
+            <set name="DWZ_CALLBACK_TYPE" value="forward" />
+            <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+            <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+            <return />
+          </elseif>
+        </if>
+      </elseif>
+      <do func="DataEntry" error="ignore">
+        <para name="TableName" value="FeeRate" />
+        <para name="Method"    value="Insert" />
+        <para name="Columns"   value="*" />
+      </do>
+      <if condition="#RetCod==1">
+        <set name="RSPCOD" value="00000" />
+        <set name="RSPMSG" value="新增费率信息复核成功!" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_SUCCESS_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+        <return />
+      </if>
+      <elseif condition="#RetCod ==3">
+        <do func="RollBackWork" />
+        <set name="RSPCOD" value="02038" />
+        <set name="RSPMSG" value="该数据已提交复核,不可重复提交!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+        <return />
+      </elseif>
+      <elseif condition="#RetCod !=0">
+        <do func="RollBackWork" />
+        <set name="RSPCOD" value="02038" />
+        <set name="RSPMSG" value="新增费率信息失败!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+        <return />
+      </elseif>
+      <!--验证最终插入的费率档次数量是否达到要求-->
+      <!--
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="queryFeeSectionExist"/>
+       </do>
+       <if condition="INTCMP(seqCount,2,0)">
+         <do func="RollBackWork"/>
+         <set name="RSPCOD" value="02039"/>
+         <set name="RSPMSG" value="请正确输入费率档次信息,谢谢!"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         <return/>
+       </if>
+       <else>
+       -->
+      <set name="RSPCOD" value="00000" />
+      <set name="RSPMSG" value="新增费率成功!" />
+      <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+      <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+      <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+    </process>
+  </transaction>
+  
+  <transaction code="412065" desc="费率维护修改页面">
+    <sql name="queryFeeSections">
+    	select seq_no , fee_code,TO_CHAR(to_number(max_amt)/100,'FM9999999999990.00') as max_amt,
+    	TO_CHAR(to_number(fee_amt)/100,'FM9999999999990.00') as fee_amt,
+    	TO_CHAR(to_number(fee_ratio)/100,'FM9999999999990.00') as fee_ratio 
+    	from FeeSection 
+    	where fee_code=#{FEE_CODE}
+    </sql>
+    <sql name="queryFeeRate">
+    	select fee_name,ccy,cal_mode,multi_section_mode, 
+    	TO_CHAR(to_number(max_fee)/100,'FM9999999999990.00') as max_fee,
+    	TO_CHAR(to_number(min_fee)/100,'FM9999999999990.00') as min_fee,
+    	TO_CHAR(to_number(start_cal_amt)/100,'FM9999999999990.00') as start_cal_amt 
+    	from FeeRate 
+    	where fee_code=#{FEE_CODE}
+    </sql>
+    <process>
+      <set name="FEE_CODE" expr="FEE_CODE" />
+      <if condition="OR(ISNULL(DELSPACE(FEE_CODE,'all')),ISNULL(DELSPACE(FEE_CODE,'all')))">
+        <set name="RSPCOD"          value="02038" />
+        <set name="RSPMSG"          value="获取费率信息失败!" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <!--查询业务类型大类集合-->
+      <do func="QueryInGroup" error="IGNORE">
+        <para name="SqlCmd"     sql="queryFeeSections" />
+        <para name="RecordName" value="BIZ_LST" />
+      </do>
+      <if condition="#RetCod==-1">
+        <set name="RSPCOD"          value="02038" />
+        <set name="RSPMSG"          value="查询费率信息失败,暂不能修改费率信息" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <!--查询基本信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="queryFeeRate" />
+      </do>
+      <if condition="#RetCod!=0">
+        <if condition="#RetCod==2">
+          <set name="RSPCOD"          value="02038" />
+          <set name="RSPMSG"          value="该费率信息为空,修改失败!" />
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+          <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+          <return />
+        </if>
+        <else>
+          <set name="RSPCOD"          value="02038" />
+          <set name="RSPMSG"          value="获取费率信息失败!" />
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+          <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+          <return />
+        </else>
+      </if>
+      <else>
+        <!--针对有问题数据做处理-->
+        <if condition="OR(ISNULL(CAL_MODE),IS_EQUAL_STRING(DELSPACE(CAL_MODE,'all'),''))">
+          <set name="CAL_MODE" value="-1" />
+        </if>
+        <if condition="OR(ISNULL(MULTI_SECTION_MODE),IS_EQUAL_STRING(DELSPACE(MULTI_SECTION_MODE,'all'),''))">
+          <set name="MULTI_SECTION_MODE" value="-1" />
+        </if>
+        <set name="RSPCOD"                  value="00000" />
+        <set name="RSPMSG"                  value="成功获取费率信息" />
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/fee/up_ratez.jsp" />
+        <return />
+      </else>
+    </process>
+  </transaction>
+  
+  <transaction code="412066" desc="费率维护修改">
+    <sql name="deleteFeeSection">
+    	delete from FeeSection where fee_code=#{FEE_CODE}
+    </sql>
+    <sql name="updateFeeRate">
+    	update FeeRate set fee_name=#{FEE_NAME},ccy=#{CCY},cal_mode=#{CAL_MODE1},multi_section_mode=#{MULTI_SECTION_MODE1},max_fee=#{Z_MAX_FEE},min_fee=#{Z_MIN_FEE},start_cal_amt=#{Z_START_CAL_AMT} 
+    	where fee_code=#{FEE_CODE}
+    </sql>
+    <sql name="insertFeeSection">
+    	insert into FeeSection(fee_code,max_amt,fee_amt,fee_ratio) values (#{FEE_CODE},#{MAX_AMT},#{FEE_AMT},#{FEE_RATIO})
+    </sql>
+    <process>
+      <!--校验用户输入信息-->
+      <quote name="CheckFeeInfo" />
+      <!--转换金额-->
+      <set name="MAX_FEE"         expr="REPALLSTR(MAX_FEE,',','')" />
+      <set name="Z_MAX_FEE"       expr="AMTPOWER(REPALLSTR(MAX_FEE,',',''),2)" />
+      <set name="Z_MIN_FEE"       expr="AMTPOWER(REPALLSTR(MIN_FEE,',',''),2)" />
+      <set name="Z_START_CAL_AMT" expr="AMTPOWER(REPALLSTR(START_CAL_AMT,',',''),2)" />
+      <set name="OperaterId"      expr="SESSIONS.UID" />
+      <!-- DataEntry使用 -->
+      <!--删除该费率原来档次记录-->
+      <!--
+      <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="deleteFeeSection"/>
+      </do>
+      -->
+      <do func="DataAdd" error="ignore">
+        <para name="TableName" value="FeeSection" />
+        <para name="Method"    value="Delete" />
+        <para name="Columns"   value="*" />
+        <para name="Keys"      value="FEE_CODE" />
+      </do>
+      <if condition="#RetCod != 0">
+        <do func="RollBackWork" />
+        <set name="RSPCOD"            value="02038" />
+        <set name="RSPMSG"            value="删除费率原档次信息失败!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+        <return />
+      </if>
+      <!--判断相应费率项是否选中相应费率档次-->
+      <if condition="AND(IS_EQUAL_STRING(CAL_MODE1,'0'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'0'))">
+        <!--set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT1,',',''),2)"/>
+        <set name="FEE_AMT"   expr="AMTPOWER(REPALLSTR(FEE_AMT1,',',''),2)"/-->
+        <set name="MAX_AMT"   expr="MAX_AMT1" />
+        <set name="FEE_AMT"   expr="FEE_AMT1" />
+        <set name="FEE_RATIO" value="0" />
+        <!--do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="insertFeeSection"/>
+        </do>
+        <if condition="#RetCod !=0">
+           <do func="RollBackWork"/>
+           <set name="RSPCOD" value="02038"/>
+           <set name="RSPMSG" value="新增费率档次失败!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_CALLBACK_TYPE" value="forward"/>
+           <set name="DWZ_FORWARD_URL"   value="412060.stp"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+         </if>
+         <else>
+           <set name="RSPCOD" value="00000"/>
+           <set name="RSPMSG" value="新增费率成功!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_SUCCESS_CODE"/>
+           <set name="DWZ_CALLBACK_TYPE" value="forward"/>
+           <set name="DWZ_FORWARD_URL"   value="412060.stp"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         </else-->
+        <quote name="getAddFeeSec" />
+      </if>
+      <!--计费方式: 按比例收费 分档方法:不套档-->
+      <elseif condition="AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'0'))">
+        <set name="MAX_AMT"    expr="AMTPOWER(REPALLSTR(MAX_AMT2,',',''),2)" />
+        <set name="FEE_AMT"    value="0" />
+        <set name="FEE_RATIO"  expr="AMTPOWER(REPALLSTR(FEE_RATIO2,',',''),2)" />
+        <quote name="getAddFeeSec" />
+      </elseif>
+      <!--计费方式: 按比例收费 分档方法:套档或分段累计-->
+      <elseif condition="OR(AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'1')),AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'2')))">
+        <if condition="AND(NOT(ISNULL(MAX_AMT3)),NOT(ISNULL(FEE_RATIO3)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT3,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO3,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(NOT(ISNULL(MAX_AMT4)),NOT(ISNULL(FEE_RATIO4)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT4,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO4,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(NOT(ISNULL(MAX_AMT5)),NOT(ISNULL(FEE_RATIO5)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT5,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO5,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(NOT(ISNULL(MAX_AMT6)),NOT(ISNULL(FEE_RATIO6)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT6,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO6,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(NOT(ISNULL(MAX_AMT7)),NOT(ISNULL(FEE_RATIO7)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT7,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO7,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(NOT(ISNULL(MAX_AMT8)),NOT(ISNULL(FEE_RATIO8)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT8,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO8,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(NOT(ISNULL(MAX_AMT9)),NOT(ISNULL(FEE_RATIO9)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT9,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO9,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <if condition="AND(NOT(ISNULL(MAX_AMT10)),NOT(ISNULL(FEE_RATIO10)))">
+          <set name="MAX_AMT"   expr="AMTPOWER(REPALLSTR(MAX_AMT10,',',''),2)" />
+          <set name="FEE_AMT"   value="0" />
+          <set name="FEE_RATIO" expr="AMTPOWER(REPALLSTR(FEE_RATIO10,',',''),2)" />
+          <quote name="getAddFeeSec" />
+        </if>
+        <set name="RSPCOD"            value="00000" />
+        <set name="RSPMSG"            value="修改费率成功!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+      </elseif>
+      <else>
+        <set name="RSPCOD"          value="02051" />
+        <set name="RSPMSG"          value="请正确选择一种费率模式,谢谢！" />
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </else>
+      <set name="fee_name"           expr="FEE_NAME" />
+      <set name="ccy"                expr="CCY" />
+      <set name="cal_mode"           expr="CAL_MODE1" />
+      <set name="multi_section_mode" expr="MULTI_SECTION_MODE1" />
+      <set name="max_fee"            expr="Z_MAX_FEE" />
+      <set name="min_fee"            expr="Z_MIN_FEE" />
+      <set name="start_cal_amt"      expr="Z_START_CAL_AMT" />
+      <do func="DataEntry" error="ignore">
+        <para name="TableName" value="FeeRate" />
+        <para name="Method"    value="Update" />
+        <para name="Columns"   value="*" />
+        <para name="Keys"      value="FEE_CODE" />
+      </do>
+      <if condition="#RetCod ==1">
+        <set name="RSPCOD"            value="00000" />
+        <set name="RSPMSG"            value="修改费率复核提交成功!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+        <return />
+      </if>
+      <elseif condition="#RetCod ==-3">
+        <set name="RSPCOD"             value="02038" />
+        <set name="RSPMSG"             value="该数据已提交复核!" />
+        <set name="DWZ_STATUS_CODE"    expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_CALLBACK_TYPE"  value="forward" />
+        <set name="DWZ_FORWARD_URL"    value="412060.stp" />
+        <set name="DWZ_RSP_MSG"        expr="RSPMSG" />
+        <return />
+      </elseif>
+      <elseif condition="#RetCod !=0">
+        <do func="RollBackWork" />
+        <set name="RSPCOD"            value="02038" />
+        <set name="RSPMSG"            value="修改费率信息失败!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+        <return />
+      </elseif>
+      <else>
+        <set name="RSPCOD"            value="00000" />
+        <set name="RSPMSG"            value="修改费率成功!" />
+        <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE" />
+        <set name="DWZ_CALLBACK_TYPE" value="forward" />
+        <set name="DWZ_FORWARD_URL"   value="412060.stp" />
+        <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+      </else>
+    </process>
+  </transaction>
+
+</application>

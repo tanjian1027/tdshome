@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <!-- 检测密码次数 -->
+    <config name="G_COMMParams">
+        <!-- 每页显示数据条数 -->
+        <G_NUMPERPAGE>19</G_NUMPERPAGE>
+        <!-- 显示可点击的页数 -->
+        <G_PAGENUMSHOWN>5</G_PAGENUMSHOWN>
+        <!-- 下载路径 -->
+        <G_FORWARDPATH>dat/download/</G_FORWARDPATH>
+        <!-- FTP用的Resin路径 -->
+        <G_APPLYNAME>/home/payment/apache-tomcat-7.0.64/webapps/pay/dat/download/</G_APPLYNAME>
+    </config>
+    <!-- 邮件发送配置 -->
+    <config name="G_SendEmail">
+        <G_EMFROM>zf@0256.cn</G_EMFROM>
+        <G_EMUSERNAME>商物通</G_EMUSERNAME>
+        <G_EMUSER>zf@0256.cn</G_EMUSER>
+        <G_EMPWD>linan@2015</G_EMPWD>
+        <G_EMSMTP>smtp.0256.cn</G_EMSMTP>
+    </config>
+    <!-- 检测密码次数 -->
+    <config name="G_CheckPwd">
+        <!-- 错误次数 -->
+        <G_ERRORCOUNT>5</G_ERRORCOUNT>
+        <!-- 锁定分钟数 -->
+        <G_LOCK_MIN>120</G_LOCK_MIN>
+    </config>
+    <!--后台管理系统-报表导出上传配置信息-->
+    <config name="RcsPutPay">
+      <IpAdr>127.0.0.1</IpAdr>
+      <Port>21</Port>
+      <UsrNam>hkrtftp</UsrNam>
+      <UsrPwd>!Zh1fut0n9&gt;987</UsrPwd>
+      <ObjDir>pay/dat/download/</ObjDir>
+      <LclDir>dat/download/</LclDir>
+    </config> 
+    
+     <config name="RcsGetPay">
+      <IpAdr>127.0.0.1</IpAdr>
+      <Port>21</Port>
+      <UsrNam>hkrtftp</UsrNam>
+      <UsrPwd>!Zh1fut0n9&gt;987</UsrPwd>
+      <ObjDir>pay/dat/upload/</ObjDir>
+      <LclDir>dat/</LclDir>
+    </config> 
+</root>

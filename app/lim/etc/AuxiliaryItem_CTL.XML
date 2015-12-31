@@ -1,0 +1,750 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<application name="CTHDMNG2" code="100" log_level="1">
+   
+   <before>
+   	 	<set name="UrlConfig"         value="UrlConfig"/>
+      <quote name="ReadXmlCfg"/>
+      <set name="DWZ_ERROR_CODE"    value="300"/>
+      <set name="DWZ_SUCCESS_CODE"  value="200"/>
+      <set name="DWZ_TIME_OUT_CODE" value="301"/>
+      <do func="DumpMsg"/>
+   </before>
+   <after>
+      <do func="DumpMsg"/>
+   </after>
+
+   <!--读取XML配置-->
+   <macro name="ReadXmlCfg">
+     <!-- 读取XML配置文件中的数据，添加到ETF树上 -->
+     <!--0 成功; -1参数错误;2 取XML配置父节点失败 -->
+     <do func="ReadXmlConfig" error="IGNORE">
+       <para name="FILNAM"     value="etc/LIM_CONFIG.XML"/>
+       <para name="NAME"       expr="UrlConfig"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"    value="08020"></set>
+       <set name="RspMsg"    value="参数错误"></set>
+       <return/>
+     </if>
+     <elseif condition="#RetCod==2">
+       <set name="RspCod"    value="08021"></set>
+       <set name="RspMsg"    value="取XML配置父节点失败"></set>
+       <return/>
+     </elseif>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09998"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <return/>
+     </elseif>
+   </macro>
+ 
+   <transaction code="568031"  desc="内部系统用户权限查询接口">
+      <sql name="queryStatus"><!--查询用户是否是内部系统用户且已经登录-->
+         select count(user_id) as status from limuseinf where user_id=#{user_id} and random=#{random} and account=#{innAccount}
+      </sql>
+      <sql name="queryUserInf"><!--查询用户信息-->
+         select user_nam from limuseinf where user_id=#{user_id} and account=#{innAccount}
+      </sql>
+      <sql name="queryRoleInf"><!--查询用户对应角色ID和角色名称-->
+         select  role_id, role_nam from limrolinf where account=#{innAccount} and role_id=(select role_id from limrurele where user_id=#{user_id} and account=#{innAccount})
+      </sql>
+      <sql name="querySysInf"><!--查询系统基本信息-->
+         select a.sys_state, a.sys_rootid,b.menu_url as denglu_url from limsysinf a,limmeninf b  where a.sys_id=b.sys_id and b.menu_par_id='00' and a.sys_id=#{systemId}
+      </sql>
+      <sql name="queryExitMenu"><!--查询还用户有在将访问的系统中有无足够的权限 子权限数量必须大于1-->
+         select count(d.menu_id) as exitMenu from limmeninf d where d.menu_id in 
+         (select distinct b.menu_id from limumrele a,limrmrele b where a.account=b.account and a.menu_id=b.menu_id and user_id=#{user_id} and a.account=#{innAccount}
+         and b.role_id=(select role_id from limrurele where account=#{innAccount} and user_id=#{user_id})) and d.menu_par_id!='00'
+      </sql>
+      <sql name="queryUserMainQx"><!--查询登录用户在此系统中权限集合-->
+         select d.menu_id, d.menu_par_id, d.menu_nam, d.menu_url, d.menu_state, d.node_type from limmeninf d where d.menu_id in
+         (select distinct b.menu_id from limumrele a,limrmrele b where a.account=b.account and a.menu_id=b.menu_id and user_id=#{user_id} and a.account=#{innAccount}
+         and b.role_id=(select role_id from limrurele where account=#{innAccount} and user_id=#{user_id}))  and d.menu_state='1' order by  d.menu_id asc
+      </sql>
+      <sql name="queryWwQx"><!--查询外围系统的主权限 必须是内部系统 可用状态  有权限的-->
+          select a.menu_id,a.menu_par_id,a.menu_nam,a.node_type,b.sys_id, b.sys_state, b.sys_url 
+            from limsysinf b ,limmeninf a 
+           where a.sys_id=b.sys_id and  a.menu_id in (select distinct b.menu_id from limumrele a,limrmrele b where a.account=b.account and a.menu_id=b.menu_id 
+                 and user_id=#{user_id} and a.account=#{innAccount} and b.role_id=(select role_id from limrurele where account=#{innAccount} 
+                 and user_id=#{user_id})) and a.menu_par_id='00' and b.sys_type=#{innSysId} and b.sys_id !=#{systemId} and b.sys_state='1' 
+           order by b.sys_id asc
+      </sql>
+      <sql name="queryMorenQx">
+         select d.menu_id, d.menu_par_id, d.menu_nam, d.menu_url, d.menu_state, d.node_type from limmeninf d where d.menu_id in ( ${inter_lims} )
+      </sql>
+      <sql name="queryWwMorenQx">
+         select a.menu_id,a.menu_par_id,a.menu_nam,a.node_type,b.sys_id, b.sys_state, b.sys_url 
+           from limsysinf b ,limmeninf a 
+          where a.sys_id=b.sys_id and b.sys_id='999999'
+      </sql>
+      <process>
+        <set name="systemId" expr="sys_id"/><!--以免被数据库查询出来的值覆盖-->
+        <if condition="OR(ISNULL(systemId),ISNULL(random),ISNULL(user_id))">
+           <set name="RSPCOD" value="02032"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="接收报文不完整,请确认后在发送!"/>
+           <set name="outUrl" expr="initLogUrl"/>  
+           <return/>
+        </if>
+        <if condition="OR(ISNULL(DELBOTHSPACE(STALESIGN)),IS_EQUAL_STRING('',DELBOTHSPACE(STALESIGN)))">
+         <set name="STALESIGN"    value="0"/><!--0：正常 1:过期-->
+        </if>
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="queryStatus"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <if condition="#RetCod==-1">
+               <set name="RSPCOD" value="02032"/>
+               <set name="status" value="0"/>
+               <set name="RSPMSG" value="系统错误,查询数据库失败"/>
+               <set name="outUrl" expr="initLogUrl"/>
+            </if>
+            <else>
+               <set name="RSPCOD" value="02033"/>
+               <set name="status" value="0"/>
+               <set name="RSPMSG" value="验证用户记录为空,登录失败!"/>
+               <set name="outUrl" expr="initLogUrl"/>
+            </else>
+            <return/>
+         </if>
+         <else>
+            <!--登录状态中-->
+            <if condition="IS_EQUAL_INT(status,1)">
+            	 <!--查询用户信息-->
+               <do func="ReadRecord" error="IGNORE">
+                   <para name="SqlCmd" sql="queryUserInf"/>
+               </do>
+               <if condition="#RetCod==0"> 
+                  <do func="ReadRecord" error="IGNORE">
+                     <para name="SqlCmd" sql="queryRoleInf"/>
+                  </do>
+                  <!--对应角色信息正常-->
+                  <if condition="#RetCod==0">
+                     <!--查询系统信息 包括系统状态,路径和根节点-->
+                     <do func="ReadRecord" error="IGNORE">
+                       <para name="SqlCmd" sql="querySysInf"/>
+                     </do>
+                     <if condition="#RetCod!=0">
+                       <set name="RSPCOD" value="02037"/>
+                       <set name="status" value="0"/>
+                       <set name="RSPMSG" value="获取系统信息失败,访问失败!"/>
+                       <set name="outUrl" expr="initLogUrl"/>
+                       <return/>
+                     </if>        
+                     <if condition="OR(ISNULL(sys_state),ISNULL(sys_rootid),ISNULL(denglu_url))">
+                       <set name="RSPCOD" value="02038"/>
+                       <set name="status" value="0"/>
+                       <set name="RSPMSG" value="获取系统信息不完整,访问失败!"/>
+                       <set name="outUrl" expr="initLogUrl"/>
+                       <return/>
+                     </if>
+                     <if condition="INTCMP(sys_state,4,1)">
+                       <set name="RSPCOD" value="02039"/>
+                       <set name="status" value="0"/>
+                       <set name="RSPMSG" value="对不起,您访问的系统暂时处于禁用状态,不能访问!"/>
+                       <set name="outUrl" expr="initLogUrl"/>
+                       <return/>
+                     </if>
+                     <!--查询用户在所访问系统有无权限 菜单总数必须大于1 等于1无意义 等于1时默认为权限不足-->
+                     <do func="ReadRecord" error="IGNORE">
+                        <para name="SqlCmd" sql="queryExitMenu"/>
+                     </do>
+                     <if condition="INTCMP(exitMenu,6,1)">
+                    	 <if condition="INTCMP(STALESIGN,3,1)">
+                         <!--只查询指定权限 且系统信息不查-->
+                         <set name="inter_lims"  expr="interLimits"/>
+                         <do func="QueryInGroup" error="IGNORE">
+                           <para name="SqlCmd"     sql="queryMorenQx"/>
+                           <para name="RecordName" value="PAG_LST"/>
+                         </do>
+                         <if condition="#RetCod!=-1">
+                           <set name="RSPCOD"   value="00000"/>
+                           <set name="status"   value="1"/>
+                           <set name="PAG_LST"  value=""/>
+                           <set name="outUrl"   expr="outUrl"/>
+                           <set name="RSPMSG"   value="登录成功!"/>
+                           <return/>
+                         </if>
+                         <else>
+                           <set name="RSPCOD"  value="02040"/>
+                           <set name="status"  value="0"/>
+                           <set name="PAG_LST" value=""/>
+                           <set name="RSPMSG"  value="获取用户菜单信息失败,访问失败!"/>
+                           <set name="outUrl"  expr="initLogUrl"/>
+                           <return/>
+                         </else>
+                    	 </if>
+                       <else>
+                        <do func="QueryInGroup" error="IGNORE">
+                           <para name="SqlCmd"     sql="queryUserMainQx"/>
+                           <para name="RecordName" value="PAG_LST"/>
+                        </do>
+                        <do func="QueryInGroup" error="IGNORE">
+                           <para name="SqlCmd" sql="queryWwQx"/>
+                           <para name="RecordName" value="MAN_LST"/>
+                        </do>
+                        <if condition="#RetCod!=-1">
+                           <set name="RSPCOD" value="00000"/>
+                           <set name="status" value="1"/>
+                           <set name="outUrl" expr="outUrl"/>
+                           <set name="RSPMSG" value="登录成功!"/>
+                           <return/>
+                        </if>
+                        <else>
+                          <set name="RSPCOD" value="02040"/>
+                          <set name="status" value="0"/>
+                          <set name="RSPMSG" value="获取用户菜单信息失败,访问失败!"/>
+                          <set name="outUrl" expr="initLogUrl"/>
+                          <return/>
+                        </else>
+                      </else>
+                    </if>
+                    <else>
+                       <set name="RSPCOD" value="02041"/>
+                       <set name="status" value="0"/>
+                       <set name="RSPMSG" value="该用户在该系统访问权限不足!"/>
+                       <set name="outUrl" expr="initLogUrl"/>
+                       <return/>
+                    </else>
+                  </if>
+                  <else>
+                     <set name="RSPCOD" value="02034"/>
+                     <set name="status" value="0"/>
+                     <set name="RSPMSG" value="获取用户对应的角色信息失败!"/>
+                     <set name="outUrl" expr="initLogUrl"/>
+                     <return/>
+                  </else>
+               </if>
+               <else>
+                  <set name="RSPCOD" value="02034"/>
+                  <set name="status" value="0"/>
+                  <set name="RSPMSG" value="获取用户信失败!"/>
+                  <set name="outUrl" expr="initLogUrl"/>
+                  <return/>
+               </else>
+            </if>
+            <else>
+               <set name="RSPCOD" value="02034"/>
+               <set name="status" value="0"/>
+               <set name="RSPMSG" value="登录随机数验证未通过,可能是你登录的用户已在其地点登录!"/>
+               <set name="outUrl" expr="initLogUrl"/>
+               <return/>
+            </else>
+         </else>
+      </process>
+   </transaction>
+
+   <transaction code="568032" desc="外部系统用户创建">
+     <sql name="queryUserExist">
+       select count(user_id) as USERCOUNT from limuseinf where account=#{ACCOUNT} and user_id=#{login_id}
+     </sql>
+     <sql name="queryRoleqx"><!--模板角色权限菜单集合-->
+       select  menu_id from limrmrele where account=#{ROLE_ACCOUNT} and role_id=#{ROLE_ID}
+     </sql>
+     <sql name="insertUserInf"><!--创建用户-->
+       insert into limuseinf (ACCOUNT,USER_ID,USER_NAM,USER_PWD,SYS_ID,CREA_SIGN,RANDOM,USER_DATE,STATE,DESC_INF,EMAIL,PRESET1,LAST_UPPWD_DATE,USER_EXPIRED_TIME) 
+       values (#{ACCOUNT},#{login_id},#{USER_NAM},#{login_pwd},#{OAA_SYS_ID},'0','',#{cuerrTime},'1','','',#{BUSNAME},#{cuerrTime},#{ExpTime})
+     </sql>
+     <sql name="insertWurInf"><!--添加用户角色关联信息-->
+       insert into limwurinf (user_account,role_account,role_id,user_id) values(#{ACCOUNT},#{ROLE_ACCOUNT},#{ROLE_ID},#{login_id})
+     </sql>
+     <sql name="deleteUmele">
+       delete  from limumrele where account=#{ACCOUNT} and user_id=#{login_id}
+     </sql>
+     <sql name="queryRoleInf">
+     	 select account as ROLE_ACCOUNT,ROLE_ID from limrolinf where sys_id=#{OAA_SYS_ID}
+     </sql>
+     <process>
+        <!--防止创建人的ID和被创建人的用户ID重复-->
+        <set name="YUN_USER_ID" expr="USER_ID"/>
+        <if condition="OR(ISNULL(SYS_ID),ISNULL(ACCOUNT),ISNULL(YUN_USER_ID),ISNULL(USER_NAM),ISNULL(BUSNAME))">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="发送报文不完整!"/>
+          <return/>
+        </if>
+        <!--终端代理商开户-->
+        <if condition="IS_EQUAL_STRING(SYS_ID,'1110')">
+           <set name="OAA_SYS_ID" value="2203"/>             <!--终端代理(渠道)商系统ID-->
+           <set name="ExpTime"    expr="proxyExpTime"/>     <!--终端代理(渠道)商-用户密码有效期-->
+        </if>
+        <!--业务代理商开户-->
+        <elseif condition="IS_EQUAL_STRING(SYS_ID,'2202')">
+           <set name="OAA_SYS_ID" value="2202"/>            <!--企业会员系统-->
+           <set name="ExpTime"    expr="defaultExpTime"/>   <!--企业会员系统-用户-->
+        </elseif>
+        <!--商户开户-->
+        <elseif condition="IS_EQUAL_STRING(SYS_ID,'1120')">
+           <set name="OAA_SYS_ID" value="2201"/>             <!--商户系统ID-->
+           <set name="ExpTime"    expr="merchantExpTime"/>  <!--商户-用户密码有效期-->
+        </elseif>
+        <!--开户人身份不明确-->
+        <else>
+           <set name="status"     value="0"/>
+           <set name="RSPMSG"     value="开户人所发目标不明确,不能开户!"/>
+           <return/>
+        </else>
+
+        <if condition="IS_NOEQUAL_STRING(YUN_USER_ID,'mersysweb')">
+           <!--登录名默认为admin 密码为 td888888 在配置文件中配置-->
+           <set name="UrlConfig"    value="passwdper"/>
+           <quote name="ReadXmlCfg"/>
+           <set name="login_id"      value="admin"/>
+           <set name="login_pwd"     expr="MD5STR(merpasswd)"/>
+        </if>
+        <else>
+           <!--登录名为前台商户设置-->
+           <set name="login_id"      expr="merlogin_id"/>
+           <set name="login_pwd"     expr="merlogin_pwd"/>
+        </else>
+        <!--验证账户下有没有该用户-->
+        <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="queryUserExist"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <set name="status"     value="0"/>
+           <set name="RSPMSG"     value="验证该账户下是否存在该用户失败!"/>
+           <return/>
+        </if>
+        <if condition="INTCMP(USERCOUNT,4,0)">
+           <set name="status"     value="0"/>
+           <set name="RSPMSG"     value="该已经为该账户开户过,不能再开户!"/>
+           <return/>
+        </if>
+        <!--查询初始角色账户号与角色ID-->
+        <do func="ReadRecord" error="IGNORE">
+          <para name="SqlCmd" sql="queryRoleInf"/>
+        </do>
+        <if condition="#RetCod!=0">
+        	 <if condition="#RetCod==2">
+        	    <set name="status"  value="0"/>
+              <set name="RSPMSG"  value="获取角色账号为空!"/>
+              <return/>
+        	 </if>
+        	 <else>
+        	 	  <set name="status"  value="0"/>
+              <set name="RSPMSG"  value="获取角色信息失败!"/>
+              <return/>
+        	 </else>
+        </if>
+        <else>
+        	 <set name="hint"         value="查询角色信息成功"/>
+           <set name="ROLE_ACCOUNT" expr="ROLE_ACCOUNT"/>
+           <set name="ROLE_ID"      expr="ROLE_ID"/>
+        </else>
+        
+        <!--查询初始角色权限-->
+        <do func="QueryInGroup" error="IGNORE">
+           <para name="SqlCmd"      sql="queryRoleqx"/>
+           <para name="RecordName"  value="ROLEQX_LST"/>
+        </do>
+        <if condition="#RetCod==-1">
+        	<do func="RollBackWork"/>
+          <set name="status"        value="0"/>
+          <set name="RSPMSG"        value="获取角色权限操作数据有误!"/>
+          <return/>
+        </if>
+        <!--创建用户-->
+        <set name="USER_ID"   expr="login_id"/>
+        <set name="cuerrTime" expr="GETDATETIME()"/>
+        <do func="ExecSql" error="IGNORE">
+           <para name="SqlCmd" sql="insertUserInf"/>
+        </do>
+        <if condition="#RetCod!=0">
+        	 <do func="RollBackWork"/>
+           <set name="status"       value="0"/>
+           <set name="RSPMSG"       value="录入用户信息时,系统操作失败!"/>
+           <return/>
+        </if>
+        <delete name="login_pwd"/> <!--删除用户密码-->
+        <!--用户角色关联-->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="insertWurInf"/>
+        </do>
+        <if condition="#RetCod!=0">
+        	 <do func="RollBackWork"/>
+           <set name="status"       value="0"/>
+           <set name="RSPMSG"       value="用户关联角色失败,数据回滚!"/>
+           <return/>
+        </if>
+        <!--删除原用户-权限关联信息-->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd"       sql="deleteUmele"/>
+        </do>
+        <if condition="#RetCod==-1">
+        	 <do func="RollBackWork"/>
+           <set name="status"       value="0"/>
+           <set name="RSPMSG"       value="清理残留信息失败,数据回滚"/>
+           <return/>
+        </if>
+        <!--为新建用户赋权-->
+        <foreach name="ROLEQX_LST" iterator="#tmp">
+           <set name="MENU_ID"      expr="#tmp.MENU_ID"/>
+           <do func="InsertRecord">
+             <para name="TblNam"    value="limumrele"/>
+           </do>
+        </foreach>
+        <if condition="#RetCod!=-1">
+        	 <set name="sys_id"       expr="OAA_SYS_ID"/> <!--被创建者用户所属系统ID-->
+           <set name="status"       value="1"/>
+           <set name="RSPMSG"       value="创建用户成功!"/>
+           <return/>
+        </if>
+        <else>
+        	 <do func="RollBackWork"/>
+           <set name="status"       value="0"/>
+           <set name="RSPMSG"       value="为创建用户赋权时,操作数据库有误,创建用户失败!"/>
+           <return/>
+        </else>
+     </process>
+   </transaction>
+   
+   <transaction code="568038"  desc="内部系统用户退出接口">
+     <sql name="queryUserLoginYN">
+       select count(user_id) as userLogin from limuseinf where account=#{innAccount} and user_id=#{LOGIN_ID} and random=#{RANDOM}
+     </sql>
+     <sql name="updateUserLogin">
+       update  limuseinf set random='' where account=#{innAccount} and user_id=#{LOGIN_ID}
+     </sql>
+     <process>
+       <if condition="ISNULL(innAccount)">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="内部系统获取头不信息失败!"/>
+          <set name="outUrl" expr="initLogUrl"/>
+          <return/>
+       </if>
+       <if condition="OR(ISNULL(LOGIN_ID),ISNULL(RANDOM))">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="接收发送报文不符合要求,退出失败!"/>
+          <set name="outUrl" expr="initLogUrl"/>
+          <return/>
+       </if>
+       <!--验证用户是否还在登录状态-->
+       <do func="ReadRecord" error="IGNORE">
+       	  <para name="SqlCmd" sql="queryUserLoginYN"/>
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="校验用户登录操作数据库失败!"/>
+          <set name="outUrl" expr="initLogUrl"/>
+          <return/>
+       </if>
+       <if condition="INTCMP(userLogin,4,1)">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="随机数校验未通过,退出失败!"/>
+          <set name="outUrl" expr="initLogUrl"/>
+       </if>
+       <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="updateUserLogin"/>
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="系统异常,退出失败!"/>
+          <set name="outUrl" expr="initLogUrl"/>
+          <return/>
+       </if>
+       <else>
+         <set name="status" value="1"/>
+         <set name="RSPMSG" value="成功退出"/>
+         <set name="outUrl" expr="outUrl"/>
+         <return/>
+       </else>
+     </process>
+   </transaction>
+   
+   <transaction code="568039" desc="外部系统权限查询接口">
+      <sql name="querySysInf"><!--查询系统基本信息-->
+        select a.sys_state, a.sys_rootid,b.menu_url as denglu_url from limsysinf a,limmeninf b  where a.sys_id=b.sys_id and b.menu_par_id='00' and a.sys_id=#{SYS_ID}
+      </sql>
+      <sql name="queryUserMainQx"><!--查询登录用户在此系统中权限集合-->
+        select d.menu_id, d.menu_par_id, d.menu_nam, d.menu_url, d.menu_state, d.node_type from limmeninf d where d.menu_id in
+        (select distinct a.menu_id from limumrele a,limrmrele b where a.menu_id=b.menu_id and a.account=#{ACCOUNT} and a.user_id=#{USER_ID} and b.account=#{ROLE_ACCOUNT} and b.role_id=#{ROLE_ID}) and d.menu_state='1' order by d.menu_id asc
+      </sql>
+      <sql name="queryLatPwdDate"><!--验证登录用户密码过期校验-->
+        select round(to_number(sysdate-to_date(last_uppwd_date,'yyyy-mm-dd hh24:mi:ss'))) as timdif from limuseinf where account=#{ACCOUNT} and user_id=#{USER_ID}
+      </sql>
+      <sql name="queryUseinnTime"><!--查询用户对应过期时间间隔 单位:天-->
+        select USER_EXPIRED_TIME,pwd_chanum from limuseinf where account=#{ACCOUNT} and user_id=#{USER_ID}
+      </sql>
+      <sql name="queryUserMorenQx">
+        select d.menu_id, d.menu_par_id, d.menu_nam, d.menu_url, d.menu_state, d.node_type from limmeninf d where d.menu_id in ( ${menulims} )
+      </sql>
+      <sql name="queryWurInf"><!--查询角色账户号和角色ID-->
+         select ROLE_ACCOUNT,ROLE_ID from limwurinf where USER_ACCOUNT=#{ACCOUNT} and USER_ID=#{USER_ID} 
+      </sql>
+      <process>
+         <if condition="OR(ISNULL(SYS_ID),ISNULL(USER_ID),ISNULL(ACCOUNT))">
+            <set name="status"  value="0"/>
+            <set name="RSPMSG"  value="接收参数不符合条件,登录失败!"/>
+            <set name="outUrl"  expr="outerUrl"/>
+            <return/>
+         </if>
+         <!--验证登录用户密码过期校验 start-->
+         <set name="staleSign"      value="0"/><!--过期标识 0 正常 1 过期-->
+         <!--查询内部系统的设置过期时间 单位:天-->
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="queryUseinnTime"/>
+         </do>
+         <!--如果查询失败或者没有查到该系统对应过期时间段则默认为没有过期-->
+         <if condition="#RetCod!=0">
+           <set name="staleSign"      value="0"/>
+         </if>
+         <else>
+           <!--记录过期时间 单位:天-->
+           <set name="pastTime"   expr="USER_EXPIRED_TIME"/>
+           <if condition="OR(ISNULL(DELBOTHSPACE(pastTime)),IS_EQUAL_STRING('',DELBOTHSPACE(pastTime)))">
+              <set name="pastTime"      value="0"/>
+           </if>
+           <!--查询该用户密码最后修改时间是否到期-->
+           <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd" sql="queryLatPwdDate"/>
+           </do>
+           <if condition="#RetCod==0">
+           	 <!--用户最后修改密码时间距离当前时间为 空、空串、过期 都要重新设置密码-->
+           	 <set name="timdif" expr="timdif"/>
+             <if condition="OR(ISNULL(DELBOTHSPACE(timdif)),IS_EQUAL_STRING('',DELBOTHSPACE(timdif)))">
+               <set name="staleSign"      value="1"/>
+             </if>
+             <else> 
+             	 <if condition="DOUBLECMP(timdif,5,pastTime)">
+             	   <set name="staleSign"    value="1"/>
+             	 </if>
+             </else>
+           </if>
+           <else>
+              <!--出现没有记录上次密码修改时间的或者查询数据库失败的都默认为密码过期-->
+              <set name="staleSign"  value="1"/>
+           </else>
+           
+           <if condition="ISNULL(pwd_chanum)">
+              <set name="pwd_chanum" value="0"/><!--密码修改的次数 0是初始值-->
+           </if>
+           <else>
+              <set name="pwd_chanum" expr="pwd_chanum"/><!--密码修改的次数 0是初始值--> 
+           </else>
+           
+         </else>
+         <!--验证登录用户密码过期校验-->
+         <!--查询用户对应角色的账户号和角色ID-->
+         <do func="ReadRecord"  error="IGNORE">
+           <para name="SqlCmd" sql="queryWurInf"/>
+         </do>
+         <if condition="#RetCod!=0">
+           <if condition="#RetCod==2">
+             <set name="status"  value="0"/>
+             <set name="RSPMSG"  value="数据库信息有误,该用户对应角色为空!"/>
+             <set name="outUrl"  expr="outerUrl"/>
+             <return/>
+           </if>
+           <else>
+             <set name="status"  value="0"/>
+             <set name="RSPMSG"  value="获取角色信息失败!"/>
+             <set name="outUrl"  expr="outerUrl"/>
+             <return/>
+           </else>
+         </if>
+         <!--查询当前用户是否有指定系统的权限-->
+         <do func="ReadRecord"  error="IGNORE">
+            <para name="SqlCmd" sql="querySysInf"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="status"  value="0"/>
+            <set name="RSPMSG"  value="获取系统信息失败!"/>
+            <set name="outUrl"  expr="outerUrl"/>
+            <return/>
+         </if>
+         <if condition="INTCMP(staleSign,3,1)">
+         	 <if condition="IS_EQUAL_STRING(SYS_ID,'2201')">
+         	 	 <set name="menulims"  expr="merchantLimits"/>
+         	 </if>
+         	 <elseif condition="IS_EQUAL_STRING(SYS_ID,'2204')">
+         	   <set name="menulims"  expr="busLimits"/>
+         	 </elseif>
+         	 <do func="QueryInGroup" error="IGNORE">
+              <para name="SqlCmd"     sql="queryUserMorenQx"/>
+              <para name="RecordName" value="PAG_LST"/>
+           </do>
+           <if condition="#RetCod!=-1">
+              <set name="RSPCOD" value="00000"/>
+              <set name="status" value="1"/>
+              <set name="outUrl" expr="outUrl"/>
+              <set name="RSPMSG" value="登录成功!"/>
+              <return/>
+           </if>
+           <else>
+              <set name="RSPCOD" value="02040"/>
+              <set name="status" value="0"/>
+              <set name="RSPMSG" value="获取用户菜单信息失败,访问失败!"/>
+              <set name="outUrl" expr="initLogUrl"/>
+              <return/>
+           </else>
+         </if>
+         <else>
+           <!--密码修改次数 0 第一次登录 需修改-->
+           <if condition="INTCMP(pwd_chanum,3,0)">
+              <if condition="IS_EQUAL_STRING(SYS_ID,'2201')">
+                  <set name="menulims"  expr="merchantLimits"/>
+              </if>
+              <elseif condition="IS_EQUAL_STRING(SYS_ID,'2204')">
+                <set name="menulims"  expr="busLimits"/>
+              </elseif>
+              <do func="QueryInGroup" error="IGNORE">
+                 <para name="SqlCmd"     sql="queryUserMorenQx"/>
+                 <para name="RecordName" value="PAG_LST"/>
+              </do>
+              <if condition="#RetCod!=-1">
+                 
+                 <set name="RSPCOD" value="00000"/>
+                 <set name="status" value="1"/>
+                 <set name="outUrl" expr="outUrl"/>
+                 <set name="RSPMSG" value="登录成功!"/>
+                 <return/>
+              </if>
+              <else>
+                 <set name="RSPCOD" value="02040"/>
+                 <set name="status" value="0"/>
+                 <set name="RSPMSG" value="获取用户菜单信息失败,访问失败!"/>
+                 <set name="outUrl" expr="initLogUrl"/>
+                 <return/>
+              </else>
+           </if>
+             
+           <do func="QueryInGroup" error="IGNORE">
+              <para name="SqlCmd"     sql="queryUserMainQx"/>
+              <para name="RecordName" value="PAG_LST"/>
+           </do>
+           <if condition="#RetCod!=-1">
+              <set name="RSPCOD" value="00000"/>
+              <set name="status" value="1"/>
+              <set name="outUrl" expr="outUrl"/>
+              <set name="RSPMSG" value="登录成功!"/>
+              <return/>
+           </if>
+           <else>
+              <set name="RSPCOD" value="02040"/>
+              <set name="status" value="0"/>
+              <set name="RSPMSG" value="获取用户菜单信息失败,访问失败!"/>
+              <set name="outUrl" expr="initLogUrl"/>
+              <return/>
+           </else>
+         </else>
+      </process>
+   </transaction>
+
+   <transaction code="568035"  desc="查询用户姓名">
+      <sql name="queryUserName">
+        select user_nam from limuseinf where user_id=#{user_id} and sys_id='1000' and ACCOUNT='100000'
+      </sql>
+      <process>
+        <if condition="OR(ISNULL(DELSPACE(SYS_ID,'all')),ISNULL(DELSPACE(USER_ID,'all')))">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="接收参数不完整,查询用户名称失败!"/>
+          <return/>
+        </if>
+        <do func="ReadRecord" error="IGNORE">
+          <para name="SqlCmd" sql="queryUserName"/>
+        </do>
+        <if condition="#RetCod==0">
+        	<set name="status"   value="1"/>
+          <set name="user_nam" expr="user_nam"/>
+          <set name="RSPMSG"   value="查询成功!"/>
+          <return/>
+        </if>
+        <else>
+           <if condition="#RetCod==-1">
+             <set name="status" value="0"/>
+             <set name="RSPMSG" value="查询名称时,操作数据库发生异常,查询失败!"/>
+             <return/>
+           </if>
+           <else>
+             <set name="status" value="0"/>
+             <set name="RSPMSG" value="数据中无该用户记录"/>
+             <return/>
+           </else>
+        </else>
+     </process>
+   </transaction>
+
+   <transaction code="568034" desc="外部系统用户注销接口">
+      <sql name="queryUserExit"><!--验证该用户是否存在-->
+        select count(user_id) as UC from limuseinf where user_id=#{USER_ID} and sys_id=#{SYS_ID} and account=#{ACCOUNT} 
+      </sql>
+      <sql name="deleteUrRele"><!--删除用户角色关联-->
+        delete from limrurele where account=#{ACCOUNT} and user_id= #{USER_ID}
+      </sql>
+      <sql name="deleteUmRele"><!--删除用户菜单关联-->
+        delete from limumrele where account=#{ACCOUNT} and user_id=#{USER_ID}
+      </sql>
+      <sql name="deleUserLoginInf"><!--删除登录信息-->
+        delete from limloginf where account=#{ACCOUNT} and user_id=#{USER_ID} and sys_id=#{SYS_ID}
+      </sql>
+      <sql name="deleteUserInf"><!--删除用户信息-->
+        delete from limuseinf where account=#{ACCOUNT} and user_id=#{USER_ID} and sys_id=#{SYS_ID}
+      </sql>
+      <process>
+        <if condition="OR(ISNULL(DELSPACE(SYS_ID,'all')),ISNULL(DELSPACE(USER_ID,'all')),ISNULL(DELSPACE(ACCOUNT,'all')))">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="接收参数不完整,用户注销失败!"/>
+          <return/>
+        </if>
+        <!--中台调用此接口时 不验证要删除的用户是否登录 只要验证该用户是否存在-->
+        <do func="ReadRecord" error="IGNORE">
+           <para name="sqlCmd" sql="queryUserExit"/>
+        </do>
+        <if condition="#RetCod!=0">
+        	<set name="status" value="0"/>
+          <set name="RSPMSG" value="校验用户是否存在操作数据库失败!"/>
+          <return/>
+        </if>
+        <if condition="INTCMP(UC,4,1)">
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="该账户下不存在这个用户,注销失败"/>
+           <return/>
+        </if>
+        <!--删除用户角色关联-->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="deleteUrRele"/>
+        </do>
+        <if condition="AND(#RetCod=0,#RetCod!=2)">
+        	 <do func="RollBackWork"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="删除该用户和角色的关联信息有误,注销失败"/>
+           <return/>
+        </if>
+        <!--删除用户菜单关联信息-->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="deleteUmRele"/>
+        </do>
+        <if condition="AND(#RetCod!=0,#RetCod!=2)">
+        	 <do func="RollBackWork"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="删除该用户和菜单关联信息有误,注销失败"/>
+           <return/>
+        </if>
+        <!--删除登录信息-->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="deleUserLoginInf"/>
+        </do>
+        <if condition="AND(#RetCod!=0,#RetCod!=2)">
+        	 <do func="RollBackWork"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="删除该用户的登录信息有误,注销失败"/>
+           <return/>
+        </if>
+        <!--删除用户信息-->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="deleteUserInf"/>
+        </do>
+        <if condition="AND(#RetCod!=0,#RetCod!=2)">
+        	 <do func="RollBackWork"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="删除用户信息有误,注销失败"/>
+           <return/>
+        </if>
+        <else>
+           <set name="status" value="1"/>
+           <set name="RSPMSG" value="成功注销该用户"/>
+           <return/>
+        </else>
+      </process>
+   </transaction>
+</application>

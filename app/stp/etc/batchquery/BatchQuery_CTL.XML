@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="103" log_level="DEBUG"  >
+  <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   
+   <before>
+      <!--打印ETF树-->
+      <do func="DumpEtf"/>
+   </before>
+   <after>
+      <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+      <if condition="IS_EQUAL_STRING(RspCod,'000000')">
+         <set name="DWZ_STATUS_CODE"       value="200"/>
+      </if>
+      <else>
+         <set name="DWZ_STATUS_CODE"       value="300"/>
+      </else>
+      <do func="DumpEtf"/>
+      
+   </after>
+   
+   
+    
+	<transaction code="990111" desc="跑批结果查询">
+		<sql name="batchResult">
+			select
+			BATCHID,
+			BATCHNAM,
+			TO_CHAR(to_date(STARTTIME,
+			'yyyymmddhh24miss'), 'yyyy-mm-dd hh24:mi:ss') STARTTIME,
+			TO_CHAR(to_date(ENDTIME, 'yyyymmddhh24miss'), 'yyyy-mm-dd
+			hh24:mi:ss') ENDTIME,
+			STATE,
+			APPNAME
+			FROM TDBATCHINFO WHERE 1=1 ${Qry1}
+			order by
+			batchid desc
+		</sql>
+		<process>
+
+
+			
+			<do func="GetOwnButton" />
+			<set name="BATCHDATE" expr="DELBOTHSPACE(BATCHDATE)" />
+			<set name="NOWTIME" expr="GETDATE()" />
+      <!-- 跑批时间 -->
+			<if condition="ISNULL(BATCHDATE)">
+           <set name="Qry1"   value=""/>
+      </if>
+      <else>
+				<set name="Qry1" expr="STRCAT('AND BATCHID like \'%',BATCHDATE,'%\'')" />
+			</else>
+			
+
+			<if condition="ISNULL(PageNum)">
+				<set name="PageNum" value="1" />
+			</if>
+			<if condition="ISNULL(NumPerPag)">
+				<set name="NumPerPag" value="19" />
+			</if>
+
+			<do func="PagedQuery" error="IGNORE">
+				<para name="PageNum" expr="PageNum" />
+				<para name="NumPerPag" expr="NumPerPag" />
+				<para name="sql" sql="batchResult" />
+			</do>
+			<if condition="#RetCod==2">
+				<set name="RspCod" value="219999" />
+				<set name="RspMsg" value="无信息" />
+				<set name="DWZ_STATUS_CODE" value="300" />
+				<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/queryBatchResult.jsp" />
+				<return />
+			</if>
+			<elseif condition="#RetCod!=0">
+				<set name="RSPCOD" value="329999" />
+				<set name="RSPMSG" value="查询失败!" />
+				<set name="DWZ_STATUS_CODE" value="300" />
+				<set name="DWZ_RSP_MSG" expr="RspMsg" />
+				<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/queryBatchResult.jsp" />
+				<return />
+			</elseif>
+			<set name="RSPCOD" value="000000" />
+			<set name="RSPMSG" value="查询成功!" />
+			<set name="DWZ_STATUS_CODE" value="200" />
+			<set name="DWZ_RSP_MSG" expr="RspMsg" />
+			<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/queryBatchResult.jsp" />
+			<return />
+		</process>
+
+	</transaction>
+
+
+	
+	<transaction code="990108" log_level="1" desc="跑批详情查询">
+
+		<sql name="qrbatchxq">
+			SELECT
+			JOBNAM,
+			BATCHID,
+			NVL(PREJOBNAM,'起始任务') PREJOBNAM,
+			TO_CHAR(to_date(STARTTIME,
+			'yyyymmddhh24miss'),
+			'yyyy-mm-dd
+			hh24:mi:ss') STARTTIME,
+			TO_CHAR(to_date(ENDTIME,
+			'yyyymmddhh24miss'),
+			'yyyy-mm-dd
+			hh24:mi:ss') ENDTIME,
+			FLAG,
+			STATE
+			FROM
+			TDJOBINFO
+			where 1=1
+			${Qry1} ORDER BY STARTTIME ASC
+		</sql>
+
+		<process>
+
+			<set name="Qry1" expr="STRCAT('AND BATCHID = \'',BATCHID,'\'')" />
+
+			<if condition="ISNULL(PageNum)">
+				<set name="PageNum" value="1" />
+			</if>
+			<if condition="ISNULL(NumPerPag)">
+				<set name="NumPerPag" value="19" />
+			</if>
+			<do func="PagedQuery" error="IGNORE">
+				<para name="PageNum" expr="PageNum" />
+				<para name="NumPerPag" expr="NumPerPag" />
+				<para name="sql" sql="qrbatchxq" />
+			</do>
+			<if condition="#RetCod==2">
+				<set name="RspCod" value="219999" />
+				<set name="RspMsg" value="没有符合条件的数据!" />
+				<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/qrbatchxq_list.jsp" />
+				<return />
+			</if>
+			<if condition="#RetCod!=0">
+				<set name="RSPCOD" value="329999" />
+				<set name="RSPMSG" value="查询失败!" />
+				<set name="DWZ_STATUS_CODE" value="300" />
+				<set name="DWZ_RSP_MSG" expr="RspMsg" />
+				<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/qrbatchxq_list.jsp" />
+				<return />
+			</if>
+
+			<set name="RSPCOD" value="000000" />
+			<set name="RSPMSG" value="查询成功!" />
+			<set name="DWZ_STATUS_CODE" value="200" />
+			<set name="DWZ_RSP_MSG" expr="RspMsg" />
+			<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/qrbatchxq_list.jsp" />
+			<return />
+		</process>
+	</transaction>
+
+
+	
+	<transaction code="990109" log_level="1" desc="跑批参数查询">
+
+		<sql name="qrbatchxs">
+			SELECT
+			DATA
+			FROM TDBATCHINFO where 1=1 ${Qry1}
+
+		</sql>
+
+		<process>
+
+			<set name="Qry1" expr="STRCAT('AND BATCHID = \'',BATCHID,'\'')" />
+
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="qrbatchxs" />
+			</do>
+
+			<if condition="#RetCod!=0">
+				<if condition="#RetCod==-1">
+					<set name="RSPCOD" value="02032" />
+					<set name="RSPMSG" value="系统错误,查询数据库失败" />
+				</if>
+
+				<return />
+			</if>
+			<set name="DATA" expr="DATA" />
+			<set name="RSPCOD" value="000000" />
+			<set name="RSPMSG" value="查询成功!" />
+			<set name="DWZ_STATUS_CODE" value="200" />
+			<set name="DWZ_RSP_MSG" expr="RspMsg" />
+			<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/param.jsp" />
+			<return />
+
+		</process>
+	</transaction>
+
+	
+	<transaction code="990110" log_level="1" desc="跑批JOB参数查询">
+
+		<sql name="qrbatchjobxs">
+			SELECT
+			DATA
+			FROM TDJOBINFO where 1=1 ${Qry1} ${Qry2}
+
+		</sql>
+
+		<process>
+
+			<set name="Qry1" expr="STRCAT('AND  BATCHID = \'',BATCHID,'\'')" />
+			<set name="Qry2" expr="STRCAT('AND JOBNAM =\'',JOBNAM,'\'')" />
+
+
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="qrbatchjobxs" />
+			</do>
+
+			<if condition="#RetCod!=0">
+				<if condition="#RetCod==-1">
+					<set name="RSPCOD" value="02032" />
+					<set name="RSPMSG" value="系统错误,查询数据库失败" />
+				</if>
+				<return />
+			</if>
+			<set name="DATA" expr="DATA" />
+			<set name="RSPCOD" value="000000" />
+			<set name="RSPMSG" value="查询成功!" />
+			<set name="DWZ_STATUS_CODE" value="200" />
+			<set name="DWZ_RSP_MSG" expr="RspMsg" />
+			<set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/batch/param.jsp" />
+			<return />
+		</process>
+	</transaction>
+
+
+
+
+
+
+
+
+
+</application>

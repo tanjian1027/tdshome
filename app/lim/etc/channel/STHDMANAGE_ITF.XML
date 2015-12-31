@@ -1,0 +1,103 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--权限系统调用的接口的应用-->
+<channel name="STHDMANAGE" log_level="DEBUG" timeout="300">
+
+  <transaction code="568050" desc="内部权限查询">
+    <pack>
+      <writeelement name="request">
+        <writeattr            name="code"         expr="TxnCod" />              <!--访问接口交易码-->
+        <writeelement name="item">
+          <writeattr          name="name"         value="random" />             <!--随机数-->
+          <writeattr          name="value"        expr="random" />   
+        </writeelement>
+        <writeelement name="item">
+          <writeattr          name="name"         value="sys_id" />             <!--查询人的所属的系统ID-->
+          <writeattr          name="value"        expr="sys_id" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr          name="name"         value="user_id" />            <!--用户ID--> 
+          <writeattr          name="value"        expr="UID" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr          name="name"         value="STALESIGN" />          <!--密码过期标志 1:过期 其他:正常--> 
+          <writeattr          name="value"        expr="STALESIGN" />
+        </writeelement>
+        
+      </writeelement>
+    </pack>
+    <unpack>
+      <readelement name="status">
+        <readattr             name="value"        expr="status" />
+      </readelement>
+      <if condition="IS_EQUAL_INT(status,1)">
+        <!--登录成功-->
+        <readelement name="user">
+          <readattr           name="id"           expr="id" />                  <!--用户ID-->
+          <readattr           name="name"         expr="name" />                <!--用户名称-->
+          <readattr           name="roleName"     expr="roleName" />            <!--角色名称-->
+          <readattr           name="maxNode"      expr="maxNode" />             <!--系统的根节点-->
+          <readattr           name="loginUrl"     expr="loginUrl" />            <!--首页名路径-->
+          <readattr           name="outUrl"       expr="STHDoutUrl" />          <!--退出路径-->
+          <readattr           name="initLogUrl"   expr="STHDinitLogUrl"/>       
+          <readattr           name="systemId"     expr="systemId" />            <!--访问的系统编号-->
+          <readattr           name="random"       expr="randomStr"/>            <!--随机数-->
+        </readelement>
+        <readgroupelement name="menu">
+          <readgroupelement name="node">
+            <readattr         name="menuid"       expr="PAGID" />                <!--菜单ID-->
+            <readattr         name="parmenuid"    expr="PAREID" />               <!--父菜单ID-->
+            <readattr         name="name"         expr="PAGNAM" />               <!--菜单名称-->
+            <readattr         name="href"         expr="PAGURL" />               <!--菜单URL-->
+            <readattr         name="nodetype"     expr="PAGMENU" />              <!--菜单类型-->
+          </readgroupelement>
+        </readgroupelement>
+        <readgroupelement name="ext"> 
+          <readgroupelement name="node"> 
+            <readattr         name="menuid"       expr="PAGID"/>                <!--菜单ID-->           
+            <readattr         name="parmenuid"    expr="PAREID"/>               <!--父菜单ID-->          
+            <readattr         name="name"         expr="PAGNAM"/>               <!--菜单名称-->           
+            <readattr         name="href"         expr="PAGURL"/>               <!--系统web初始访问路径-->    
+            <readattr         name="nodetype"     expr="PAGMENU"/>              <!--系统菜单类型-->           
+            <readattr         name="sysid"        expr="PAGSYSID"/>             <!--系统ID-->           
+            <readattr         name="sysstate"     expr="PAGSYSSTATE"/>          <!--系统状态-->           
+          </readgroupelement> 
+        </readgroupelement>
+      </if>
+      <else>
+        <readelement name="retMsg">
+          <readattr           name="value"        expr="retMsg" />              <!--失败信息-->
+        </readelement>
+        <readelement name="outUrl">
+          <readattr           name="value"        expr="STHDoutUrl" />          <!--失败后调转路径-->
+        </readelement>
+      </else>
+    </unpack>
+  </transaction>
+
+  <transaction code="568051" desc="内部系统退出">
+    <pack>
+      <writeelement name="request">
+        <writeattr            name="code"         expr="TxnCod" />              <!--接口交易码--> 
+        <writeelement name="item">
+          <writeattr          name="name"         value="random" />             <!--随机数-->
+          <writeattr          name="value"        expr="RANDOM" />       
+        </writeelement>
+        <writeelement name="item">
+          <writeattr          name="name"         value="login_id" />           <!--登录ID-->
+          <writeattr          name="value"        expr="USER_ID" />
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <readelement name="status">
+        <readattr             name="value"        expr="status" />              <!--成功或失败的标志  1成功  0 失败-->
+      </readelement>
+      <readelement name="retMsg">
+        <readattr             name="value"        expr="retMsg" />              <!--返回信息-->
+      </readelement>
+      <readelement name="outUrl">
+        <readattr             name="value"        expr="outUrl" />              <!--退出路径-->
+      </readelement>
+    </unpack>
+  </transaction>
+</channel>

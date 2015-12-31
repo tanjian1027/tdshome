@@ -1,0 +1,1053 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="INFO">
+	<!-- 商户系统交易 -->
+
+	<!-- 交易日志记录配置 -->
+	<include file="etc/public/STPCTL_TRC.XML" />
+	<!--公共宏文件引入 -->
+	<include file="etc/public/Userp_MACRO.XML"/>
+	
+
+	<!-- 交易前处理 -->
+	<before>
+		<set name="USRIP" expr="_REQUESTATTR.REQIP" />
+		<set name="MsgTyp" value="N" />
+		<set name="RspCod" value="000000" />
+		<!-- 当前日期 -->
+		<set name="nowDate" expr="GETDATETIME('YYYYMMDD')" />
+		<!-- 当前时间 -->
+		<set name="nowTime" expr="GETDATETIME('HHMISS')" />
+		<!-- 取公共参数配置 -->
+		<set name="ConfigName" value="BeforeCfg" />
+		<quote name="ReadXmlCfg" />
+
+		<do func="DumpMsg" />
+
+	</before>
+
+	<!-- 交易后处理 -->
+	<after>
+		<if condition="IS_EQUAL_STRING(RspCod,'000000')">
+			<set name="MsgTyp" value="N" />
+			<set name="RspMsg" value="交易成功" />
+		</if>
+		<else>
+			<set name="MsgTyp" value="E" />
+		</else>
+		<do expr="@tangdi.engine.context.Msg@dump()" />
+	</after>
+	
+	<!-- 查询用户信息是否存在 -->
+	<transaction code="515680" desc="查询用户信息是否存在">
+		<sql name="queryCusInf">
+			SELECT USR.CUST_LOGIN,USR.CUST_ID FROM STPUSRINF USR WHERE USR.CUST_LOGIN  = #{custId}
+		</sql>
+		<process>
+			<!-- 校验必输信息 -->
+			<set name="custId" expr="CUST_ID" />
+			<if condition="ISNULL(custId)">
+				<set name="RSPCOD" value="020080" />
+				<set name="RSPMSG" value="电话号码为空" />
+				<return />
+			</if>
+            <!-- 验签处理 -->
+            <set name="signType"        value="CFCA"/>
+	        <if condition="IS_EQUAL_STRING(signType,'CFCA')"> 
+	            <set name="INSTR"  expr="STRCAT('CUST_ID=',custId)"/>
+	            <!--CACA验签-->
+	            <do func="CFCASignVer">
+	               <para name="sourceData"        expr="INSTR" />
+	               <para name="signData"          expr="SIGNATURE" />
+	            </do>
+	            <if condition="#RetCod!=0">
+	               <set name="RspCod"    value="08039"/>
+	               <set name="RspMsg"    value="验签失败"/>
+	               <return/>
+	            </if>
+	         </if>
+			<!-- 检查信息是否存在 -->
+			<!-- 统计成功的总笔数和总金额 -->
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="queryCusInf" />
+			</do>
+			<if condition="#RetCod==2">
+				<set name="RspCod" value="02103" />
+				<set name="RspMsg" value="无记录!" />
+			</if>
+			<elseif condition="#RetCod!=0">
+				<set name="RspCod" value="09101" />
+				<set name="RspMsg" value="操作数据库失败!" />
+				<return />
+			</elseif>
+			<elseif condition="#RetCod==0">
+				<set name="RspCod" value="000000" />
+				<set name="RspMsg" value="交易成功" />
+			</elseif>
+
+		</process>
+	</transaction>
+
+	<!-- 快速注册 -->
+	<transaction code="515681" desc="快速注册">
+		<sql name="QryUsrIdInf"> <!-- 查询用户注册信息 -->
+			SELECT CUST_ID
+			FROM STPUSRINF
+			WHERE CUST_LOGIN=#{MOB_NO}
+		</sql>
+		<sql name="InsUsrInfo"> <!-- 插入用户注册信息 -->
+			INSERT INTO STPUSRINF (CUST_ID, CUST_LOGIN, CUST_PWD, USR_MOBILE,
+			NATIONALITY,PASSWORD_STRENGTH, PAYPWD_STRENGTH,
+			USR_STATUS,LAST_UPPWD_TIME,PUBLIC_STATUS,
+			PUBLIC_PHOTO) VALUES
+			(#{CUST_ID},#{MOB_NO},#{UsrPwd},
+			#{MOB_NO},'',#{PWDSTRE},#{PAYSTRE},'0',#{CUST_REG_DATE},#{PUBLIC_STATUS},#{PUBLIC_PHOTO})
+		</sql>
+		<sql name="UpdMsgSed"><!-- 更新短信发送状态 -->
+			UPDATE STPMSGSED SET MSG_STS='1' WHERE PHONE=#{MOB_NO} AND
+			MSG_TIM=#{MSG_TIM}
+		</sql>
+		<sql name="InMsgSed"><!-- 登记短信信息 -->
+			INSERT INTO STPMSGSED
+			VALUES(#{MOB_NO},#{MSG_DAT},#{MSG_TIM},#{CUS_NAM},#{SMSCONTENT},'0')
+		</sql>
+		<sql name="InsUsrrandom"> <!-- 插入用户验证信息 -->
+			INSERT INTO STPVERIFY
+			(VER_ID,VER_TYPE,InsTim,Random,TimeOut,SERVICE_TYPE,VER_TRAN_NO)
+			VALUES (#{EMAIL},#{VER_TYPE}, sysdate
+			,#{Random},#{TimeOut},#{SERVICE_TYPE},#{TRANCODE})
+		</sql>
+		<sql name="checkBind"><!--查询绑定信息 -->
+			SELECT A.CUST_LOGIN USRID FROM STPCHNBIND A
+			WHERE A.LOGIN_ID = #{custId} AND A.CHN_TYP = #{chnTyp} AND A.BIND_STATUS = '0'
+		</sql>
+		<sql name="bindInsert">
+			 insert into STPCHNBIND(BIND_ID,CUST_LOGIN,LOGIN_ID,BIND_STATUS,CHN_TYP,PWD_KEY) 
+			 VALUES(#{bindId},#{custId},#{loginId},#{bindStatus},#{chnTyp},#{pwdKey})
+		</sql>
+		<process>
+			<!-- 登录平台为0001：用户 -->
+			<!-- <if condition="IS_NOEQUAL_STRING(SysCod,'0001')"> 
+				<set name="RspCod"  value="01001" /> 
+				<set name="RspMsg" value="用户登录平台不正确" /> 
+				<return /> 
+			</if> -->
+			<!-- 登录平台为0001：用户 -->
+			<set name="custId" expr="LOGIN_ID" />
+			<set name="chnTyp" expr="CHN_TYP" />
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="checkBind" />
+			</do>
+			<if condition="#RetCod==0">
+				<set name="RspCod" value="09999" />
+				<set name="RspMsg" value="该帐号已经执行过绑定！" />
+				<return />
+			</if>
+			<elseif condition="#RetCod!=2">
+				<set name="RspCod" value="09999" />
+				<set name="RspMsg" value="操作数据库失败!" />
+				<return />
+			</elseif>
+			<set name="MOB_NO" expr="CUST_ID" />
+			
+			<set name="UsrPwd" expr="USR_PWD" />
+			<set name="PAYPWD" expr="PAY_PWD" />
+			<!-- 检查用户名是否为空 -->
+			<if condition="IS_EQUAL_STRING(MOB_NO,'')">
+				<set name="RspCod" value="02035" />
+				<set name="RspMsg" value="手机号为空" />
+				<return />
+			</if>
+			
+			<!-- 验签处理 -->
+            <set name="signType"        value="CFCA"/>
+	        <if condition="IS_EQUAL_STRING(signType,'CFCA')"> 
+	            <set name="INSTR"  expr="STRCAT('LOGIN_ID=',custId,'&amp;CUST_ID=',MOB_NO,'&amp;CUST_NAME=',CUST_NAME,
+	            '&amp;ID_NO=',ID_NO)"/>
+	            <!--CACA验签-->
+	            <do func="CFCASignVer">
+	               <para name="sourceData"        expr="INSTR" />
+	               <para name="signData"          expr="SIGNATURE" />
+	            </do>
+	            <if condition="#RetCod!=0">
+	               <set name="RspCod"    value="08039"/>
+	               <set name="RspMsg"    value="验签失败"/>
+	               <return/>
+	            </if>
+	         </if>
+	         
+			<do func="Lock">
+				<para name="RecKey" expr="MOB_NO" />
+				<para name="AutoUnLock" value="yes" />
+			</do>
+			<if condition="#RetCod!=0">
+				<set name="RspCod" value="08001" />
+				<set name="RspMsg" value="该账户号正在注册，请稍后" />
+				<return />
+			</if>
+			<!-- 检测用户是否存在,存在提示错误 -->
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="QryUsrIdInf" />
+			</do>
+			<if condition="#RetCod==-1">
+				<set name="RspCod" value="09999" />
+				<set name="RspMsg" value="系统错误" />
+				<return />
+			</if>
+			<elseif condition="#RetCod==0">
+				<set name="RspCod" value="02001" />
+				<set name="RspMsg" value="该账户号已经被注册" />
+				<return />
+			</elseif>
+			<elseif condition="#RetCod!=2">
+				<set name="RspCod" value="09998" />
+				<set name="RspMsg" value="系统错误" />
+				<return />
+			</elseif>
+
+			<!-- 检查真实姓名是否为空 -->
+			<if condition="IS_EQUAL_STRING(CUST_NAME,'')">
+				<set name="RspCod" value="02042" />
+				<set name="RspMsg" value="用户姓名为空" />
+				<return />
+			</if>
+			<set name="IdTypeCod" expr="IdTypeCod" />
+			<!-- 证件类型:身份证 -->
+			<if condition="IS_EQUAL_STRING(IdTypeCod,'')">
+				<set name="IdTypeCod" value="0" />
+			</if>
+
+			<!-- 检查证件号码是否为空 -->
+			<if condition="IS_EQUAL_STRING(ID_NO,'')">
+				<set name="RspCod" value="02045" />
+				<set name="RspMsg" value="用户证件号码为空" />
+				<return />
+			</if>
+
+			<set name="CARDVALDATE" expr="FMTDATE(CALCDATE(GETDATE(),'-','d',7),0,4)" />
+			<set name="PUBLIC_PHOTO" value="upload/defaultShow.jpg" /><!-- 公安返回照片 -->
+
+			<!-- 读取配置文件 到公安部身份验证核实 -->
+			<set name="ConfigName" value="FtpGetToPay" />
+			<quote name="ReadXmlCfg" />
+			<do func="ReadModuleCfg" error="IGNORE">
+				<para name="cfgfil" value="etc/public/STP_BUSCFG.XML" />
+				<para name="code" value="CHK" />
+			</do>
+			<if condition="IS_EQUAL_STRING(#para.ChkType,'1')">
+				<if condition="IS_EQUAL_STRING(IdTypeCod,'0')">
+					<set name="RspMsg" value="用户为身份证用户" />
+					<do func="validIdCard" error="IGNORE">
+						<para name="name" expr="CUST_NAME" />
+						<para name="idCardNo" expr="ID_NO" />
+					</do>
+					<if condition="#RetCod==0">
+						<set name="RspMsg" value="身份认证成功" />
+						<set name="vailStatus" value="1" />
+						<if condition="IS_EQUAL_STRING(status,'1')">
+							<set name="vailCardUrl" expr="picPath" />
+						</if>
+						<else>
+							<!--默认图片展示 -->
+							<set name="vailCardUrl" value="upload/defaultShow.jpg" />
+						</else>
+					</if>
+					<else>
+						<set name="vailStatus" value="0" />
+						<set name="RspCod" value="07565" />
+						<set name="RspMsg" value="姓名和身份证不符！" />
+						<return />
+					</else>
+
+					<set name="PUBLIC_STATUS" expr="vailStatus" /><!-- 公安部认证状态 -->
+					<set name="PUBLIC_PHOTO" expr="vailCardUrl" /><!-- 公安返回照片 -->
+				</if>
+			</if>
+			
+			<!-- 检查登录密码是否为空 -->
+			<if condition="IS_EQUAL_STRING(UsrPwd,'')">
+				<set name="RspCod" value="02058" />
+				<set name="RspMsg" value="用户登录密码为空" />
+				<return />
+			</if>
+
+			<!-- 登录密码转加密 -->
+			<set name="pw" expr="USRPWD" />
+			<quote name="getInputPwd" />
+			<set name="UsrPwd" expr="NewPwd" />
+
+
+			<!-- 检查支付密码是否为空 -->
+			<if condition="IS_EQUAL_STRING(PayPwd,'')">
+				<set name="RspCod" value="02059" />
+				<set name="RspMsg" value="用户支付密码为空" />
+				<return />
+			</if>
+
+			<!-- 支付密码转加密 -->
+			<set name="pw" expr="PayPwd" />
+			<quote name="getInputPwd" />
+			<set name="PayPwd" expr="NewPwd" />
+			<set name="AAAAAA" value="新密码转加密成功" />
+
+			<!-- 登录密码与支付密码对比 -->
+			<if condition="IS_EQUAL_STRING(UsrPwd,PayPwd)">
+				<set name="RspCod" value="02058" />
+				<set name="RspMsg" value="登录密码不能与支付密码相同" />
+				<return />
+			</if>
+
+			<!-- 获取公共信息 -->
+			<quote name="getPublicInfo" />
+
+			<set name="MOB_NO" expr="MOB_NO" />
+			<set name="EMAIL" expr="EMAIL" />
+
+			<!-- 获取用户编号 -->
+			<do func="GetSeqNo" error="IGNORE">
+				<para name="TblNam" value="stpseqrec" />
+				<para name="KeyNam" value="KeyNam" />
+				<para name="KeyVal" value="STPCUSINF_CUSTID" />
+				<para name="SeqNam" value="KeyVal" />
+				<para name="Len" value="8" />
+				<para name="Circle" value="1" />
+			</do>
+			<if condition="#RetCod!=0">
+				<set name="RspCod" value="9001" />
+				<set name="RspMsg" value="序号生成失败" />
+				<set name="DWZ_STATUS_CODE" value="300" />
+				<set name="DWZ_RSP_MSG" expr="RSPMSG" />
+				<return />
+			</if>
+			<!-- 生成客户编号-用户ID -->
+			<set name="CUST_ID" expr="STRCAT('000001',KeyVal)" />
+
+			<set name="Police" value="" />
+
+			<!-- 客户状态0 正常 -->
+			<set name="CUST_STATUS" value="0" />
+			<!-- 客户证件类型 -->
+			<set name="CUST_CRED_TYPE" expr="IDTYPECOD" />
+			<!-- 客户证件号码 -->
+			<set name="sEnData" expr="DES_ENCRYPT(ID_NO)" />
+			<set name="CUST_CRED_NO" expr="sEnData" />
+			<!-- 客户名称 -->
+			<set name="CUST_NAME" expr="CUST_NAME" />
+			<!-- 客户类型 -->
+			<set name="CUST_TYPE" value="0" />          <!--0 用户 1 商户 -->
+			<set name="CUST_REG_DATE" expr="NowDate" />
+			<set name="CUST_REG_TIME" expr="nowTime" />
+
+			<!-- 登记客户信息主表 -->
+			<do func="InsertRecord" error="IGNORE">
+				<para name="TblNam" value="STPCUSINF" />
+			</do>
+			<if condition="#RetCod!=0">
+				<set name="RspCod" value="09999" />
+				<set name="RspMsg" value="系统错误" />
+				<return />
+			</if>
+
+			<!-- 插入用户信息表 -->
+			<do func="ExecSql" error="IGNORE">
+				<para name="SqlCmd" sql="InsUsrInfo" />
+			</do>
+			<if condition="#RetCod!=0">
+				<!-- 回滚数据库 -->
+				<do func="RollBackWork" />
+				<set name="MsgTyp" value="E" />
+				<set name="RspCod" value="09999" />
+				<set name="RspMsg" value="系统错误" />
+				<return />
+			</if>
+			<!-- 获取绑定编号 -->
+			<do func="GetSeqNo" error="IGNORE">
+				<para name="TblNam" value="stpseqrec" />
+				<para name="KeyNam" value="KeyNam" />
+				<para name="KeyVal" value="STPCHNBIND_BINDID" />
+				<para name="SeqNam" value="KeyVal" />
+				<para name="Len" value="8" />
+				<para name="Circle" value="1" />
+			</do>
+			<if condition="#RetCod!=0">
+				<set name="RspCod" value="9001" />
+				<set name="RspMsg" value="序号生成失败" />
+				<set name="DWZ_STATUS_CODE" value="300" />
+				<set name="DWZ_RSP_MSG" expr="RSPMSG" />
+				<return />
+			</if>
+			<!-- 绑定编号 -->
+			<set name="bindId" expr="KeyVal" />
+			<set name="bindStatus" value="0" />
+			<set name="custId" expr="MOB_NO" />
+			<set name="loginId" expr="LOGIN_ID" />
+			<set name="chnTyp" expr="CHN_TYP" />
+			<set name="pwdKey" expr="RANDOM(30,0)" />
+			<!-- 绑定 -->
+			<do func="ExecSql" error="IGNORE">
+				<para name="SqlCmd" sql="bindInsert" />
+			</do>
+			<if condition="#RetCod!=0">
+				<do func="RollBackWork" />
+				<set name="RspCod" value="09101" />
+				<set name="RspMsg" value="操作数据库失败!" />
+				<return />
+			</if>
+
+			<!--添加客户账户信息 如果存在多账户，动态添加即可 -->
+			<!-- 账户类型 01-现金账户；02-红包账户；03-平台账户；04-担保账户；05-保证金账户 -->
+			<set name="AC_TYPE" value="01" />
+			<quote name="InsAccInf" />
+
+			<!-- 生成用户登录名 -->
+			<set name="First" expr="SUBSTR(MOB_NO,1,3)" />
+			<set name="End" expr="SUBSTR(MOB_NO,8,SUB(STRLEN(MOB_NO),7))" />
+			<set name="LOGNAM" expr="STRCAT(First,'****',End)" />
+			<set name="USRID" expr="CUST_ID" />
+
+			<!-- 调用风控接口 -->
+			<set name="dType" value="1" />
+			<set name="USR_STATUS" value="3" />
+			<set name="UFLAG" value="" />
+			<set name="FTYPE" value="" />
+			<set name="sthCode" value="540504" />
+			<set name="UCODE" expr="CUST_ID" />
+			<set name="UNAME" expr="CUST_NAME" />
+			<set name="PAPERTYPE" expr="CUST_CRED_TYPE" />
+			<set name="PCODE" expr="ID_NO" />
+			<set name="USERAPPFLAG" expr="USR_STATUS" />     <!--0 未认证 -->
+			<set name="ISTYPE" value="0" />             <!--0 非试用期 -->
+			<set name="DATE" expr="GETDATE()" />
+			<set name="TIME" expr="GETDATETIME()" />
+			<set name="EMAIL" value="" />          <!--邮箱 -->
+			<quote name="rcsMaro" />
+
+			<if condition="ISNUMBER(MOB_NO)">
+				<!-- 注册成功发送短信 设置短信内容 -->
+				<set name="SmsContent"
+					expr="STRCAT('尊敬的',CUST_NAME,'（账户号：',MOB_NO,'），恭喜您已成为商物通网站的注册用户，请及时完成身份认证。')" />
+
+				<!-- 插入短信信息 -->
+				<set name="Msg_Dat" expr="GETDATE()" />
+				<set name="Msg_Tim" expr="GETDATETIME()" />
+				<set name="Cus_Nam" value="注册用户成功" />
+				<do func="ExecSql" error="IGNORE">
+					<para name="SqlCmd" sql="InMsgSed" />
+				</do>
+				<if condition="#RetCod!=0">
+					<set name="RspCod" value="01006" />
+					<set name="RspMsg" value="登记短信发送表失败" />
+					<return />
+				</if>
+				<do func="CommitWork" />
+
+				<!--取公共参数配置 -->
+				<set name="ConfigName" value="SendSms" />
+				<quote name="ReadXmlCfg" />
+				<set name="NEWMSGSTS" value="0" />
+
+				<!-- 发送短信 -->
+				<do func="sendMesSwt" error="IGNORE">
+					<para name="sendUrl"
+						value="http://59.41.60.158:8914/TradeAppServer/user/sms.jf" />
+					<para name="softwareSerialNo" value="linan-jufeng" />
+					<para name="smspassword" value="linan-@jufeng" />
+					<para name="SendId" value="12" />
+					<para name="MobNo" expr="MOB_NO" />
+					<para name="Context" expr="SmsContent" />
+				</do>
+				<if condition="#RetCod!=0">
+					<set name="RspCod" value="1003" />
+					<set name="RspMsg" value="短信发送失败" />
+					<set name="NEWMSGSTS" value="2" />
+				</if>
+				<else>
+					<set name="NEWMSGSTS" value="1" />
+				</else>
+
+				<delete name="Random" />
+				<delete name="SmsContent" />
+
+				<!-- 更新短信发送状态 -->
+				<do func="ExecSql" error="IGNORE">
+					<para name="SqlCmd" sql="UpdMsgSed" />
+				</do>
+				<if condition="#RetCod!=0">
+					<set name="RspCod" value="08517" />
+					<set name="RspMsg" value="修改发送状态失败" />
+					<!--Sreturn/ -->
+				</if>
+			</if>
+
+			<set name="SESSIONS.USRID" expr="CUST_ID" />
+			<set name="SESSIONS.USRNAME" expr="CUST_NAME" />
+			<set name="SESSIONS.USRMP" expr="MOB_NO" />
+
+			<set name="SESSIONS.LOGIN_NAME1" expr="LOGNAM" />  <!-- 将中间的值换成* -->
+			<set name="SESSIONS.PAYACNO" expr="STRCAT(CUST_ID,'01')" />
+			<set name="SESSIONS.CUSTNO" expr="CUST_ID" />
+			<set name="SESSIONS.LOGIN" value="0" />
+			<set name="SESSIONS.MARK" value="" />
+			<set name="MsgTyp" value="N" />
+			<set name="PRE_LOG_SUC_TIM" expr="LOG_SUC_TIME" />
+			<set name="PRE_LOG_SUC_IP" expr="LOG_SUC_IP" />
+			<set name="LOG_SUC_NUM" value="0" />
+			<set name="LOG_SUC_TIME" expr="GETDATETIME('YYYYMMDDHHMI')" />
+			<set name="LOG_SUC_IP" expr="reqip" />
+			<do func="InsertRecord" error="IGNORE">
+				<para name="TblNam" value="STPCUSLOG" />
+			</do>
+			<set name="RspCod" value="000000" />
+			<set name="RspMsg" value="交易成功" />
+		</process>
+	</transaction>
+
+	<!-- 免登陆接口 -->
+	<transaction code="515682" desc="免登陆接口">
+		<sql name="QryUsrIdInf"> <!-- 查询用户注册信息 -->
+			SELECT u.CUST_ID,u.CUST_LOGIN,u.CUST_PWD,g.pay_ac_no as
+			PAYACNO,c.CUST_NAME,c.CUST_STATUS,email_status as
+			emailstatus,c.cust_reg_date
+			FROM
+			STPUSRINF u,ARP_AC_CUST_REL
+			g,STPCUSINF c
+			WHERE u.CUST_LOGIN=#{UsrId}
+			and g.cust_id = u.cust_id and
+			u.cust_id =
+			c.cust_id
+		</sql>
+		
+		<sql name="QryBalInf">  <!-- 查询用户余额信息 -->
+			SELECT DAY_NUM AS DAYNUM FROM STPBALINF
+			WHERE CUST_ID=#{CUST_ID} AND
+			PAY_AC_NO=#{PAYACNO}
+		</sql>
+		<sql name="QryUserLogFail"><!-- 查询用户登录表，查询用户登录失败次数和第一次登录失败时间，以及用户上次登录失败之当前的时间，小时为单位 -->
+			SELECT
+			EXTRACT(DAY FROM ((sysdate-CURRENT_LOGIN_TIME) DAY TO SECOND)
+			)*24*60 +
+			EXTRACT(HOUR FROM ((sysdate-CURRENT_LOGIN_TIME) DAY TO
+			SECOND) )*60 +
+			EXTRACT(MINUTE FROM ((sysdate-CURRENT_LOGIN_TIME) DAY
+			TO SECOND )) as
+			timeDifference,
+			CURRENT_LOGIN_TIME,LOGIN_FAIL_COUNT
+			FROM STPLOGTMP
+			WHERE LOGIN_NAME = #{UsrId} AND CUST_TYPE=#{CUSTTYPE}
+			and
+			PWD_TYPE=#{PWDTYPE}
+		</sql>
+		<sql name="InsUsrLogInfo"> <!-- 添加用户登录失败信息记录 -->
+			INSERT INTO STPLOGTMP
+			(LOGIN_NAME,LAST_LOGIN_TIME,CURRENT_LOGIN_TIME,LOGIN_FAIL_COUNT,CUST_TYPE,PWD_TYPE)
+			VALUES (#{USRID},sysdate,sysdate,'0',#{CUSTTYPE},#{PWDTYPE})
+		</sql>
+		<sql name="UptUsrLogFailInfo"><!-- 更新用户登录失败信息记录 -->
+			UPDATE STPLOGTMP SET CURRENT_LOGIN_TIME=SYSDATE ,
+			LOGIN_FAIL_COUNT=#{FailFlag} WHERE LOGIN_NAME=#{UsrId} AND
+			CUST_TYPE=#{CUSTTYPE} and PWD_TYPE=#{PWDTYPE}
+		</sql>
+		<sql name="UpdUsrLogInfo"><!-- 修改登录用户登录失败信息记录 -->
+			UPDATE STPLOGTMP SET CURRENT_LOGIN_TIME=SYSDATE
+			,LAST_LOGIN_TIME=SYSDATE ,LOGIN_FAIL_COUNT='0'
+			WHERE
+			LOGIN_NAME=#{UsrId} AND CUST_TYPE=#{CUSTTYPE} and
+			PWD_TYPE=#{PWDTYPE}
+		</sql>
+		<sql name="UpdUsrLoginCount"><!-- 修改登录信息 -->
+			CUST_ID=#{CUST_ID}
+		</sql>
+		<sql name="selCusLog"><!-- 查询上次登录信息 -->
+			select * from stpcuslog
+			where cust_id = #{cust_id}
+		</sql>
+		<sql name="SelId"><!--用于数字证书查询 -->
+			SELECT DN FROM CUST_CERTINF WHERE CUST_ID=#{USRID} ORDER BY VAL_DATE
+			DESC
+		</sql>
+		<sql name="QrySysAuth"><!--查询系统权限 -->
+			SELECT OTHER_CUST_ID,CUST_LOG_ID,SYS_TYPE
+			FROM STPUMREF WHERE cust_id
+			= #{CUST_ID} ORDER BY SYS_TYPE DESC
+		</sql>
+		<sql name="QryBind"><!--查询绑定信息 -->
+			SELECT A.CUST_LOGIN USRID,A.PWD_KEY FROM STPCHNBIND A
+			WHERE A.LOGIN_ID = #{custId} AND A.CHN_TYP = #{chnTyp} AND A.BIND_STATUS = '0'
+		</sql>
+		<process>
+			<set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('html/', SESSIONS.LANGUAGE, '/login/main.jsp')" />
+			<set name="custId" expr="LOGIN_ID" />
+			<set name="chnTyp" expr="CHN_TYP" />
+			<set name="pwdKey" expr="PWD_KEY" />
+			<if condition="ISNULL(custId)">
+				<set name="_REQUESTATTR.FORWARDURL" value="login.jsp" />
+				<set name="MsgTyp" 		  value="E" />
+                <set name="RspCod"        value="002035"/>
+                <set name="RspMsg"        value="第三方帐号（LOGIN_ID）不能为空"/>
+                <return/>
+            </if> 
+            <if condition="ISNULL(chnTyp)">
+            	<set name="_REQUESTATTR.FORWARDURL" value="login.jsp" />
+				<set name="MsgTyp" value="E" />
+                <set name="RspCod"        value="002035"        />
+                <set name="RspMsg"        value="渠道号（CHN_TYP）不能为空"/>
+                <return/>
+            </if> 
+            <if condition="ISNULL(pwdKey)">
+            	<set name="_REQUESTATTR.FORWARDURL" value="login.jsp" />
+				<set name="MsgTyp" value="E" />
+                <set name="RspCod"        value="002035"        />
+                <set name="RspMsg"        value="第三方密钥（PWD_KEY）不能为空"/>
+                <return/>
+            </if> 
+            <!-- 验签处理 -->
+            <set name="signType"        value="CFCA"/>
+	        <if condition="IS_EQUAL_STRING(signType,'CFCA')"> 
+	            <set name="INSTR"  expr="STRCAT('LOGIN_ID=',custId,'&amp;PWD_KEY=',PWD_KEY)"/>
+	            <!--CACA验签-->
+	            <do func="CFCASignVer">
+	               <para name="sourceData"        expr="INSTR" />
+	               <para name="signData"          expr="SIGNATURE" />
+	            </do>
+	            <if condition="#RetCod!=0">
+	               <set name="RspCod"    value="08039"/>
+	               <set name="RspMsg"    value="验签失败"/>
+	               <return/>
+	            </if>
+	         </if>
+			<!-- 确认绑定关系 -->
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="QryBind" />
+			</do>
+			<if condition="#RetCod!=0">
+				<set name="_REQUESTATTR.FORWARDURL" value="login.jsp" />
+				<set name="MsgTyp" value="E" />
+				<set name="RspCod" value="02008" />
+				<set name="RspMsg" value="用户绑定关系不存在！" />
+				<return />
+			</if>
+			
+			<!-- 判断密钥 -->
+            <if condition="IS_NOEQUAL_STRING(DELBOTHSPACE(PWD_KEY),DELBOTHSPACE(pwdKey))">
+                <set name="RspCod" value="002036" />
+                <set name="RspMsg" value="密钥不正确!" />
+                <return/>
+            </if>
+
+			<set name="UsrIdS" expr="UsrId" />
+
+			<!-- 查询用户注册信息 -->
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="QryUsrIdInf" />
+			</do>
+			<if condition="#RetCod!=0">
+				<set name="MsgTyp" value="E" />
+				<set name="RspCod" value="02008" />
+				<set name="RspMsg" value="用户不存在！" />
+				<return />
+			</if>
+
+			<!-- 用户登录密码锁定次数判断 -->
+			<set name="UsrId" expr="DELBOTHSPACE(UsrId)" />
+			<set name="CUSTTYPE" value="0" /><!--0用户1 商户 2企业 -->
+			<set name="PWDTYPE" value="0" /><!--0:登录密码 1:支付密码 -->
+			<set name="FailFlag" value="0" />
+			<quote name="usrpwdlock" />
+			<!-- 用户登录密码锁定次数判断 -->
+
+			<set name="USRID" expr="CUST_ID" />
+			<!-- 账户禁用或已注销不能登录 -->
+			<set name="CUST_STATUS" expr="CUST_STATUS" />
+			<if condition="IS_EQUAL_STRING(CUST_STATUS,'9')">
+				<set name="_REQUESTATTR.FORWARDURL" value="login.jsp" />
+				<set name="MsgTyp" value="E" />
+				<set name="RspCod" value="02890" />
+				<set name="RspMsg" value="账户已注销,不能登录！" />
+				<return />
+			</if>
+
+			<set name="USRID" expr="USRIDS" />
+
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="selCusLog" />
+			</do>
+			<set name="reqip" expr="GetRequestAttr('REQIP')" />
+			<if condition="#RetCod==2">
+				<!-- 登录次数+1 -->
+				<set name="PRE_LOG_SUC_TIM" expr="LOG_SUC_TIME" />
+				<set name="PRE_LOG_SUC_IP" expr="LOG_SUC_IP" />
+				<set name="LOG_SUC_NUM" value="0" />
+				<set name="LOG_SUC_TIME" expr="GETDATETIME('YYYYMMDDHHMI')" />
+				<set name="LOG_SUC_IP" expr="reqip" />
+				<do func="InsertRecord" error="IGNORE">
+					<para name="TblNam" value="STPCUSLOG" />
+				</do>
+				<if condition="#RetCod!=0">
+					<set name="RspMsg" value="修改登录次数，失败" />
+				</if>
+			</if>
+			<elseif condition="#RetCod==0">
+				<!-- 登录次数+1 -->
+				<set name="PRE_LOG_SUC_TIM" expr="LOG_SUC_TIME" />
+				<set name="PRE_LOG_SUC_IP" expr="LOG_SUC_IP" />
+				<set name="LOG_SUC_NUM" expr="ADD(LOG_SUC_NUM,1)" />
+				<set name="LOG_SUC_TIME" expr="GETDATETIME('YYYYMMDDHHMI')" />
+				<set name="LOG_SUC_IP" expr="reqip" />
+				<do func="UpdateRecord" error="IGNORE">
+					<para name="TblNam" value="STPCUSLOG" />
+					<para name="CndSts" sql="UpdUsrLoginCount" />
+				</do>
+				<if condition="#RetCod!=0">
+					<set name="RspMsg" value="修改登录次数，失败" />
+				</if>
+			</elseif>
+
+			<!-- 查询用户余额信息 -->
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="QryBalInf" />
+			</do>
+			<if condition="#RetCod==2">
+				<set name="RspMsg" value="用户余额信息符合条件" />
+			</if>
+			<elseif condition="#RetCod==0">
+				<if condition="INTCMP(DAYNUM,5,10)">
+					<set name="balFlag" value="1" />
+				</if>
+			</elseif>
+			<elseif condition="#RetCod!=0">
+				<set name="MsgTyp" value="E" />
+				<set name="RspCod" value="09999" />
+				<set name="RspMsg" value="系统错误，请稍后再试或联系客服" />
+			</elseif>
+
+			<!-- 修改登记失败信息表 -->
+			<do func="ExecSql" error="IGNORE">
+				<para name="SqlCmd" sql="UpdUsrLogInfo" />
+			</do>
+			<if condition="#RetCod!=0">
+				<set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('login.jsp')" />
+				<set name="RSPCOD" value="02040" />
+				<set name="RSPMSG" value="更新登录信息失败!" />
+				<return />
+			</if>
+			
+			<!-- 登录状态 -->
+			<set name="MsgTyp" value="N" />
+			<set name="RspCod" value="000000" />
+			<set name="RspMsg" value="交易成功" />
+			<set name="SESSIONS.USRID" expr="CUST_ID" />
+			<set name="SESSIONS.USRNAME" expr="CUST_NAME" />
+			<set name="SESSIONS.USRMP" expr="CUST_LOGIN" />
+			<set name="First" expr="SUBSTR(CUST_LOGIN,1,3)" />
+			<set name="End" expr="SUBSTR(CUST_LOGIN,8,SUB(STRLEN(CUST_LOGIN),7))" />
+			<set name="LOGNAM" expr="STRCAT(First,'****',End)" />
+			<set name="SESSIONS.LOGIN_NAME1" expr="LOGNAM" />  <!-- 将中间的值换成* -->
+			<set name="SESSIONS.PAYACNO" expr="PAYACNO" />
+			<set name="SESSIONS.CUSTNO" expr="CUST_ID" />
+			<set name="LOGIN" expr="SESSIONS.LOGIN" />
+			<set name="SESSIONS.LOGIN" value="0" />
+			<set name="SESSIONS.MARK" expr="mark" />
+		</process>
+	</transaction>
+
+	<!-- 绑定关系（授权，查询，解绑，变更） -->
+	<transaction code="515683" desc="绑定关系（授权，查询，解绑，变更）">
+		<sql name="checkUserInf">
+			select USR.USR_STATUS,CUST.CUST_STATUS,USR.CUST_PWD from STPUSRINF USR,STPCUSINF CUST 
+			WHERE USR.CUST_ID = CUST.CUST_ID AND USR.CUST_LOGIN = #{custId}
+		</sql>
+		<!-- 检查绑定关系 -->
+		<sql name="checkBinding">
+			SELECT A.CUST_ID,A.CUST_LOGIN ,B.BIND_ID,B.PWD_KEY
+			FROM STPUSRINF A,STPCHNBIND B WHERE A.CUST_LOGIN = B.CUST_LOGIN
+			AND B.BIND_STATUS = '0' AND B.CHN_TYP = #{chnTyp} AND A.CUST_LOGIN = #{custId} AND B.LOGIN_ID = #{loginId}
+		</sql>
+		<!-- 查找绑定关系 -->
+		<sql name="queryBinding">
+			SELECT CHN.BIND_ID,CHN.CUST_LOGIN,CHN.LOGIN_ID FROM STPCHNBIND CHN 
+			WHERE CHN.CUST_LOGIN = #{custId} AND CHN.LOGIN_ID = #{loginId} 
+			AND CHN.BIND_STATUS = '0' AND CHN.CHN_TYP = #{chnTyp}
+		</sql>
+		<!-- 是否唯一绑定 -->
+		<sql name="checkOneBind">
+			select A.LOGIN_ID,CUST_LOGIN from STPCHNBIND A WHERE A.CUST_LOGIN = #{custId} 
+			AND A.BIND_STATUS='0' AND A.CHN_TYP = #{chnTyp}
+		</sql>
+		<!-- 是否解绑数据 -->
+		<sql name="isUnBind">
+			select A.BIND_ID from STPCHNBIND A WHERE A.CUST_LOGIN = #{custId} AND A.BIND_STATUS='1' 
+			AND A.CHN_TYP = #{chnTyp} AND A.LOGIN_ID = #{loginId}
+		</sql>
+		<!-- 重新绑定 -->
+		<sql name="reBind">
+			update STPCHNBIND set BIND_STATUS = #{bindStatus},PWD_KEY = #{pwdKey} WHERE BIND_ID = #{bindId}
+		</sql>
+		<sql name="insertBind">
+			 insert into STPCHNBIND(BIND_ID,CUST_LOGIN,LOGIN_ID,BIND_STATUS,CHN_TYP,PWD_KEY) 
+			 VALUES(#{bindId},#{custId},#{loginId},#{bindStatus},#{chnTyp},#{pwdKey})
+		</sql>
+		<process>
+			<!-- 校验必输信息 -->
+			<set name="loginId" expr="LOGIN_ID" />
+			<set name="custId" expr="CUST_ID" />
+			<set name="flag" expr="FLAG" />
+			<set name="chnTyp" expr="CHN_TYP" />
+			
+			<!-- 数据为空校验 -->
+			<if condition="ISNULL(loginId)">
+				<set name="RSPCOD" value="020080" />
+				<set name="RSPMSG" value="绑定帐号(LOGIN_ID)为空" />
+				<return />
+			</if>
+			<if condition="ISNULL(custId)">
+				<set name="RSPCOD" value="020080" />
+				<set name="RSPMSG" value="商物通帐号（CUST_ID）为空" />
+				<return />
+			</if>
+			<if condition="ISNULL(flag)">
+				<set name="RSPCOD" value="020080" />
+				<set name="RSPMSG" value="操作类型（FLAG）为空" />
+				<return />
+			</if>
+			<if condition="ISNULL(chnTyp)">
+				<set name="RSPCOD" value="020080" />
+				<set name="RSPMSG" value="渠道编号(CHN_TYP)为空" />
+				<return />
+			</if>
+			<!-- 验签处理 -->
+            <set name="signType"        value="CFCA"/>
+	        <if condition="IS_EQUAL_STRING(signType,'CFCA')"> 
+	            <set name="INSTR"  expr="STRCAT('LOGIN_ID=',loginId,'&amp;CUST_ID=',custId)"/>
+	            <!--CACA验签-->
+	            <do func="CFCASignVer">
+	               <para name="sourceData"        expr="INSTR" />
+	               <para name="signData"          expr="SIGNATURE" />
+	            </do>
+	            <if condition="#RetCod!=0">
+	               <set name="RspCod"    value="08039"/>
+	               <set name="RspMsg"    value="验签失败"/>
+	               <return/>
+	            </if>
+	         </if>
+			
+			<!-- 客户证件号码 -->
+			<!-- <set name="idNo" expr="DES_ENCRYPT(ID_NO)" /> -->
+			
+			<!-- 安全校验（商物通帐号是否存在） -->
+			<do func="ReadRecord" error="IGNORE">
+				<para name="SqlCmd" sql="checkUserInf" />
+			</do>
+			<if condition="#RetCod==2">
+				<set name="RspCod" value="02103" />
+				<set name="RspMsg" value="商务通帐号不存在!" />
+				<return />
+			</if>
+			<elseif condition="#RetCod!=0">
+				<set name="RspCod" value="09101" />
+				<set name="RspMsg" value="操作数据库失败!" />
+				<return />
+			</elseif>
+			<!-- 证书及安全性检查 -->
+			
+			
+			<!-- 授权绑定 -->
+			<if condition="IS_EQUAL_STRING(flag,'1')">
+			
+				<set name="pwd" expr="USRPWD" />
+	            <quote name="PwdAesToDes" />
+	            <set name="inPwd" expr="NewPwd" />
+	            <!-- 判断登陆密码是否正确 -->
+	            <if condition="IS_NOEQUAL_STRING(DELBOTHSPACE(CUST_PWD),DELBOTHSPACE(inPwd))">
+	                <set name="RspCod" value="002036" />
+	                <set name="RspMsg" value="登录密码错误!" />
+	                <return/>
+	            </if>
+	            
+				<if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+					<set name="RspCod" value="02103" />
+					<set name="RspMsg" value="该帐号已经注销无法绑定！" />
+					<return />			
+				</if>
+				<if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')">
+					<set name="RspCod" value="02103" />
+					<set name="RspMsg" value="该帐号未进行实名认证无法绑定！" />
+					<return />			
+				</if>
+				
+	            <!-- 安全校验（商物通帐号是否唯一绑定） -->
+				<do func="ReadRecord" error="IGNORE">
+					<para name="SqlCmd" sql="checkOneBind" />
+				</do>
+				<!-- 商务通帐号已经被绑定 -->
+				<if condition="#RetCod==0">
+					<set name="RspCod" value="02103" />
+					<set name="RspMsg" value="该帐号已经被绑定！" />
+					<return />
+				</if>
+				<!-- 商务通帐号没有被绑定 -->
+				<elseif condition="#RetCod==2">
+					<!-- 判断是否为重新绑定 -->
+					<do func="ReadRecord" error="IGNORE">
+						<para name="SqlCmd" sql="isUnBind" />
+					</do>
+					<!-- 重新绑定 -->
+					<if condition="#RetCod==0">
+						<!-- 重新绑定 -->
+						<set name="bindId" expr="BIND_ID" />
+						<set name="bindStatus" value="0" />
+						<!-- 获取随机数 -->
+						<set name="pwdKey" expr="RANDOM(30,0)"/>
+						<do func="ExecSql" >
+		                    <para name="SqlCmd" sql="reBind"/>
+		                </do>
+						<if condition="#RetCod!=0">
+							<set name="RspCod" value="09101" />
+							<set name="RspMsg" value="操作数据库失败!" />
+							<return />
+						</if>
+					</if>
+					<!-- 新增绑定 -->
+					<elseif condition="#RetCod==2">
+						<!-- 获取用户编号 -->
+						<do func="GetSeqNo" error="IGNORE">
+							<para name="TblNam" value="stpseqrec" />
+							<para name="KeyNam" value="KeyNam" />
+							<para name="KeyVal" value="STPCHNBIND_BINDID" />
+							<para name="SeqNam" value="KeyVal" />
+							<para name="Len" value="8" />
+							<para name="Circle" value="1" />
+						</do>
+						<if condition="#RetCod!=0">
+							<set name="RspCod" value="9001" />
+							<set name="RspMsg" value="序号生成失败" />
+							<set name="DWZ_STATUS_CODE" value="300" />
+							<set name="DWZ_RSP_MSG" expr="RSPMSG" />
+							<return />
+						</if>
+						<!-- 绑定编号 -->
+						<set name="bindId" expr="KeyVal" />
+						<set name="bindStatus" value="0" />
+						<!-- 获取随机数 -->
+						<set name="pwdKey" expr="RANDOM(30,0)"/>
+						<set name="custId" expr="CUST_ID"/>
+						<set name="loginId" expr="LOGIN_ID"/>
+						<set name="chnTyp" expr="CHN_TYP"/>
+						<!-- 绑定 -->
+						<do func="ExecSql" >
+		                    <para name="SqlCmd" sql="insertBind"/>
+		                </do>
+						<if condition="#RetCod!=0">
+							<set name="RspCod" value="09101" />
+							<set name="RspMsg" value="操作数据库失败!" />
+							<return />
+						</if>
+					</elseif>
+					<elseif condition="#RetCod!=0">
+						<set name="RspCod" value="09101" />
+						<set name="RspMsg" value="操作数据库失败!" />
+						<return />
+					</elseif>
+				</elseif>
+				<!-- 数据库错误 -->
+				<elseif condition="#RetCod!=0">
+					<set name="RspCod" value="09101" />
+					<set name="RspMsg" value="操作数据库失败!" />
+					<return />
+				</elseif>
+			</if>
+			
+			<!-- 解绑 -->
+			<if condition="IS_EQUAL_STRING(flag,'2')">
+				<set name="oPwdKey" expr="PWD_KEY" />
+				<if condition="ISNULL(oPwdKey)">
+					<set name="RSPCOD" value="020080" />
+					<set name="RSPMSG" value="密钥(PWD_KEY)为空" />
+					<return />
+				</if>
+				<!-- 安全校验（商物通帐号是否存在） -->
+				<do func="ReadRecord" error="IGNORE">
+					<para name="SqlCmd" sql="checkBinding" />
+				</do>
+				<if condition="#RetCod==0">
+					<!-- 验证密码 -->
+					<set name="pwd" expr="USRPWD" />
+		            <quote name="PwdAesToDes" />
+		            <set name="inPwd" expr="NewPwd" />
+		            <!-- 判断登陆密码是否正确 -->
+		            <if condition="IS_NOEQUAL_STRING(DELBOTHSPACE(CUST_PWD),DELBOTHSPACE(inPwd))">
+		                <set name="RspCod" value="002036" />
+		                <set name="RspMsg" value="登录密码错误!" />
+		                <return/>
+		            </if>
+		            <!-- 判断密钥 -->
+		            <if condition="IS_NOEQUAL_STRING(DELBOTHSPACE(PWD_KEY),DELBOTHSPACE(oPwdKey))">
+		                <set name="RspCod" value="002036" />
+		                <set name="RspMsg" value="密钥不正确!" />
+		                <return/>
+		            </if>
+					<!-- 解除绑定 -->
+					<set name="bindId" expr="BIND_ID" />
+					<set name="bindStatus" value="1" />
+					<!-- 获取随机数 -->
+					<set name="pwdKey" value=""/>
+					<do func="ExecSql" >
+	                    <para name="SqlCmd" sql="reBind"/>
+	                </do>
+					<if condition="#RetCod!=0">
+						<set name="RspCod" value="09101" />
+						<set name="RspMsg" value="操作数据库失败!" />
+						<return />
+					</if>
+				</if>
+				<if condition="#RetCod==2">
+					<set name="RspCod" value="02103" />
+					<set name="RspMsg" value="绑定关系不存在!" />
+					<return />
+				</if>
+				<elseif condition="#RetCod!=0">
+					<set name="RspCod" value="09101" />
+					<set name="RspMsg" value="操作数据库失败!" />
+					<return />
+				</elseif>
+			</if>
+			<!-- 查询 -->
+			<if condition="IS_EQUAL_STRING(flag,'3')">
+				<!-- 查找绑定 -->
+				<do func="ReadRecord" error="IGNORE">
+					<para name="SqlCmd" sql="queryBinding" />
+				</do>
+				<if condition="#RetCod==2">
+					<set name="RspCod" value="02103" />
+					<set name="RspMsg" value="无记录!" />
+				</if>
+				<elseif condition="#RetCod==0">
+					<set name="RspCod" value="000000" />
+					<set name="RspMsg" value="查找成功!" />
+					<return />
+				</elseif>
+				<elseif condition="#RetCod!=0">
+					<set name="RspCod" value="09101" />
+					<set name="RspMsg" value="操作数据库失败!" />
+					<return />
+				</elseif>
+			</if>
+			<!-- 变更  待开发-->
+			<!-- <if condition="IS_EQUAL_STRING(flag,'4')">
+				安全校验（商物通帐号是否存在）
+				<do func="ReadRecord" error="IGNORE">
+					<para name="SqlCmd" sql="checkBinding" />
+				</do>
+				<if condition="#RetCod==2">
+					<set name="RspCod" value="02103" />
+					<set name="RspMsg" value="绑定关系不存在!" />
+				</if>
+				<elseif condition="#RetCod!=0">
+					<set name="RspCod" value="09101" />
+					<set name="RspMsg" value="操作数据库失败!" />
+					<return />
+				</elseif>
+			</if> -->
+			
+		</process>
+	</transaction>
+
+</application>

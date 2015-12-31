@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="ITF" timeout="1200" log_level="INFO">
+    <!-- 报文头部分 -->
+    <macro name="headrequest">
+        <item name="TermCode"    length="20"    expr="DELBOTHSPACE(TermCode)"/>                 
+        <item name="channelType" length="10"    expr="DELBOTHSPACE(channelType)"/>              
+        <item name="sysCod"      length="04"    expr="DELBOTHSPACE(sysCod)"/>                   
+        <item name="TellerID"    length="20"    expr="DELBOTHSPACE(TellerID)"/>                 
+        <item name="TxnDat"      length="08"    expr="DELBOTHSPACE(TxnDat)"/>                   
+        <item name="TxnTim"      length="06"    expr="DELBOTHSPACE(TxnTim)"/>                   
+    </macro>
+    <macro name="signrequest">
+        <item name="signData"   length="1000"   expr="DELBOTHSPACE(signData)"/>                  
+    </macro>
+    <macro name="signresponse">
+        <item name="signData"  length="1000"    expr="DELBOTHSPACE(signData)"/>                      
+    </macro>
+    
+    <!-- 具体接口部分 -->
+    <transaction code="540504" desc="用户信息接口">
+        <unpack>
+            <quote name="headrequest"/>
+            <item name="DTYPE"         length="1"     expr="DELBOTHSPACE(DTYPE)"        desc="操作类型1新增，2修改，3删除"/>
+            <item name="UCODE"         length="14"    expr="DELBOTHSPACE(UCODE)"        desc="用户编码"/>
+            <item name="UNAME"         length="30"    expr="DELBOTHSPACE(UNAME)"        desc="用户姓名"/>
+            <item name="PAPERTYPE"     length="1"     expr="DELBOTHSPACE(PAPERTYPE)"    desc="证件类型"/>
+            <item name="PCODE"         length="40"    expr="DELBOTHSPACE(PCODE)"        desc="证件号"/>
+            <item name="PAPERREMDATE"  length="8"     expr="DELBOTHSPACE(PAPERREMDATE)" desc="证件到期日期"/>
+            <item name="EMAIL"         length="100"   expr="DELBOTHSPACE(EMAIL)"        desc="用户邮箱地址"/>
+            <item name="USERAPPFLAG"   length="1"     expr="DELBOTHSPACE(USERAPPFLAG)"  desc="认证状态 0：未认证，1 审核中 2：已通过,,3未通过"/>
+            <item name="ISTYPE"        length="1"     expr="DELBOTHSPACE(ISTYPE)"       desc="是否试用期 1：试用期，0：非试用期"/>
+            <item name="DATE"          length="8"     expr="DELBOTHSPACE(DATE)"         desc="处理日期"/>
+            <item name="TIME"          length="14"    expr="DELBOTHSPACE(TIME)"         desc="处理时间"/>
+            <quote name="signrequest"/>                 
+        </unpack>
+        <pack>
+            <item name="PASS_ORNO" length="1"  desc="操作成功或失败标志 1 成功 0失败" />
+            <item name="NO_INFO"   length="40" desc="不通过时返回不通过,原因" necessary="no"/>
+            <quote name="signresponse"/>
+        </pack>
+    </transaction>
+    
+    
+      <!-- 具体接口部分 -->
+    <transaction code="540510" desc="企业信息接口">
+        <unpack>
+            <quote name="headrequest"/>
+            <item name="DTYPE"         length="1"     expr="DELBOTHSPACE(DTYPE)"        desc="操作类型1新增，2修改，3删除"/>
+            <item name="ECODE"         length="14"    expr="DELBOTHSPACE(ECODE)"        desc="企业编码"/>
+            <item name="ENAME"         length="50"    expr="DELBOTHSPACE(ENAME)"        desc="企业名称"/>
+            <item name="LEGPER"        length="30"    expr="DELBOTHSPACE(LEGPER)"       desc="企业法人"/>
+            <item name="PAPERTYPE"     length="1"     expr="DELBOTHSPACE(PAPERTYPE)"    desc="证件类型"/>
+            <item name="PCODE"         length="40"    expr="DELBOTHSPACE(PCODE)"        desc="证件号"/> 
+            <item name="USERAPPFLAG"   length="1"     expr="DELBOTHSPACE(USERAPPFLAG)"  desc="认证状态 0：未认证，1 审核中 2：已通过,,3未通过"/>
+            <item name="ISTYPE"        length="1"     expr="DELBOTHSPACE(ISTYPE)"       desc="是否试用期 1：试用期，0：非试用期"/>
+            <item name="DATE"          length="8"     expr="DELBOTHSPACE(DATE)"         desc="处理日期"/>
+            <item name="TIME"          length="14"    expr="DELBOTHSPACE(TIME)"         desc="处理时间"/>
+            <quote name="signrequest"/>                 
+        </unpack>
+        <pack>
+            <item name="PASS_ORNO" length="1"  desc="操作成功或失败标志 1 成功 0失败" />
+            <item name="NO_INFO"   length="40" desc="不通过时返回不通过,原因" necessary="no"/>
+            <quote name="signresponse"/>
+        </pack>
+    </transaction>
+    
+    
+    <transaction code="540505" desc="商户信息接口">
+        <unpack>
+            <quote name="headrequest"/>
+            <item name="DTYPE"     length="1"     expr="DELBOTHSPACE(DTYPE)"      desc="操作类型"/>
+            <item name="CCODE"     length="14"    expr="DELBOTHSPACE(CCODE)"      desc="商户编码"/>
+            <item name="CNAME"     length="30"    expr="DELBOTHSPACE(CNAME)"      desc="商户名称"/>
+            <item name="CTYPE"     length="2"     expr="DELBOTHSPACE(CTYPE)"      desc="商户类型 (涉及此类型规则暂时不做操作，可空)"/>
+            <item name="CDATE"     length="8"     expr="DELBOTHSPACE(CDATE)"      desc="合同签订日期"/>
+            <item name="MDATE"     length="8"     expr="DELBOTHSPACE(MDSATE)"     desc="合同到期日期"/>
+            <item name="PCAD"      length="30"    expr="DELBOTHSPACE(PCAD)"       desc="支付帐号"/>
+            <item name="BANKCAD"   length="30"    expr="DELBOTHSPACE(BANKCAD)"    desc="开户行行号"/>
+            <item name="BANKNAME"  length="30"    expr="DELBOTHSPACE(BANKNAME)"   desc="开户行行名"/>
+            <item name="COMPMCC"   length="20"    expr="DELBOTHSPACE(COMP_MCC)"   desc="商户MCC值"/>
+            <item name="REMARK"    length="200"   expr="DELBOTHSPACE(REMARK)"     desc="商户描述"/>
+            <item name="DATE"      length="8"     expr="DELBOTHSPACE(DATE)"       desc="处理日期"/>
+            <item name="TEME"      length="14"    expr="DELBOTHSPACE(TIME)"       desc="处理时间"/>
+            <quote name="signrequest"/>                 
+        </unpack>
+        <pack>
+            <item name="PASS_ORNO" length="1"  desc="操作成功或失败标志 1 成功 0失败"/>
+            <item name="NO_INFO"   length="40" desc="不通过时返回不通过,原因" necessary="no"/>
+            <quote name="signresponse"/>
+        </pack>
+    </transaction>
+      
+    <transaction code="540503" desc="限额接口">
+        <unpack>
+            <quote name="headrequest"/>
+            <item name="AMT"        length="14" expr="DELBOTHSPACE(AMT)"       desc="金额"/>
+            <item name="PAY_TYPE"   length="2"  expr="DELBOTHSPACE(PAY_TYPE)"  desc="支付方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付" />
+            <item name="TRAN_TYPE"  length="1"  expr="DELBOTHSPACE(TRAN_TYPE)" desc="交易类型 0 其他 1 充值 2消费 3撤销 4预授权完成 5预授权完成撤销 6转账(虚拟帐号间) 7提现 8退款" />
+            <item name="CUST_TYPE"  length="1"  expr="DELBOTHSPACE(CUST_TYPE)" desc="客户类型 1用户 2 商户 0 两者"/>
+            <item name="USER_CODE"  length="14" expr="DELBOTHSPACE(USER_CODE)" desc="用户编号"/>
+            <item name="COMP_CODE"  length="14" expr="DELBOTHSPACE(COMP_CODE)" desc="商户编号"/>
+            <item name="TIME"       length="14" expr="DELBOTHSPACE(TIME)"      desc="时间秒"/>
+            <item name="DATE"       length="8"  expr="DELBOTHSPACE(DATE)"      desc="时间日期"/>
+            <quote name="signrequest"/>
+        </unpack>
+        <pack>
+            <item name="PASS_ORNO" length="1"   desc="操作成功或失败标志 1 成功 0失败"/>
+            <item name="NO_INFO"   length="100" desc="不通过时返回不通过,原因"/>
+            <quote name="signresponse"/>
+        </pack>
+    </transaction>
+    
+    
+    
+  
+    
+    <transaction code="540507" desc="实时交易接口">
+        <unpack>
+            <quote name="headrequest"/>
+            <item name="DTYPE"           length="1"      expr="DELBOTHSPACE(DTYPE)"          desc="操作类型"/>
+            <item name="TRAN_SOURCE"     length="2"      expr="DELBOTHSPACE(TRAN_SOURCE)"    desc="交易来源 00线上、01线下"/>
+            <item name="TCODE"           length="40"     expr="DELBOTHSPACE(TCODE)"          desc="交易流水号"/>
+            <item name="CTYPE"           length="1"      expr="DELBOTHSPACE(CTYPE)"          desc="客户类型"/>
+            <item name="CLIENTCODE"      length="20"     expr="DELBOTHSPACE(CLIENTCODE)"     desc="用户编号"/>
+            <item name="CLIENTNAME"      length="40"     expr="DELBOTHSPACE(CLIENTNAME)"     desc="用户名称"/>
+            <item name="CCODE"           length="20"     expr="DELBOTHSPACE(CCODE)"          desc="商户编码"/>
+            <item name="CNAME"           length="100"    expr="DELBOTHSPACE(CNAME)"          desc="商户名称"/>
+            <item name="BANK_CARD_NO"    length="20"     expr="DELBOTHSPACE(BANK_CARD_NO)"   desc="银行卡号"/>
+            <item name="BANK_DEP_NO"     length="20"     expr="DELBOTHSPACE(BANK_DEP_NO)"    desc="用于判断卡bin信息:发卡行机构代码"/>
+            <item name="BANK_CARD_LEN"   length="20"     expr="DELBOTHSPACE(BANK_CARD_LEN)"  desc="用于判断卡bin信息:主帐号长度"/>
+            <item name="BANK_SIGN_VAL"   length="20"     expr="DELBOTHSPACE(BANK_SIGN_VAL)"  desc="用于判断卡bin信息:发卡行标识取值"/>
+            <item name="CARD_FLG"        length="2"      expr="DELBOTHSPACE(CARD_FLG)"       desc="卡种:00借记卡、01贷记卡、02准贷记卡、03预付费卡、04 IC卡"/>
+            <item name="COIN_FLG"        length="4"      expr="DELBOTHSPACE(COIN_FLG)"       desc=" 币种:0000人民币0001外币"/>
+            <item name="TAMT"            length="14"     expr="DELBOTHSPACE(TAMT)"           desc="交易金额"/>
+            <item name="TRAN_STATUS"     length="1"      expr="DELBOTHSPACE(TRAN_STATUS)"    desc="交易状态:1交易完成，0其他"/>
+            <item name="TRAN_TYPE"       length="20"     expr="DELBOTHSPACE(TRAN_TYPE)"      desc="交易类型0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款"/>
+            <item name="TRAN_CLIENT"     length="5"      expr="DELBOTHSPACE(TRAN_CLIENT)"    desc="交易方式  01网银、02终端、03消费卡、04虚拟账户、05快捷支付"/>
+            <item name="REGDTTIME"       length="14"     expr="DELBOTHSPACE(REGDTTIME)"      desc="交易时间"/>
+            <item name="TIME"            length="8"      expr="DELBOTHSPACE(TIME)"           desc="处理日期"/>
+            <quote name="signrequest"/>                 
+        </unpack>
+        <pack>
+            <item name="TCODE"     length="40" desc="交易流水号"/>
+            <item name="PASS_ORNO" length="1"  desc="操作成功或失败标志 1 成功 0失败"/>
+            <item name="NO_INFO"   length="40" desc="不通过时返回不通过,原因" necessary="no"/>
+            <quote name="signresponse"/>
+        </pack>
+    </transaction>
+    
+  
+    
+    <transaction code="593728" desc="用户密码冻结查询">
+        <unpack>
+            <quote name="headrequest"/>
+            <item name="RCS_USER_CODE"          length="32"    expr="DELBOTHSPACE(RCS_USER_CODE)"           desc="用户编码"     />
+            <quote name="signrequest"/>                 
+        </unpack>
+        <pack>
+            <item name="RETURNRESULT"           length="20"     expr="DELBOTHSPACE(RETURNRESULT)"       />
+            <item name="RETURNRESULT_INFO"      length="40"     expr="DELBOTHSPACE(RETURNRESULT_INFO)"  />
+            <quote name="signresponse"/>
+        </pack>
+    </transaction>
+</channel>

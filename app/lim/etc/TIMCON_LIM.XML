@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<timetrigger>
+ 
+  <!--568098-清空用户随机数-->
+  <schitem app="lim" txncod='568098' cronExpression="0 0,15,30,45 * * * ?" log_level="INFO">
+  </schitem>
+
+</timetrigger>

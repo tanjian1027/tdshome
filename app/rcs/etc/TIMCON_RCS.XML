@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<timetrigger>
+    <!--规则引擎-->
+    <schitem app="rcs" txncod='540701' cronExpression="0 45 23 * * ?" log_level="INFO">
+    </schitem>
+    <schitem app="rcs" txncod='540702' cronExpression="0 50 23 * * ?" log_level="INFO">
+    </schitem>
+    
+</timetrigger>

@@ -1,0 +1,1677 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<application name="STP" code="100" log_level="DEBUG">
+	 <!-- 交易日志记录配置 -->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   <!-- 公共宏文件引入-->
+   <include file="etc/public/Order_MACRO.XML"/>
+
+   <before>
+      <!--打印ETF树-->
+      <do func="DumpEtf"/>
+      <set name="MsgTyp"        value="N"/>
+      <set name="RspCod"        value="00000"/>
+      <set name="txCcy"         value="CNY"/>
+      
+      <!--取当前日期设置会计日期-->
+      <set name="ActDat"        expr="GETDATE()"/>
+      <set name="TermCode"      expr="_REQUESTATTR.REQIP"/>
+   </before>
+   
+   <after>
+      <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+         <set name="MsgTyp"       value="N"/>
+      </if>
+      <else>
+         <set name="MsgTyp"       value="E"/>
+      </else>
+      <do func="DumpEtf"/>
+   </after>
+   
+   <transaction code="594100" desc="客户物业缴费账单查询交易--去物业系统查询">
+   	  <sql name="QryCusInf">  <!-- 查询用户名，用户身份证号 -->
+   	  	   select cust_id,cust_name,cust_cred_no from stpcusinf where cust_id = #{USERID}
+   	  </sql>
+   	  
+   	  <sql name="QueryUtilityBillInf">
+   	       select Bill_Monthfeeid,Bill_Item_Type,Bill_Cust_Id,Bill_Cust_Name,Bill_Cust_Id_Num,Bill_Room_Name,Bill_Period,Bill_Money,Bill_Memo,Bill_ctype,Bill_pactmainno,Bill_PrdOrdNo,Bill_Status from UtilityBillInf where Bill_Status = '00' and  Bill_Cust_Id = #{USERID}  and trim(BILL_PERIOD) = #{periodbegin}
+   	  </sql>
+   	  
+   	  <sql name="QryProInf"> <!-- 查询出支付订单号 -->
+           select Bill_PrdOrdNo as OrderId  from UtilityBillInf where Bill_Status = '00' and  Bill_Cust_Id = #{USERID} and trim(BILL_PERIOD) = #{periodbegin}
+   	  </sql>
+      
+      <process>
+         <!--检查用户登录平台是否正确-->
+         <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'2201'),IS_NOEQUAL_STRING(SysCod,'1105'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="用户登录平台不正确"/>
+            <return/>
+         </if>
+         <!--检查用户状态-->
+         <if condition="ISNULL(USERID)">
+            <set name="USERID" expr="SESSIONS.USRID"/>    
+         </if>
+         
+         <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('html/', SESSIONS.LANGUAGE, '/wyjf/wyjfrecord.jsp')" />
+         
+         <!-- 根据userID查询出用户的姓名 身份证号 -->
+         <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd"   sql="QryCusInf" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="002008"/>
+             <set name="RspMsg"        value="用户信息不存在"/>
+             <return/>
+         </if>
+         
+         <!-- 物流系统查询 入参 用户姓名  身份证号  数据库身份证为密文 需要解密;  开始月份  截至月份  收费记录等参数 -->
+         <set name="cus_name"       expr="cust_name"/>                             <!-- 客户名称  生产要求为法人姓名 不能为企业名称 -->   
+         <set name="idcard"         expr="DES_DECRYPT(cust_cred_no)"/>             <!-- 身份证号 -->
+         <set name="periodbegin"    expr="SUBSTR(GETDATE(),1,6)"/>                 <!-- 开始月份 -->    
+         <set name="periodend"      expr="SUBSTR(GETDATE(),1,6)"/>                 <!-- 截止月份 -->
+         <set name="feeend"         value="N"/>                                    <!-- 是否缴费记录 -->
+         <set name="proNo"          expr="GETDATETIME()"/>                         <!-- 账单批次号 针对客户同一批次 多个账单情况  -->
+         
+         <!-- 读取物业系统通讯参数 配置参数名 BillUrl -->
+         <set name="ConfigName" value="UtilityBillUrl"/>
+         <quote name="ReadXmlCfg"/>
+         
+         <!-- 调用原子函数 请求物业系统 生产调用参数  姓名+身份证  查询账单 并入库 -->
+         <do func="QueryUtilityBillInfoPro"     error="IGNORE">
+         	   <para name="cus_name"                expr="cus_name"/>             <!-- 客户名称 -->
+             <para name="idcard"                  expr="idcard"/>               <!-- 身份证号 -->
+             <para name="periodbegin"             expr="periodbegin"/>          <!-- 开始月份 -->  
+             <para name="periodend"               expr="periodend"/>            <!-- 截止月份 -->
+             <para name="feeend"                  expr="feeend"/>               <!-- 是否缴费记录 -->
+             <para name="BillUrl"                 expr="BillUrl"/>              <!-- 第三方通讯地址 -->
+         </do>
+         <if condition="#RetCod==0">
+         	   	  <set name="RspCod"    value="00000"/>
+                <set name="RspMsg"    value="账单信息查询成功"/>
+         </if>         
+         <elseif condition="#RetCod==2">
+         	   <if condition="ISNULL(RSPRIGHTDATE)">
+         	   	  <set name="RspCod"    value="09002"/>
+                <set name="RspMsg"    value="该用户本月无账单信息"/>
+                <!-- return/ -->
+         	   </if>
+         	   <else>
+         	   	  <set name="RspCod"    value="09002"/>
+                <set name="RspMsg"    value="物业系统查询账单失败"/>
+                <return/>
+         	   </else>
+         </elseif>
+         <else>
+                <set name="RspCod"    value="09002"/>
+                <set name="RspMsg"    value="物业系统查询账单失败"/>
+                <return/>
+         </else>
+         
+         <!-- 测试环境调用院子函数 使用参数cus_code -->
+         <!--do func="QueryUtilityBillInfoTest"     error="IGNORE"-->
+         	   <!--para name="cus_code"                value="HY2080"/-->            <!-- 客户code -->
+             <!--para name="periodbegin"             expr="periodbegin"/-->          <!-- 开始月份 -->  
+             <!--para name="periodend"               expr="periodend"/-->            <!-- 截止月份 -->
+             <!--para name="feeend"                  expr="feeend"/-->               <!-- 是否缴费记录 -->
+             <!--para name="BillUrl"                 expr="BillUrl"/-->              <!-- 第三方通讯地址 -->
+         <!--/do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09002"/>
+             <set name="RspMsg"    value="物业系统查询账单失败"/>
+             <return/>
+         </if -->
+
+         <if condition="ISNULL(PageNum)">
+              <set name="PageNum" value="1" />
+         </if>
+         <if condition="ISNULL(NumPerPag)">
+              <set name="NumPerPag" value="10" />
+         </if>
+
+         <!-- 去第三方查询账单成功 查询已经入库账单，用于前端展示 -->
+         <do func="PagedQuery" error="ignore">
+             <para name="PageNum"    expr="PageNum" />
+             <para name="NumPerPag"  expr="NumPerPag" />
+             <para name="Sql"        sql="QueryUtilityBillInf" />
+         </do>
+         <if condition="#RetCod==2">
+             <set name="MsgTyp" value="E" />
+             <set name="RspCod" value="09999" />
+             <set name="RspMsg" value="无交易记录" />
+             <set name="TOLCNT" value="0" />
+             <set name="ALLPAGENUM" value="0" />
+             <set name="RECNUM" value="0" />
+             <set name="PAGENUM" value="0" />
+             <return />
+         </if>
+         <elseif condition="#RetCod!=0">
+             <set name="MsgTyp" value="E" />
+             <set name="RspCod" value="09999" />
+             <set name="RspMsg" value="系统错误,请稍后再试或联系客服" />
+             <return />
+         </elseif>
+         
+         <set name="ALLPAGENUM" expr="DIV(TOLCNT,NUMPERPAG)" />
+         <set name="mob" expr="MOD(TOLCNT,NUMPERPAG)" />
+         <if condition="IS_NOEQUAL_STRING(MOB,'0')">
+             <set name="ALLPAGENUM" expr="ADD(ALLPAGENUM,1)" />
+         </if>
+         <if condition="INTCMP(PageNum,6,ALLPAGENUM)">
+             <set name="PageNum" expr="ALLPAGENUM" />
+         </if>
+         <if condition="INTCMP(ALLPAGENUM,6,'0')">
+             <if condition="INTCMP(PageNum,3,'0')">
+                 <set name="PageNum" value="1" />
+             </if>
+         </if>
+
+         <!-- 获取表记录的正确订单号 -->
+         <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd"   sql="QryProInf" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="002008"/>
+             <set name="RspMsg"        value="订单信息不存在"/>
+             <return/>
+         </if>
+         
+         <set name="OrderId"    expr="OrderId"/>
+         <set name="OrdNum"     value="1"/>
+
+         <!-- 查询交易成功结束 -->
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/> 
+            
+      </process>
+   </transaction>
+
+   <transaction code="594101" desc="客户物业缴费交费--汇总缴费">
+
+      <sql name="QryMerInf"><!-- 查询商户信息 添加一个a.MER_TYPE-->
+         SELECT c.CUST_NAME StoreName,a.CUST_ID MerId,a.aut_sts,a.company_brief ,c.CUST_STATUS
+           FROM StpMerInf a ,StpCusInf c
+          WHERE a.cust_id=c.cust_id and  a.CUST_ID=#{merchantId}
+      </sql>
+      <sql name="QryCusInf"><!-- 查询客户信息-->
+         SELECT CUST_STATUS,cust_name,cust_cred_no FROM StpCusInf WHERE CUST_ID=#{USERID}
+      </sql>
+      <sql name="QryMerSigInf"><!-- 查询签约信息-->
+         SELECT m.prod_code FROM STPMERSIG m,stpproinf g 
+         WHERE m.prod_code =g.prod_code and  g.prod_flag='0' and 
+         MER_NO=#{merchantId} and m.prod_code=#{PRODCODE} 
+      </sql>
+      <sql name="QryOrdInf"><!-- 查询商品订单信息-->
+         SELECT prdOrdNo FROM StpPrdInf WHERE prdOrdNo=#{prdOrdNo} AND merNo=#{merchantId}
+      </sql>
+ 
+      <sql name="QryUtilityBillInf"><!-- 查询客户物业缴费账单信息记录表,获取该批次缴费缴费总金额 -->
+      	   select SUM(Bill_Money) as orderAmount from UtilityBillInf where Bill_PrdOrdNo = #{orderId} and  Bill_Status = '00' 
+      </sql>
+      
+      <sql name="InsertUtilityBillPayInf">  <!-- 初始化表数据UtilityBillPayInf -->
+      	  insert into UtilityBillPayInf (BillPay_PrdOrdNo,BillPay_Cust_Id,Bill_Cust_Name,Bill_Cust_Id_Num,BillPay_Amt,BillPay_Status,BillPay_MerNo,BillPay_MerName) 
+      	  values (#{prdOrdNo}, #{CUST_ID}, #{custname},#{idcard},#{ordAmt},'00',#{merchantId},#{StoreName})
+      </sql>
+ 
+      <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="QryUtilityBillPayInf">
+      	 select BillPay_PrdOrdNo from UtilityBillPayInf where BillPay_PrdOrdNo=#{prdOrdNo} and BillPay_Status = '00'
+      </sql>
+
+      <process>
+          <!-- 设置默认错误跳转地址 -->
+          <set name="errorurl"      value="html/zh-CN/error/error.jsp"/>
+          <set name="_REQUESTATTR.FORWARDURL" expr="errorurl" />    <!-- 页面跳转 -->
+          
+         <!--检查用户登录平台是否正确-->
+         <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'2201'),IS_NOEQUAL_STRING(SysCod,'1105'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="用户登录平台不正确"/>
+            <return/>
+         </if>
+         <!--检查用户状态-->
+         <if condition="ISNULL(USERID)">
+            <set name="USERID" expr="SESSIONS.USRID"/>
+         </if>
+
+         <!-- 检查交易时间  交易时间需要控制  每月最后一天23点之前都可以做交易 -->
+         <set name="time_line"    value="2200"/>      <!-- 客户线下业务规定时间线23:00 考虑业务 程序控制在22:00 -->
+         <do func="ChoiceTimeLine"     error="IGNORE">
+        	   <para name="time_line"                expr="time_line"/>
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09002"/>
+             <set name="RspMsg"    value="每月最后一天22:00后，不允许物业缴费"/>
+             <return/>
+         </if>
+
+          <!-- 根据页面传递的账单批次号，查询该批次账单所有记录，以及金额 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryUtilityBillInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="不存在该批次缴费账单"/>
+             <return/>
+          </if>
+          
+          <!-- 用户系统直接下单，常量值配置在文件中 -->
+          <set name="ConfigName" value="OrderCfg"/>
+          <quote name="ReadXmlCfg"/>
+          
+          
+          <!-- 用户系统直接下单 建立商品订单 去除验签功能 -->
+          <set name="versionId"   expr="versionId"/>
+          <set name="merchantId"  expr="merchantId"/>
+          <set name="CUST_ID"     expr="USERID"/>
+          <set name="prdOrdNo"    expr="orderId"/>
+          <!--set name="ordAmt"      expr="orderAmount"/-->
+          <set name="ordAmt"      expr="AMTPOWER(orderAmount,2)"/>    <!-- 元转成分 -->
+          <set name="orderTime"   expr="prdOrdNo"/>          
+          <set name="signature"   expr="signature"/>          
+          <set name="inMsg"       expr="inMsg"/>
+          <set name="notifyUrl"   expr="retUrl"/>
+          <set name="retUrl"      expr="returnUrl"/>
+          <set name="bizType"     expr="bizType"/>
+          <set name="prdDesc"     expr="prdDesc"/>
+          <set name="PRODCODE"    expr="PRODCODE"/><!--商户购买的产品编码-->    
+          <set name="prdName"     expr="prdName"/>                    <!-- 下单交易 prdName值需要包括所有的物业缴费信息 -->    
+          
+          <!-- 根据批次号，查询出需要缴费的项目信息 -->
+           <!--调用原子函数 完成字段信息拼接 -->
+          <do func="QryPrdName"     error="IGNORE">
+         	   <para name="Bill_PrdOrdNo"                expr="prdOrdNo"/>           <!-- 缴费批次号 -->
+         	   <para name="BillPay_Cust_Id"              expr="CUST_ID"/>            <!-- 用户号 -->
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09002"/>
+             <set name="RspMsg"    value="商品备注信息获取失败"/>
+             <return/>
+         </if>
+         <set name="prdName"     expr="PrdNameL"/>                                  <!-- 下单交易 prdName值需要包括所有的物业缴费信息 -->   
+          
+          
+         <!--检查金额格式-->
+         <if condition="NOT(ISNULL(ordAmt))">
+            <if condition="NOT(ISNUMBER(ordAmt))">
+               <set name="RspCod"    value="08044"/>
+               <set name="RspMsg"    value="金额格式错误"/>
+               <return/>
+            </if>
+         </if>
+         <else>
+            <set name="RspCod"    value="08045"/>
+            <set name="RspMsg"    value="订单金额不能为空！"/>
+            <return/>
+         </else>
+         
+         <if condition="IS_EQUAL_STRING(versionId,'3')">
+            <set name="retUrl"        expr="returnUrl"/>
+         </if>
+         <if condition="ISNULL(prdDesc)">
+           <set name="merRemark"    value="商城名称"/>
+         </if>
+         <if condition="ISNULL(PrdName)">
+           <set name="PrdName"      value="商品"/>
+         </if>
+         
+          <!-- 查询商户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="商户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="StoreName"   expr="StoreName"/>
+          
+          <!-- 查询用户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryCusInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="用户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="用户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="custname"       expr="cust_name"/>
+          <set name="idcard"         expr="DES_DECRYPT(cust_cred_no)"/>             <!-- 身份证号 -->
+          
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerSigInf" />
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          
+          <!--判断表UtilityBillPayInf是否存在重复数据 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryUtilityBillPayInf" />
+          </do>
+          <if condition="#RetCod!=0">
+              <!-- 建立支付订单前 初始化UtilityBillPayInf表数据 -->
+              <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="InsertUtilityBillPayInf"/>
+              </do>
+              <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09999"/>
+                <set name="RspMsg"        value="系统错误"/>
+                <return/>
+              </if>
+          </if>
+          <else>
+                <set name="RspCod"        value="00000"/>
+                <set name="RspMsg"        value="该笔订单已经存在，不用重新录入"/>
+          </else>
+          
+          <if condition="IS_EQUAL_STRING(prod_code,'CP00000002')">
+             <set name="prdOrdType"   value="2"/>        <!--订单类型  0 消费  1 充值2 担保 3商户充值 -->    
+          </if>
+          <else>
+            <set name="prdOrdType"   value="0"/>        <!--订单类型  0 消费  1 充值 2 担保 3商户充值-->    
+          </else>
+
+         <!-- 物业缴费交易由用户系统直接下单，不用验签 -->
+         <!-- 验签处理 -->
+         <!--适用于CFCA及自建CA两种情况-->
+         <!--if condition="IS_EQUAL_STRING(signType,'CFCA')"-->  <!--验签方式 CFCA -->
+             
+             <!--CACA验签-->
+             <!--do func="CFCASignVer">
+                <para name="signData"          expr="SIGNATURE" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if-->
+         <!--/if>
+         <elseif condition="IS_EQUAL_STRING(signType,'ZJCA')"-->  <!--验签方式 自建CA  ZJCA-->
+             <!--set name="CFCAPWD"         value="12345678"/-->
+             <!--自建CA验签-->
+             <!--do func="HkCaVerifyn">
+               <para name="sourceData"   expr="inMsg" />
+               <para name="signData"     expr="REPALLSTR(signature,' ','+')" />
+               <para name="pfxPath"      expr="STRCAT(GETCURAPPHOME(),'/key/',merchantId,'.pfx')" />
+               <para name="pfxPwd"       expr="CFCAPWD" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if>
+             <delete name="CFCAPWD"/>
+         </elseif>
+         
+         <delete name="SIGNATURE"/-->
+         	
+         <!--检查商品订单是否存在-->
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="QryOrdInf" />
+         </do>
+         <if condition="#RetCod==2">       <!-- 商品订单不存在 初次支付-->
+            <set name="orderTime"    expr="orderTime"/>
+            <set name="merNo"        expr="merchantId"/>
+            <set name="cust_id"      expr="USERID"/>
+            <set name="ordccy"       value="CNY"/>
+            <set name="txncomamt"    value="0"/>
+            <set name="OrdStatus"    value="00"/>
+            <set name="ordsource"    value="0" />  <!--来源  0 PC端  1 手机端-->    
+            
+            <!--登记商品订单信息-->
+            <do func="InsertRecord" error="IGNORE">
+               <para name="TblNam"  value="StpPrdInf" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <return/>
+            </if>
+         </if>
+         <elseif condition="#RetCod==0">   <!-- 商品订单存在 继续执行-->
+            <set name="morePay"   value="1"/>
+            <set name="RspCod"    value="00000"/>
+            <set name="RspMsg"    value="订单号已存在"/>
+         </elseif>
+         <else>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </else>
+         
+         <!--取收银台参数配置-->
+         <!--set name="ConfigName"       value="PayCfg"/>
+         <quote name="ReadXmlCfg"/-->
+         <set name="payurl"      value="html/zh-CN/cashier/expense/cashier1.jsp"/>
+         <set name="payurl"      expr="STRCAT(payurl,'?orderId=',prdordno,'&amp;merNo=',merchantId)"/>
+         <set name="_REQUESTATTR.FORWARDURL" expr="payurl" />    <!-- 页面跳转 -->
+         
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+
+      </process>
+
+   </transaction>
+   
+   <transaction code="594102" desc="客户物业缴费交费--单笔账单缴费">
+
+      <sql name="QryMerInf"><!-- 查询商户信息 添加一个a.MER_TYPE-->
+         SELECT c.CUST_NAME StoreName,a.CUST_ID MerId,a.aut_sts,a.company_brief ,c.CUST_STATUS
+           FROM StpMerInf a ,StpCusInf c
+          WHERE a.cust_id=c.cust_id and  a.CUST_ID=#{merchantId}
+      </sql>
+      <sql name="QryCusInf"><!-- 查询客户信息-->
+         SELECT CUST_STATUS,cust_name,cust_cred_no FROM StpCusInf WHERE CUST_ID=#{USERID}
+      </sql>
+      <sql name="QryMerSigInf"><!-- 查询签约信息-->
+         SELECT m.prod_code FROM STPMERSIG m,stpproinf g 
+         WHERE m.prod_code =g.prod_code and  g.prod_flag='0' and 
+         MER_NO=#{merchantId} and m.prod_code=#{PRODCODE} 
+      </sql>
+      <sql name="QryOrdInf"><!-- 查询商品订单信息-->
+         SELECT prdOrdNo FROM StpPrdInf WHERE prdOrdNo=#{prdOrdNo} AND merNo=#{merchantId}
+      </sql>
+ 
+      <sql name="QryUtilityBillInf"><!-- 查询客户物业缴费账单信息记录表,获取该批次缴费缴费总金额 -->
+      	   select SUM(Bill_Money) as orderAmount from UtilityBillInf where Bill_PrdOrdNo = #{orderId} and  Bill_Status = '00' 
+      </sql>
+      
+      <sql name="InsertUtilityBillPayInf">  <!-- 初始化表数据UtilityBillPayInf -->
+      	  insert into UtilityBillPayInf (BillPay_PrdOrdNo,BillPay_Cust_Id,Bill_Cust_Name,Bill_Cust_Id_Num,BillPay_Amt,BillPay_Status,BillPay_MerNo,BillPay_MerName) 
+      	  values (#{prdOrdNo}, #{CUST_ID}, #{custname},#{idcard},#{ordAmt},'00',#{merchantId},#{StoreName})
+      </sql>
+ 
+      <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+
+      <process>
+      	  <!-- 设置默认错误跳转地址 -->
+          <set name="errorurl"      value="html/zh-CN/error/error.jsp"/>
+          <set name="_REQUESTATTR.FORWARDURL" expr="errorurl" />    <!-- 页面跳转 -->
+          
+          <!--检查用户登录平台是否正确-->
+          <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'2201'),IS_NOEQUAL_STRING(SysCod,'1105'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="用户登录平台不正确"/>
+            <return/>
+          </if>
+          <!--检查用户状态-->
+          <if condition="ISNULL(USERID)">
+             <set name="USERID" expr="SESSIONS.USRID"/>    
+          </if>
+          
+          <!-- 用户系统直接下单，常量值配置在文件中 -->
+          <set name="ConfigName" value="OrderCfg"/>
+          <quote name="ReadXmlCfg"/>
+          
+          
+          <!-- 用户系统直接下单 建立商品订单 去除验签功能 -->
+          <set name="versionId"   expr="versionId"/>
+          <set name="merchantId"  expr="merchantId"/>
+          <set name="CUST_ID"     expr="USERID"/>
+          <set name="prdOrdNo"    expr="orderId"/>
+          <!--set name="ordAmt"      expr="orderAmount"/-->
+          <set name="ordAmt"      expr="AMTPOWER(orderAmount,2)"/>    <!-- 元转成分 -->
+          <set name="orderTime"   expr="prdOrdNo"/>          
+          <set name="signature"   expr="signature"/>          
+          <set name="inMsg"       expr="inMsg"/>
+          <set name="notifyUrl"   expr="retUrl"/>
+          <set name="retUrl"      expr="returnUrl"/>
+          <set name="bizType"     expr="bizType"/>         
+          <set name="prdName"     expr="prdName"/>
+          <set name="prdDesc"     expr="prdDesc"/>
+          <set name="PRODCODE"    expr="PRODCODE"/><!--商户购买的产品编码-->
+          
+          
+         <!--检查金额格式-->
+         <if condition="NOT(ISNULL(ordAmt))">
+            <if condition="NOT(ISNUMBER(ordAmt))">
+               <set name="RspCod"    value="08044"/>
+               <set name="RspMsg"    value="金额格式错误"/>
+               <return/>
+            </if>
+         </if>
+         <else>
+            <set name="RspCod"    value="08045"/>
+            <set name="RspMsg"    value="订单金额不能为空！"/>
+            <return/>
+         </else>
+         
+         <if condition="IS_EQUAL_STRING(versionId,'3')">
+            <set name="retUrl"        expr="returnUrl"/>
+         </if>
+         <if condition="ISNULL(prdDesc)">
+           <set name="merRemark"    value="商城名称"/>
+         </if>
+         <if condition="ISNULL(PrdName)">
+           <set name="PrdName"      value="商品"/>
+         </if>
+         
+          <!-- 查询商户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="商户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="StoreName"   expr="StoreName"/>
+          
+          <!-- 查询用户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryCusInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="用户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="用户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="custname"       expr="cust_name"/>
+          <set name="idcard"         expr="DES_DECRYPT(cust_cred_no)"/>             <!-- 身份证号 -->
+          
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerSigInf" />
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          
+          <!-- 建立支付订单前 初始化UtilityBillPayInf表数据 -->
+          <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="InsertUtilityBillPayInf"/>
+          </do>
+          <if condition="#RetCod!=0">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="系统错误"/>
+            <return/>
+          </if>
+
+          <if condition="IS_EQUAL_STRING(prod_code,'CP00000002')">
+             <set name="prdOrdType"   value="2"/>        <!--订单类型  0 消费  1 充值2 担保 3商户充值 -->    
+          </if>
+          <else>
+            <set name="prdOrdType"   value="0"/>        <!--订单类型  0 消费  1 充值 2 担保 3商户充值-->    
+          </else>
+          
+         <!-- 物业缴费交易由用户系统直接下单，不用验签 -->
+         <!-- 验签处理 -->
+         <!--适用于CFCA及自建CA两种情况-->
+         <!--if condition="IS_EQUAL_STRING(signType,'CFCA')"-->  <!--验签方式 CFCA -->
+             
+             <!--CACA验签-->
+             <!--do func="CFCASignVer">
+                <para name="signData"          expr="SIGNATURE" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if-->
+         <!--/if>
+         <elseif condition="IS_EQUAL_STRING(signType,'ZJCA')"-->  <!--验签方式 自建CA  ZJCA-->
+             <!--set name="CFCAPWD"         value="12345678"/-->
+             <!--自建CA验签-->
+             <!--do func="HkCaVerifyn">
+               <para name="sourceData"   expr="inMsg" />
+               <para name="signData"     expr="REPALLSTR(signature,' ','+')" />
+               <para name="pfxPath"      expr="STRCAT(GETCURAPPHOME(),'/key/',merchantId,'.pfx')" />
+               <para name="pfxPwd"       expr="CFCAPWD" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if>
+             <delete name="CFCAPWD"/>
+         </elseif>
+         
+         <delete name="SIGNATURE"/-->
+         	
+         <set name="ordccy"       value="CNY"/>
+         <set name="txncomamt"    value="0"/>
+         <set name="OrdStatus"    value="00"/>
+         <set name="ordsource"    value="0" />  <!--来源  0 PC端  1 手机端-->
+         	
+         <!--检查商品订单是否存在-->
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="QryOrdInf" />
+         </do>
+         <if condition="#RetCod==2">       <!-- 商品订单不存在 初次支付-->
+         	  
+           <set name="orderTime"    expr="orderTime"/>
+           <set name="merNo"        expr="merchantId"/>
+           <set name="cust_id"      expr="USERID"/>
+           
+           <!--登记商品订单信息-->
+           <do func="InsertRecord" error="IGNORE">
+              <para name="TblNam"  value="StpPrdInf" />
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <return/>
+           </if>
+         
+         </if>
+         <elseif condition="#RetCod==0">   <!-- 商品订单存在-->
+            <set name="morePay"   value="1"/>
+            <set name="RspCod"    value="0000"/>
+            <set name="RspMsg"    value="订单号已存在，可继续支付"/>
+         </elseif>
+         <else>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </else>
+         
+         <!--取收银台参数配置-->
+         <!--set name="ConfigName"       value="PayCfg"/>
+         <quote name="ReadXmlCfg"/-->
+         <set name="payurl"      value="html/zh-CN/cashier/expense/cashier.jsp"/>
+         <set name="payurl"      expr="STRCAT(payurl,'?orderId=',prdordno,'&amp;merNo=',merchantId)"/>
+         <set name="_REQUESTATTR.FORWARDURL" expr="payurl" />    <!-- 页面跳转 -->
+         
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+
+      </process>
+
+   </transaction>
+   
+   <transaction code="594103"  desc="物业缴费成功--回写通知物业系统">
+   	
+   	  <sql name="QryUtilityBillPayInf"><!-- 查询账单支付信息表 -->
+   	  	select * from UtilityBillPayInf where BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+   	  </sql>   
+   	
+   	  <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+   	
+   	<process>
+   		
+      <!-- 支付成功后，回写通知物流系统账单缴费成功 -->
+      <!-- 读取物业系统通讯参数 配置参数名 BillUrl -->
+      <set name="ConfigName" value="UtilityBillUrlRet"/>
+      <quote name="ReadXmlCfg"/>         
+      <set name="Bill_PrdOrdNo"    expr="prdOrdNo"/>          <!-- 付款批次号 -->
+      
+      <!--根据批次号，查询账单总的缴费信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="QryUtilityBillPayInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="morePay"   value="1"/>
+         <set name="RspCod"    value="08046"/>
+         <set name="RspMsg"    value="账单支付信息查询错误"/>
+         <return/>
+      </if>
+      
+      <!-- 调用原子函数 请求物业系统  账单信息回写 -->         
+      <do func="NoticeUtilityBillInfo"     error="IGNORE">
+      	   <para name="Bill_Cust_Name"          expr="Bill_Cust_Name"/>       <!-- 用户名 -->
+      	   <para name="Bill_PrdOrdNo"           expr="Bill_PrdOrdNo"/>        <!-- 付款批次号 -->
+      	   <para name="BillPay_Amt"             expr="AMTADDDOT(BillPay_Amt)"/>          <!-- 缴费总金额 -->
+      	   <para name="BillPay_Cust_Id"         expr="BillPay_Cust_Id"/>       <!-- 缴费客户号 -->
+           <para name="BillUrl"                 expr="BillUrl"/>              <!-- 第三方通讯地址 -->
+      </do>
+      <if condition="#RetCod!=0">
+          <set name="RspCod"    value="09002"/>
+          <set name="RspMsg"    value="通知物业系统回写失败"/>
+          <return/>
+      </if>
+     
+      <!-- 回写物业修通成功 更新物业系统账单记录表状态 -->
+      <set name="Status"          value="01"/>                <!--缴费成功状态 00未缴费  01缴费成功-->
+      <set name="Bill_PrdOrdNo"   expr="Bill_PrdOrdNo"/>      <!--付款批次号-->       
+      <do func="ExecSql" error="error">
+       <para name="SqlCmd"  sql="updateUtilityBillInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09024"/>     
+         <set name="RspMsg"    value="更新物业缴费信息表失败"/>
+         <return/>
+      </if>
+      <else>
+         <set name="RspCod"    value="00000"/>     
+         <set name="RspMsg"    value="更新物业缴费信息成功!"/>
+      </else>
+      
+      <do func="ExecSql" error="error">
+       <para name="SqlCmd"  sql="updateUtilityBillPayInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09024"/>     
+         <set name="RspMsg"    value="更新物业缴费信息表失败"/>
+         <return/>
+      </if>
+      <else>
+         <set name="RspCod"    value="00000"/>     
+         <set name="RspMsg"    value="更新物业缴费信息成功!"/>
+      </else>
+      
+      <set name="MsgTyp"    value="N"/>
+      <set name="RspCod"    value="00000"/>
+      <set name="RspMsg"    value="交易成功"/>
+    </process>
+      
+   </transaction>
+   
+   <transaction code="594105"  desc="手机app请求--去第三方查询账单信息">
+   	
+   	  <sql name="QryCusInf">  <!-- 查询用户名，用户身份证号 -->
+   	  	   select cust_id,cust_name,cust_cred_no from stpcusinf where cust_id = #{USERID}
+   	  </sql>
+   	  
+      <process>
+      	 <!-- 校验手机app上送字段值 -->
+      	 <set name="USERID"   expr="CUST_ID"/>        <!-- 用户账号 -->
+      	
+         <!-- 根据userID查询出用户的姓名 身份证号 -->
+         <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd"   sql="QryCusInf" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="002008"/>
+             <set name="RspMsg"        value="用户信息不存在"/>
+             <return/>
+         </if>
+         
+         <!-- 物流系统查询 入参 用户姓名  身份证号  数据库身份证为密文 需要解密;  开始月份  截至月份  收费记录等参数 -->
+         <set name="cus_name"       expr="cust_name"/>                             <!-- 客户名称  生产要求为法人姓名 不能为企业名称 -->   
+         <set name="idcard"         expr="DES_DECRYPT(cust_cred_no)"/>             <!-- 身份证号 -->
+         <set name="periodbegin"    expr="SUBSTR(GETDATE(),1,6)"/>                 <!-- 开始月份 -->    
+         <set name="periodend"      expr="SUBSTR(GETDATE(),1,6)"/>                 <!-- 截止月份 -->
+         <set name="feeend"         value="N"/>                                    <!-- 是否缴费记录 -->
+         <set name="proNo"          expr="GETDATETIME()"/>                         <!-- 账单批次号 针对客户同一批次 多个账单情况  -->
+         
+         <!-- 读取物业系统通讯参数 配置参数名 BillUrl -->
+         <set name="ConfigName" value="UtilityBillUrl"/>
+         <quote name="ReadXmlCfg"/>
+         
+         <!-- 调用原子函数 请求物业系统 生产调用参数  姓名+身份证  查询账单 并入库 -->
+         <do func="QueryUtilityBillInfoPro"     error="IGNORE">
+         	   <para name="cus_name"                expr="cus_name"/>             <!-- 客户名称 -->
+             <para name="idcard"                  expr="idcard"/>               <!-- 身份证号 -->
+             <para name="periodbegin"             expr="periodbegin"/>          <!-- 开始月份 -->  
+             <para name="periodend"               expr="periodend"/>            <!-- 截止月份 -->
+             <para name="feeend"                  expr="feeend"/>               <!-- 是否缴费记录 -->
+             <para name="BillUrl"                 expr="BillUrl"/>              <!-- 第三方通讯地址 -->
+         </do>
+         <if condition="#RetCod==0">
+         	   	  <set name="RspCod"    value="00000"/>
+                <set name="RspMsg"    value="账单信息查询成功"/>
+         </if>         
+         <elseif condition="#RetCod==2">
+         	   <if condition="ISNULL(RSPRIGHTDATE)">
+         	   	  <set name="RspCod"    value="09002"/>
+                <set name="RspMsg"    value="该用户本月无账单信息"/>
+                <return/>
+         	   </if>
+         	   <else>
+         	   	  <set name="RspCod"    value="09002"/>
+                <set name="RspMsg"    value="物业系统查询账单失败"/>
+                <return/>
+         	   </else>
+         </elseif>
+         <else>
+                <set name="RspCod"    value="09002"/>
+                <set name="RspMsg"    value="物业系统查询账单失败"/>
+                <return/>
+         </else>
+
+         <!-- 去第三方查询账单交易，并入库成功 -->
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+      </process>
+   </transaction>
+   
+   <transaction code="594106"  desc="手机app请求--缴费成功回写物业系统">
+   	
+   	  <sql name="QryUtilityBillPayInf"><!-- 查询账单支付信息表 -->
+   	  	select * from UtilityBillPayInf where BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+   	  </sql>
+
+   	  <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+   	
+   	<process>
+   		
+      <!-- 校验手机app上送字段值 -->
+      <set name="Bill_PrdOrdNo"          expr="PrdOrdNo"/>
+      <set name="cust_id"                expr="cust_id"/>
+      
+      <!--根据批次号，查询账单总的缴费信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="QryUtilityBillPayInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="morePay"   value="1"/>
+         <set name="RspCod"    value="08046"/>
+         <set name="RspMsg"    value="账单支付信息查询错误"/>
+         <return/>
+      </if>
+
+      <!-- 读取物业系统通讯参数 配置参数名 BillUrl -->
+      <set name="ConfigName" value="UtilityBillUrlRet"/>
+      <quote name="ReadXmlCfg"/>
+      
+      <!-- 调用原子函数 请求物业系统  账单信息回写 -->
+      <do func="NoticeUtilityBillInfo"     error="IGNORE">
+      	   <para name="Bill_Cust_Name"          expr="Bill_Cust_Name"/>                  <!-- 用户名 -->
+      	   <para name="Bill_PrdOrdNo"           expr="Bill_PrdOrdNo"/>                   <!-- 付款批次号 -->
+      	   <para name="BillPay_Amt"             expr="AMTADDDOT(BillPay_Amt)"/>          <!-- 缴费总金额 -->
+      	   <para name="BillPay_Cust_Id"         expr="BillPay_Cust_Id"/>                 <!-- 缴费客户号 -->
+           <para name="BillUrl"                 expr="BillUrl"/>                         <!-- 第三方通讯地址 -->
+      </do>
+      <if condition="#RetCod!=0">
+          <set name="RspCod"    value="09002"/>
+          <set name="RspMsg"    value="通知物业系统回写失败"/>
+          <return/>
+      </if>
+     
+      <!-- 回写物业修通成功 更新物业系统账单记录表状态 -->
+      <set name="Status"          value="01"/>                <!--缴费成功状态 00未缴费  01缴费成功-->
+      <set name="Bill_PrdOrdNo"   expr="Bill_PrdOrdNo"/>      <!--付款批次号-->       
+      <do func="ExecSql" error="error">
+       <para name="SqlCmd"  sql="updateUtilityBillInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09024"/>     
+         <set name="RspMsg"    value="更新物业缴费信息表失败"/>
+         <return/>
+      </if>
+      <else>
+         <set name="RspCod"    value="00000"/>     
+         <set name="RspMsg"    value="更新物业缴费信息成功!"/>
+      </else>
+      
+      <do func="ExecSql" error="error">
+       <para name="SqlCmd"  sql="updateUtilityBillPayInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09024"/>     
+         <set name="RspMsg"    value="更新物业缴费信息表失败"/>
+         <return/>
+      </if>
+      <else>
+         <set name="RspCod"    value="00000"/>     
+         <set name="RspMsg"    value="更新物业缴费信息成功!"/>
+      </else>
+      
+      <set name="MsgTyp"    value="N"/>
+      <set name="RspCod"    value="00000"/>
+      <set name="RspMsg"    value="交易成功"/>
+    </process>
+   </transaction>
+   
+   <transaction code="594107"  desc="手机app请求--建立商品订单">
+      <sql name="QryMerInf"><!-- 查询商户信息 添加一个a.MER_TYPE-->
+         SELECT c.CUST_NAME StoreName,a.CUST_ID MerId,a.aut_sts,a.company_brief ,c.CUST_STATUS
+           FROM StpMerInf a ,StpCusInf c
+          WHERE a.cust_id=c.cust_id and  a.CUST_ID=#{merchantId}
+      </sql>
+      <sql name="QryCusInf"><!-- 查询客户信息-->
+         SELECT CUST_STATUS,cust_name,cust_cred_no FROM StpCusInf WHERE CUST_ID=#{USERID}
+      </sql>
+      <sql name="QryMerSigInf"><!-- 查询签约信息-->
+         SELECT m.prod_code FROM STPMERSIG m,stpproinf g 
+         WHERE m.prod_code =g.prod_code and  g.prod_flag='0' and 
+         MER_NO=#{merchantId} and m.prod_code=#{PRODCODE} 
+      </sql>
+      <sql name="QryOrdInf"><!-- 查询商品订单信息-->
+         SELECT prdOrdNo FROM StpPrdInf WHERE prdOrdNo=#{prdOrdNo} AND merNo=#{merchantId}
+      </sql>
+ 
+      <sql name="QryUtilityBillInf"><!-- 查询客户物业缴费账单信息记录表,获取该批次缴费缴费总金额 -->
+      	   select SUM(Bill_Money) as orderAmount from UtilityBillInf where Bill_PrdOrdNo = #{orderId} and  Bill_Status = '00' 
+      </sql>
+      
+      <sql name="InsertUtilityBillPayInf">  <!-- 初始化表数据UtilityBillPayInf -->
+      	  insert into UtilityBillPayInf (BillPay_PrdOrdNo,BillPay_Cust_Id,Bill_Cust_Name,Bill_Cust_Id_Num,BillPay_Amt,BillPay_Status,BillPay_MerNo,BillPay_MerName) 
+      	  values (#{prdOrdNo}, #{CUST_ID}, #{custname},#{idcard},#{ordAmt},'00',#{merchantId},#{StoreName})
+      </sql>
+ 
+      <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="QryUtilityBillPayInf">
+      	 select BillPay_PrdOrdNo from UtilityBillPayInf where BillPay_PrdOrdNo=#{prdOrdNo} and BillPay_Status = '00'
+      </sql>
+
+      <process>
+      	 <!-- 校验手机app上送字段值 -->
+      	  <set name="USERID"   expr="CUST_ID"/>                <!-- 用户账号 -->
+      	  <set name="orderId"  expr="PrdOrdNo"/>               <!--缴费批次号-->
+          
+          <!-- 根据页面传递的账单批次号，查询该批次账单所有记录，以及金额 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryUtilityBillInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="不存在该批次缴费账单"/>
+             <return/>
+          </if>
+          
+          <!-- 用户系统直接下单，常量值配置在文件中 -->
+          <set name="ConfigName" value="OrderCfg"/>
+          <quote name="ReadXmlCfg"/>
+          
+          
+          <!-- 用户系统直接下单 建立商品订单 去除验签功能 -->
+          <set name="versionId"   expr="versionId"/>
+          <set name="merchantId"  expr="merchantId"/>
+          <set name="CUST_ID"     expr="USERID"/>
+          <set name="prdOrdNo"    expr="orderId"/>
+          <!--set name="ordAmt"      expr="orderAmount"/-->
+          <set name="ordAmt"      expr="AMTPOWER(orderAmount,2)"/>    <!-- 元转成分 -->
+          <set name="orderTime"   expr="prdOrdNo"/>          
+          <set name="signature"   expr="signature"/>          
+          <set name="inMsg"       expr="inMsg"/>
+          <set name="notifyUrl"   expr="retUrl"/>
+          <set name="retUrl"      expr="returnUrl"/>
+          <set name="bizType"     expr="bizType"/>         
+          <set name="prdName"     expr="prdName"/>
+          <set name="prdDesc"     expr="prdDesc"/>
+          <set name="PRODCODE"    expr="PRODCODE"/><!--商户购买的产品编码-->
+
+          <!-- 检查交易时间  交易时间需要控制  每月最后一天23点之前都可以做交易 -->
+          <set name="time_line"    value="2200"/>       <!-- 客户线下业务规定时间线23:00 考虑业务 程序控制在22:00 -->
+          <do func="ChoiceTimeLine"     error="IGNORE">
+         	   <para name="time_line"                expr="time_line"/>
+          </do>
+          <if condition="#RetCod!=0">
+              <set name="RspCod"    value="09002"/>
+              <set name="RspMsg"    value="每月最后一天22:00后，不允许物业缴费"/>
+              <return/>
+          </if>
+
+          <!-- 根据批次号，查询出需要缴费的项目信息 -->
+           <!--调用原子函数 完成字段信息拼接 -->
+          <do func="QryPrdName"     error="IGNORE">
+         	   <para name="Bill_PrdOrdNo"                expr="prdOrdNo"/>           <!-- 缴费批次号 -->
+         	   <para name="BillPay_Cust_Id"              expr="CUST_ID"/>            <!-- 用户号 -->
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09002"/>
+             <set name="RspMsg"    value="商品备注信息获取失败"/>
+             <return/>
+         </if>
+         <set name="prdName"     expr="PrdNameL"/>                                  <!-- 下单交易 prdName值需要包括所有的物业缴费信息 -->   
+          
+         <!--检查金额格式-->
+         <if condition="NOT(ISNULL(ordAmt))">
+            <if condition="NOT(ISNUMBER(ordAmt))">
+               <set name="RspCod"    value="08044"/>
+               <set name="RspMsg"    value="金额格式错误"/>
+               <return/>
+            </if>
+         </if>
+         <else>
+            <set name="RspCod"    value="08045"/>
+            <set name="RspMsg"    value="订单金额不能为空！"/>
+            <return/>
+         </else>
+         
+         <if condition="IS_EQUAL_STRING(versionId,'3')">
+            <set name="retUrl"        expr="returnUrl"/>
+         </if>
+         <if condition="ISNULL(prdDesc)">
+           <set name="merRemark"    value="商城名称"/>
+         </if>
+         <if condition="ISNULL(PrdName)">
+           <set name="PrdName"      value="商品"/>
+         </if>
+         
+          <!-- 查询商户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="商户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="StoreName"   expr="StoreName"/>
+          
+          <!-- 查询用户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryCusInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="用户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="用户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="custname"       expr="cust_name"/>
+          <set name="idcard"         expr="DES_DECRYPT(cust_cred_no)"/>             <!-- 身份证号 -->
+          
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerSigInf" />
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          
+          <!--判断表UtilityBillPayInf是否存在重复数据 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryUtilityBillPayInf" />
+          </do>
+          <if condition="#RetCod!=0">
+              <!-- 建立支付订单前 初始化UtilityBillPayInf表数据 -->
+              <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="InsertUtilityBillPayInf"/>
+              </do>
+              <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09999"/>
+                <set name="RspMsg"        value="系统错误"/>
+                <return/>
+              </if>
+          </if>
+          <else>
+                <set name="RspCod"        value="00000"/>
+                <set name="RspMsg"        value="该笔订单已经存在，不用重新录入"/>
+          </else>        
+          
+          <if condition="IS_EQUAL_STRING(prod_code,'CP00000002')">
+             <set name="prdOrdType"   value="2"/>        <!--订单类型  0 消费  1 充值2 担保 3商户充值 -->    
+          </if>
+          <else>
+            <set name="prdOrdType"   value="0"/>        <!--订单类型  0 消费  1 充值 2 担保 3商户充值-->    
+          </else>
+
+         <!-- 物业缴费交易由用户系统直接下单，不用验签 -->
+         <!-- 验签处理 -->
+         <!--适用于CFCA及自建CA两种情况-->
+         <!--if condition="IS_EQUAL_STRING(signType,'CFCA')"-->  <!--验签方式 CFCA -->
+             
+             <!--CACA验签-->
+             <!--do func="CFCASignVer">
+                <para name="signData"          expr="SIGNATURE" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if-->
+         <!--/if>
+         <elseif condition="IS_EQUAL_STRING(signType,'ZJCA')"-->  <!--验签方式 自建CA  ZJCA-->
+             <!--set name="CFCAPWD"         value="12345678"/-->
+             <!--自建CA验签-->
+             <!--do func="HkCaVerifyn">
+               <para name="sourceData"   expr="inMsg" />
+               <para name="signData"     expr="REPALLSTR(signature,' ','+')" />
+               <para name="pfxPath"      expr="STRCAT(GETCURAPPHOME(),'/key/',merchantId,'.pfx')" />
+               <para name="pfxPwd"       expr="CFCAPWD" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if>
+             <delete name="CFCAPWD"/>
+         </elseif>
+         
+         <delete name="SIGNATURE"/-->
+         	
+         <!--检查商品订单是否存在-->
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="QryOrdInf" />
+         </do>
+         <if condition="#RetCod==2">       <!-- 商品订单不存在 初次支付-->
+         </if>
+         <elseif condition="#RetCod==0">   <!-- 商品订单存在 退出-->
+            <set name="morePay"   value="1"/>
+            <set name="RspCod"    value="00000"/>
+            <set name="RspMsg"    value="订单号已存在"/>
+            <return/>
+         </elseif>
+         <else>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </else>
+         
+         <set name="orderTime"    expr="orderTime"/>
+         <set name="merNo"        expr="merchantId"/>
+         <set name="cust_id"      expr="USERID"/>
+         <set name="ordccy"       value="CNY"/>
+         <set name="txncomamt"    value="0"/>
+         <set name="OrdStatus"    value="00"/>
+         <set name="ordsource"    value="1" />  <!--来源  0 PC端  1 手机端-->    
+         
+         <!--登记商品订单信息-->
+         <do func="InsertRecord" error="IGNORE">
+            <para name="TblNam"  value="StpPrdInf" />
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         
+         <set name="OrdAmt"    expr="ordAmt"/>
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+         
+        </process>
+   </transaction>
+
+   <transaction code="594108"  desc="针对物业缴费历史未缴费订单，进行订单作废_定时交易">
+ 
+      <sql name="QryList">   <!-- 查询客户物业缴费缴费信息表UtilityBillPayInf -->
+      	select BillPay_PrdOrdNo,BillPay_Cust_Id from UtilityBillPayInf where BillPay_Status = '00' and  SUBSTR(BillPay_PrdOrdNo,1,6) = #{PreMouth}
+      </sql>
+   	
+      <sql name="UpdPrdInfo"> <!-- 更新商品订单 以订单号为准 -->
+         UPDATE StpPrdInf set ordstatus=#{ordstatus} 
+         WHERE prdordno = #{BillPay_PrdOrdNo} and ordstatus in ('00','11')
+      </sql>
+      
+      <sql name="UpdUtilityBillInf">   <!-- 更新表UtilityBillInf -->
+      	UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{BillPay_PrdOrdNo}
+      </sql>
+      
+      <sql name="UpdUtilityBillPayInf">   <!-- 更新表UtilityBillPayInf -->
+      	UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{BillPay_PrdOrdNo}
+      </sql>
+
+      <process>
+      	
+         <!--检查用户登录平台是否正确-->       
+         <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+            <set name="RspCod"            value="01001"/>
+            <set name="RspMsg"            value="用户登录平台不正确"/>
+            <return/>        
+         </if>
+      	
+      	 <!-- 该交易为定时交易，每月初临晨00:30执行该交易 针对上一个月没有支付订单进行作废 -->
+         <set name="CurMouth"    expr="SUBSTR(GETDATE(),1,6)"/>         <!--获取当前日期-->
+         <set name="year"        expr="SUBSTR(CurMouth,1,4)"/>          <!--当前年份-->
+         <set name="mouth"       expr="SUBSTR(CurMouth,5,2)"/>          <!--当前月份-->
+         
+         <if condition="IS_EQUAL_STRING(mouth,'01')">                   <!--上月为上一年度最后一个月-->
+         	  <set name="PreYear"    expr="SUB(year,'1')"/>
+         	  <set name="PreMouth"   expr="STRCAT(PreYear,'12')"/>
+         </if>
+         <else>
+         	  <set name="PreMouth"   expr="SUB(CurMouth,'1')"/>
+         </else>
+
+         <!-- 查询UtilityBillPayInf,确定是否有到期未支付订单 -->
+         <do func="QueryInGroup" error="IGNORE">
+           <para name="SqlCmd"     sql="QryList"/>
+           <para name="RecordName" value="GRP"/>
+           <para name="RecNum"     value="UsNum"/>
+         </do>
+         <if condition="#RetCod==2">
+             <set name="MsgTyp"       value="N"/>
+             <set name="RspCod"       value="00000"/>
+             <set name="RspMsg"       value="交易成功,无需要作废订单"/>
+             <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+         	 <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="09999"/>
+           <set name="RspMsg"    value="系统错误"/>
+           <return/>
+         </elseif>
+         
+         <!-- 针对查询出 满足作废条件的订单，逐条进行作废 -->
+         <foreach name="GRP" iterator="#tmp">
+            <set name="BillPay_PrdOrdNo"       expr="#tmp.BillPay_PrdOrdNo"/>
+            <set name="BillPay_Cust_Id"        expr="#tmp.BillPay_Cust_Id"/>
+            
+            <!--更新订单失效状态-->
+            <set name="ordstatus"     value="11"/>   <!--交易关闭-->
+            <do func="ExecSql" error="IGNORE" >
+               <para name="SqlCmd" sql="UpdPrdInfo" />
+            </do> 
+            <if condition="#RetCod==2">
+               <set name="RspCod"            value="00000"/>
+               <set name="RspMsg"            value="没有失效订单"/>
+               <continue/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="RspCod"            value="09999"/>
+               <set name="RspMsg"            value="系统错误"/>
+               <continue/>
+            </elseif>
+            
+            <!--更新 UtilityBillInf 以及 UtilityBillInf -->
+            <set name="Status"  value="11"/>            <!-- 物业相关表状态  交易关闭作废 -->
+            <do func="ExecSql" error="error">
+             <para name="SqlCmd"  sql="UpdUtilityBillInf" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="RspCod"    value="09024"/>     
+               <set name="RspMsg"    value="更新物业缴费账单信息记录表失败"/>
+               <continue/>
+            </if>
+            <else>
+               <set name="RspCod"    value="00000"/>     
+               <set name="RspMsg"    value="更新物业缴费账单信息记录表成功!"/>
+            </else>
+            
+            <do func="ExecSql" error="error">
+             <para name="SqlCmd"  sql="UpdUtilityBillPayInf" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="RspCod"    value="09024"/>     
+               <set name="RspMsg"    value="更新物业缴费缴费信息表失败"/>
+               <continue/>
+            </if>
+            <else>
+               <set name="RspCod"    value="00000"/>     
+               <set name="RspMsg"    value="更新物业缴费缴费信息表成功!"/>
+            </else>
+         </foreach>
+
+         <set name="MsgTyp"       value="N"/>
+         <set name="RspCod"       value="00000"/>
+         <set name="RspMsg"       value="交易成功"/>
+        </process>
+   </transaction>
+
+   <transaction code="594201" desc="客户物业缴费交费--汇总缴费">
+
+      <sql name="QryMerInf"><!-- 查询商户信息 添加一个a.MER_TYPE-->
+         SELECT c.CUST_NAME StoreName,a.CUST_ID MerId,a.aut_sts,a.company_brief ,c.CUST_STATUS
+           FROM StpMerInf a ,StpCusInf c
+          WHERE a.cust_id=c.cust_id and  a.CUST_ID=#{merchantId}
+      </sql>
+      <sql name="QryCusInf"><!-- 查询客户信息-->
+         SELECT CUST_STATUS,cust_name,cust_cred_no FROM StpCusInf WHERE CUST_ID=#{USERID}
+      </sql>
+      <sql name="QryMerSigInf"><!-- 查询签约信息-->
+         SELECT m.prod_code FROM STPMERSIG m,stpproinf g 
+         WHERE m.prod_code =g.prod_code and  g.prod_flag='0' and 
+         MER_NO=#{merchantId} and m.prod_code=#{PRODCODE} 
+      </sql>
+      <sql name="QryOrdInf"><!-- 查询商品订单信息-->
+         SELECT prdOrdNo FROM StpPrdInf WHERE prdOrdNo=#{prdOrdNo} AND merNo=#{merchantId}
+      </sql>
+ 
+      <sql name="QryUtilityBillInf"><!-- 查询客户物业缴费账单信息记录表,获取该批次缴费缴费总金额 -->
+      	   select SUM(Bill_Money) as orderAmount from UtilityBillInf where Bill_PrdOrdNo = #{orderId} and  Bill_Status = '00' 
+      </sql>
+      
+      <sql name="InsertUtilityBillPayInf">  <!-- 初始化表数据UtilityBillPayInf -->
+      	  insert into UtilityBillPayInf (BillPay_PrdOrdNo,BillPay_Cust_Id,Bill_Cust_Name,Bill_Cust_Id_Num,BillPay_Amt,BillPay_Status,BillPay_MerNo,BillPay_MerName) 
+      	  values (#{prdOrdNo}, #{CUST_ID}, #{custname},#{idcard},#{ordAmt},'00',#{merchantId},#{StoreName})
+      </sql>
+ 
+      <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="QryUtilityBillPayInf">
+      	 select BillPay_PrdOrdNo from UtilityBillPayInf where BillPay_PrdOrdNo=#{prdOrdNo} and BillPay_Status = '00'
+      </sql>
+
+      <process>
+          <!-- 设置默认错误跳转地址 -->
+          <set name="errorurl"      value="html/zh-CN/error/error.jsp"/>
+          <set name="_REQUESTATTR.FORWARDURL" expr="errorurl" />    <!-- 页面跳转 -->
+          
+         <!--检查用户登录平台是否正确-->
+         <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'2201'),IS_NOEQUAL_STRING(SysCod,'1105'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="用户登录平台不正确"/>
+            <return/>
+         </if>
+         <!--检查用户状态-->
+         <if condition="ISNULL(USERID)">
+            <set name="USERID" expr="SESSIONS.USRID"/>
+         </if>
+
+         <!-- 检查交易时间  交易时间需要控制  每月最后一天23点之前都可以做交易 -->
+         <set name="time_line"    value="2200"/>      <!-- 客户线下业务规定时间线23:00 考虑业务 程序控制在22:00 -->
+         <do func="ChoiceTimeLine"     error="IGNORE">
+        	   <para name="time_line"                expr="time_line"/>
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09002"/>
+             <set name="RspMsg"    value="每月最后一天22:00后，不允许物业缴费"/>
+             <return/>
+         </if>
+
+          <!-- 根据页面传递的账单批次号，查询该批次账单所有记录，以及金额 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryUtilityBillInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="不存在该批次缴费账单"/>
+             <return/>
+          </if>
+          
+          <!-- 用户系统直接下单，常量值配置在文件中 -->
+          <set name="ConfigName" value="OrderCfg"/>
+          <quote name="ReadXmlCfg"/>
+          
+          
+          <!-- 用户系统直接下单 建立商品订单 去除验签功能 -->
+          <set name="versionId"   expr="versionId"/>
+          <set name="merchantId"  expr="merchantId"/>
+          <set name="CUST_ID"     expr="USERID"/>
+          <set name="prdOrdNo"    expr="orderId"/>
+          <!--set name="ordAmt"      expr="orderAmount"/-->
+          <set name="ordAmt"      expr="AMTPOWER(orderAmount,2)"/>    <!-- 元转成分 -->
+          <set name="orderTime"   expr="prdOrdNo"/>          
+          <set name="signature"   expr="signature"/>          
+          <set name="inMsg"       expr="inMsg"/>
+          <set name="notifyUrl"   expr="retUrl"/>
+          <set name="retUrl"      expr="returnUrl"/>
+          <set name="bizType"     expr="bizType"/>
+          <set name="prdDesc"     expr="prdDesc"/>
+          <set name="PRODCODE"    expr="PRODCODE"/><!--商户购买的产品编码-->    
+          <set name="prdName"     expr="prdName"/>                    <!-- 下单交易 prdName值需要包括所有的物业缴费信息 -->    
+          
+          <!-- 根据批次号，查询出需要缴费的项目信息 -->
+           <!--调用原子函数 完成字段信息拼接 -->
+          <do func="QryPrdName"     error="IGNORE">
+         	   <para name="Bill_PrdOrdNo"                expr="prdOrdNo"/>           <!-- 缴费批次号 -->
+         	   <para name="BillPay_Cust_Id"              expr="CUST_ID"/>            <!-- 用户号 -->
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09002"/>
+             <set name="RspMsg"    value="商品备注信息获取失败"/>
+             <return/>
+         </if>
+         <set name="prdName"     expr="PrdNameL"/>                                  <!-- 下单交易 prdName值需要包括所有的物业缴费信息 -->   
+          
+          
+         <!--检查金额格式-->
+         <if condition="NOT(ISNULL(ordAmt))">
+            <if condition="NOT(ISNUMBER(ordAmt))">
+               <set name="RspCod"    value="08044"/>
+               <set name="RspMsg"    value="金额格式错误"/>
+               <return/>
+            </if>
+         </if>
+         <else>
+            <set name="RspCod"    value="08045"/>
+            <set name="RspMsg"    value="订单金额不能为空！"/>
+            <return/>
+         </else>
+         
+         <if condition="IS_EQUAL_STRING(versionId,'3')">
+            <set name="retUrl"        expr="returnUrl"/>
+         </if>
+         <if condition="ISNULL(prdDesc)">
+           <set name="merRemark"    value="商城名称"/>
+         </if>
+         <if condition="ISNULL(PrdName)">
+           <set name="PrdName"      value="商品"/>
+         </if>
+         
+          <!-- 查询商户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="商户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="StoreName"   expr="StoreName"/>
+          
+          <!-- 查询用户信息 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryCusInf" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="用户信息不存在"/>
+             <return/>
+          </if>
+          <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+             <set name="RspCod"    value="08040"/>
+             <set name="RspMsg"    value="用户状态不正常"/>
+             <return/>
+          </if>
+          
+          <set name="custname"       expr="cust_name"/>
+          <set name="idcard"         expr="DES_DECRYPT(cust_cred_no)"/>             <!-- 身份证号 -->
+          
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryMerSigInf" />
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"    value="08039"/>
+             <set name="RspMsg"    value="商户未签约该产品！"/>
+             <return/>
+          </if>
+          
+          <!--判断表UtilityBillPayInf是否存在重复数据 -->
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryUtilityBillPayInf" />
+          </do>
+          <if condition="#RetCod!=0">
+              <!-- 建立支付订单前 初始化UtilityBillPayInf表数据 -->
+              <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="InsertUtilityBillPayInf"/>
+              </do>
+              <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09999"/>
+                <set name="RspMsg"        value="系统错误"/>
+                <return/>
+              </if>
+          </if>
+          <else>
+                <set name="RspCod"        value="00000"/>
+                <set name="RspMsg"        value="该笔订单已经存在，不用重新录入"/>
+          </else>
+          
+          <if condition="IS_EQUAL_STRING(prod_code,'CP00000002')">
+             <set name="prdOrdType"   value="2"/>        <!--订单类型  0 消费  1 充值2 担保 3商户充值 -->    
+          </if>
+          <else>
+            <set name="prdOrdType"   value="0"/>        <!--订单类型  0 消费  1 充值 2 担保 3商户充值-->    
+          </else>
+
+         <!-- 物业缴费交易由用户系统直接下单，不用验签 -->
+         <!-- 验签处理 -->
+         <!--适用于CFCA及自建CA两种情况-->
+         <!--if condition="IS_EQUAL_STRING(signType,'CFCA')"-->  <!--验签方式 CFCA -->
+             
+             <!--CACA验签-->
+             <!--do func="CFCASignVer">
+                <para name="signData"          expr="SIGNATURE" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if-->
+         <!--/if>
+         <elseif condition="IS_EQUAL_STRING(signType,'ZJCA')"-->  <!--验签方式 自建CA  ZJCA-->
+             <!--set name="CFCAPWD"         value="12345678"/-->
+             <!--自建CA验签-->
+             <!--do func="HkCaVerifyn">
+               <para name="sourceData"   expr="inMsg" />
+               <para name="signData"     expr="REPALLSTR(signature,' ','+')" />
+               <para name="pfxPath"      expr="STRCAT(GETCURAPPHOME(),'/key/',merchantId,'.pfx')" />
+               <para name="pfxPwd"       expr="CFCAPWD" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="RspCod"    value="08039"/>
+                <set name="RspMsg"    value="验签失败"/>
+                <return/>
+             </if>
+             <delete name="CFCAPWD"/>
+         </elseif>
+         
+         <delete name="SIGNATURE"/-->
+         	
+         <!--检查商品订单是否存在-->
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="QryOrdInf" />
+         </do>
+         <if condition="#RetCod==2">       <!-- 商品订单不存在 初次支付-->
+            <set name="orderTime"    expr="orderTime"/>
+            <set name="merNo"        expr="merchantId"/>
+            <set name="cust_id"      expr="USERID"/>
+            <set name="ordccy"       value="CNY"/>
+            <set name="txncomamt"    value="0"/>
+            <set name="OrdStatus"    value="00"/>
+            <set name="ordsource"    value="0" />  <!--来源  0 PC端  1 手机端-->    
+            
+            <!--登记商品订单信息-->
+            <do func="InsertRecord" error="IGNORE">
+               <para name="TblNam"  value="StpPrdInf" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <return/>
+            </if>
+         </if>
+         <elseif condition="#RetCod==0">   <!-- 商品订单存在 继续执行-->
+            <set name="morePay"   value="1"/>
+            <set name="RspCod"    value="00000"/>
+            <set name="RspMsg"    value="订单号已存在"/>
+         </elseif>
+         <else>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </else>
+         
+         <!--取收银台参数配置-->
+         <!--set name="ConfigName"       value="PayCfg"/>
+         <quote name="ReadXmlCfg"/-->
+         <set name="payurl"      value="html/zh-CN/cashier/expense/cashier_public.jsp"/>
+         <set name="payurl"      expr="STRCAT(payurl,'?orderId=',prdordno,'&amp;merNo=',merchantId)"/>
+         <set name="_REQUESTATTR.FORWARDURL" expr="payurl" />    <!-- 页面跳转 -->
+         
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+
+      </process>
+
+   </transaction>
+</application>

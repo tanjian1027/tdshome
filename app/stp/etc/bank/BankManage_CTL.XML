@@ -1,0 +1,1637 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<application name="STP" code="100" log_level="DEBUG">
+  <!--交易日志记录配置-->
+  <include file="etc/public/STPCTL_TRC.XML" />
+
+  <before>
+    <do func="GetOwnButton" />
+    <!--打印ETF树-->
+    <do func="DumpEtf" />
+    <!--翻页每页显示的条数-->
+    <set name="NumPerPag" value="19" />
+  </before>
+  
+  <!--交易后处理-->
+  <after>
+    <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+      <set name="MsgTyp" value="N" />
+    </if>
+    <else>
+      <set name="MsgTyp" value="E" />
+    </else>
+    <do expr="@tangdi.engine.context.Msg@dump()" />
+  </after>
+  
+  <transaction code="411039" desc="跳转的公共交易">
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+      <return />
+    </process>
+  </transaction>
+  
+  <transaction code="411030" desc="银行卡BIN信息维护">
+    <sql name="queryBankInf"><!--查询卡规则信息表  -->
+    	SELECT f.issnam,f.issno,f.crdnam,f.fitcrk,f.fitoff,f.fitlen,f.crdoff, f.crdlen,f.crdctt,f.crdcrk,f.binoff,f.binlen,f.bincrk,f.binctt,f.dcflag 
+    	  FROM crdbininf f 
+    	 WHERE (f.ISSNAM like '%'||#{ISSNAM}||'%' or ' '= #{ISSNAM}||' ') and (f.dcflag like '%'||#{dcflag}||'%' or ' '= #{dcflag}||' ') and (f.crdctt like '%'||#{crdctt}||'%' or ' '= #{crdctt}||' ') order by ISSNAM,crdctt,crdctt
+    </sql>
+    <process>
+      <!--控制按钮-->
+      <do func="GetOwnButton" />
+      <set name="issnam"    expr="DELBOTHSPACE(ISSNAM)" />
+      <set name="dcflag"    expr="DELBOTHSPACE(dcflag)" />
+      <set name="crdctt"    expr="DELBOTHSPACE(crdctt)" />
+      <set name="operating" value="bankmessage/qrybank_list.jsp" />
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <if condition="ISNULL(NumPerPag)">
+        <set name="NumPerPag" value="19" />
+      </if>
+      <if condition="ISNULL(ISSNAM)">
+        <set name="ISSNAM" value="" />
+      </if>
+      <if condition="ISNULL(CRDCTT)">
+        <set name="crdctt" value="" />
+      </if>
+      <if condition="ISNULL(dcflag)">
+        <set name="dcflag" value="" />
+      </if>
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql"       sql="queryBankInf" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="329999" />
+        <set name="RspMsg" value="没有符合条件的数据" />
+        <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="329999" />
+        <set name="RspMsg" value="查询卡表信息失败" />
+        <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+        <return />
+      </elseif>
+      
+      <set name="RspCod" value="000000" />
+      <set name="RspMsg" value="查询成功" />
+      <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+    </process>
+  </transaction>
+  
+  <transaction code="411031" desc="添加银行卡BIN信息维护">
+    <sql name="ReadCardInf"><!--查询卡信息表  -->
+    	SELECT IssNam,IssNo,CrdNam,BANKCODE FROM crdbininf where IssNam like '%${IssNam}%'
+    </sql>
+    <process>
+      <set name="ISSNAM" expr="ISSNAM" />
+      <do func="ReadRecord" error="IGNORE"><!-- 卡明细查询 -->
+        <para name="SqlCmd" sql="ReadCardInf" />
+      </do>
+      <if condition="#RetCod==-1">
+        <set name="RSPCOD" value="329999" />
+        <set name="RSPMSG" value="卡信息明细查询失败!" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <elseif condition="#RetCod==2">
+        <set name="RspCod" value="329999" />
+        <set name="RspMsg" value="没有符合条件的数据" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </elseif>
+      <else>
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />   
+      </else>
+      
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="crdbininf" />
+        <para name="Method"    value="Insert" />
+        <para name="Columns"   value="ISSNAM/ISSNO/BANKCODE/CRDNAM/FITCRK/FITOFF/FITLEN/CRDOFF/CRDLEN/CRDCTT/CRDCRK/BINOFF/BINLEN/BINCRK/BINCTT/DCFLAG" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="329999" />
+        <set name="RspMsg" value="没有符合条件的数据" />
+        <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"          value="329999" />
+        <set name="RSPMSG"          value="添加卡信息失败!" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </elseif>
+      
+      <set name="RSPCOD"            value="000000" />
+      <set name="RSPMSG"            value="添加卡信息成功!" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_RSP_MSG"       expr="RSPMSG" />
+      <set name="DWZ_NAV_TAB_ID"    value="银行卡BIN信息维护" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+    </process>
+  </transaction>
+  
+
+  <transaction code="411033" desc="查询单条卡BIN信息">
+    <sql name="ReadCardInf"><!--查询卡信息表  -->
+    	SELECT IssNam,IssNo,CrdNam,FitCrk,FitOff,FitLen,CrdOff,CrdLen,CrdCtt,CrdCrk,BinOff,BinLen,BinCtt,BinCrk,DCFlag FROM crdbininf where trim(BinOff)=#{BinOff} and trim(BinLen)=#{BinLen} and trim(BinCtt)=#{BinCtt} and trim(BinCrk)=#{BinCrk}
+    </sql>
+    <process>
+      <do func="ReadRecord" error="IGNORE"><!-- 卡明细查询 -->
+        <para name="SqlCmd" sql="ReadCardInf" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="329999" />
+        <set name="RspMsg" value="没有符合条件的数据" />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD" value="329999" />
+        <set name="RSPMSG" value="系统错误" />
+        <return />
+      </elseif>
+      <set name="RspCod"   value="000000" />
+      <set name="RspMsg"   value="查询银行BIN成功" />
+      <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+    </process>
+  </transaction>
+ 
+  <transaction code="411000" desc="商户开户银行信息">
+    <sql name="merchantsBank">
+    	SELECT BANK_CODE,BANK_NAME,BANK_REL_NO,BANK_STATUS FROM MERACBANK WHERE 1=1 ${BANK_STATUSL} ${BANK_CODEL} ${BANK_NAMEL} ORDER BY CRE_TIME DESC
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/merchBank/merchantdBank.jsp" />
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod"          value="01001" />
+        <set name="RspMsg"          value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <if condition="ISNULL(bank_status)"><!-- BANK_STATUS 银行状态 -->
+        <set name="BANK_STATUSl" value="" />
+      </if>
+      <else>
+        <set name="BANK_STATUSl" expr="STRCAT('and BANK_STATUS=\'',BANK_STATUS,'\'')" />
+      </else>
+      <if condition="ISNULL(bank_code)"><!-- BANK_CODE 银行编号 -->
+        <set name="BANK_CODEL" value="" />
+      </if>
+      <else>
+        <set name="BANK_CODEL" expr="STRCAT('and BANK_CODE=\'',BANK_CODE,'\'')" />
+      </else>
+      <if condition="ISNULL(bank_name)"><!-- BANK_NAME 银行名称 -->
+        <set name="BANK_NAMEL" value="" />
+      </if>
+      <else>
+        <set name="BANK_NAMEL" expr="STRCAT('and BANK_NAME LIKE \'%',BANK_NAME,'%\'')" />
+      </else>
+      <!--获取按钮权限-->
+      <do func="GetOwnButton" />
+      <!-- 商户开户银行信息 -->
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql"       sql="merchantsBank" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="02001" />
+        <set name="RspMsg" value="没有商户开户银行信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod"          value="00000" />
+      <set name="RspMsg"          value="交易成功" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411001" desc="商户开户银行信息详情">
+    <sql name="merchantsBanks">
+    	SELECT BANK_CODE,BANK_NAME,BANK_REL_NO,BANK_STATUS,CRE_OPER_ID,To_Char(to_date(CRE_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') AS CRE_TIME ,LST_UPD_OPER_ID,case WHEN LST_UPD_TIME !=' ' then To_Char(to_date(LST_UPD_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss')end LST_UPD_TIME,REMARK FROM MERACBANK WHERE BANK_CODE=#{BANK_CODE} AND BANK_REL_NO=#{BANK_REL_NO}
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/merchBank/merchantdBanks.jsp" />
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod"          value="01001" />
+        <set name="RspMsg"          value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <!-- 开户银行明细 -->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="merchantsBanks" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="02001" />
+        <set name="RspMsg" value="没有商户开户银行信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411002" desc="商户开户银行增加">
+    <sql name="merchantsBankId">
+    	SELECT BANK_CODE  FROM  MERACBANK WHERE BANK_CODE=#{BANK_CODE}
+    </sql>
+    <sql name="merchantsBankName">
+    	SELECT BANK_NAME  FROM  MERACBANK WHERE BANK_NAME=#{BANK_NAME}
+    </sql> 
+    <sql name="merchantsBankNo">
+    	SELECT BANK_REL_NO FROM  MERACBANK  WHERE BANK_REL_NO=#{BANK_REL_NO}
+    </sql>
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <if condition="IS_EQUAL_STRING(PD,'000')">
+        <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/merchBank/merchantdBankin.jsp" />
+      </if>
+      <!--判断银行信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="merchantsBankId" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="银行编码已存在" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=2">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      
+      <!--判断银行信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="merchantsBankName" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="银行名称已存在" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=2">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+
+      <!--判断银行信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="merchantsBankNo" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="银行联行号已存在" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=2">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      
+      <set name="CRE_OPER_ID"     expr="SESSIONS.UID" />
+      <set name="CRE_TIME"        expr="GETDATETIME()" />
+      <set name="BANK_STATUS"     value="0" />
+      <set name="LST_UPD_OPER_ID" value="" />
+      <set name="LST_UPD_TIME"    value="" />
+      <do func="DataEntry" error="ignore">
+        <para name="TableName" value="MERACBANK" />
+        <para name="Method"    value="INSERT" />
+        <para name="Columns"   value="BANK_CODE/BANK_NAME/BANK_REL_NO/BANK_STATUS/REMARK/CRE_OPER_ID/CRE_TIME/LST_UPD_OPER_ID/LST_UPD_TIME" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+      <set name="DWZ_FORWARD_URL"   value="411000.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411003" desc="商户开户银行更新">
+    <sql name="merchantsBanks">
+    	SELECT BANK_CODE,BANK_NAME,BANK_STATUS,BANK_REL_NO,CRE_OPER_ID,CRE_TIME,LST_UPD_OPER_ID,LST_UPD_TIME,REMARK FROM MERACBANK WHERE BANK_CODE=#{BANK_CODE} AND BANK_REL_NO=#{BANK_REL_NO}
+    </sql>
+    <sql name="updateBanks">
+    	update MERACBANK set BANK_NAME=#{BANK_NAME},BANK_REL_NO=#{BANK_REL_NO},REMARK=#{REMARK},LST_UPD_OPER_ID=#{LST_UPD_OPER_ID},LST_UPD_TIME=#{LST_UPD_TIME} where BANK_STATUS='0' and BANK_CODE=#{BANK_CODE}
+    </sql>
+    <sql name="QueryIsExit">
+    	select bank_name,bank_rel_no from MERACBANK where bank_name=#{bank_name} and bank_rel_no=#{bank_rel_no}
+    </sql>
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <if condition="IS_EQUAL_STRING(SL,'001')">
+        <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/merchBank/merchantdBankup.jsp" />
+        <!--商户开户银行明细 -->
+        <do func="ReadRecord" error="IGNORE">
+          <para name="SqlCmd" sql="merchantsBanks" />
+        </do>
+        <if condition="#RetCod==2">
+          <set name="RspCod" value="01004" />
+          <set name="RspMsg" value="没有商户开户银行信息" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </if>
+        <elseif condition="#RetCod!=0">
+          <set name="RspCod" value="09999" />
+          <set name="RspMsg" value="系统错误" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </elseif>
+      </if>
+      <set name="LST_UPD_OPER_ID" expr="SESSIONS.UID" />
+      <set name="LST_UPD_TIME"    expr="GETDATETIME()" />
+      <set name="BANK_STATUS"     value="0" />
+      <!--此商户开户银行维护信息 是否已经存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="QueryIsExit" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息   -1 数据库错误  0 有信息切查询成功-->
+      <if condition="#RetCod==0">
+        <set name="RspCod"          value="02001" />
+        <set name="RspMsg"          value="已存在此商户开户银行信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="不存在此商户开户银行信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+      </elseif>
+      <do func="ExecSql" error="IGNORE">
+        <para name="SqlCmd" sql="updateBanks" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="02004" />
+        <set name="RspMsg" value="没有符合条件的数据" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod"            value="00000" />
+      <set name="RspMsg"            value="交易成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+      <set name="DWZ_FORWARD_URL"   value="411000.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411004" desc="商户开户银行状态更新">
+    <process>
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <set name="LST_UPD_OPER_ID" expr="SESSIONS.UID" />
+      <set name="LST_UPD_TIME" expr="GETDATETIME()" />
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="MERACBANK" />
+        <para name="Method"    value="UPDATE" />
+        <para name="Columns"   value="BANK_STATUS/LST_UPD_OPER_ID/LST_UPD_TIME" />
+        <para name="keys"      value="BANK_CODE/BANK_REL_NO" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="操作成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="411000.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411005" desc="商户开户银行删除">
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" value="用户登录平台不正确" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="MERACBANK" />
+        <para name="Method"    value="DELETE" />
+        <para name="Columns"   value="" />
+        <para name="keys"      value="BANK_CODE/BANK_NAME/BANK_REL_NO/" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     value="系统错误" />
+        <return />
+      </if>
+      <set name="RspCod"          value="00000" />
+      <set name="RspMsg"          value="交易成功" />
+      <set name="DWZ_FORWARD_URL" value="411000.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411010" desc="合作银行信息">
+    <sql name="coopBank">
+       SELECT BANK_CODE,BANK_NAME,BANK_REL_NO,BANK_STATUS,TRT_BANK_FLG,(select FEE_NAME from FEERATE a where a.fee_code=b.fee_code) fee_name  FROM COOPBANK b where 1=1 ${BANK_STATUSL} ${TRT_BANK_FLGL} ${BANK_NAMEL} ${BANK_CODEL} ORDER BY CRE_TIME DESC
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/coopBank/coopBank.jsp" />
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      
+      <set name="BANK_CODE"        expr="DELBOTHSPACE(BANK_CODE)"/>
+      <set name="BANK_NAME"        expr="DELBOTHSPACE(BANK_NAME)"/>
+      
+      <if condition="ISNULL(bank_status)"><!-- BANK_STATUS 银行状态 -->
+        <set name="BANK_STATUSL" value="" />
+      </if>
+      <else>
+        <set name="BANK_STATUSL" expr="STRCAT('and BANK_STATUS=\'',BANK_STATUS,'\'')" />
+      </else>
+      <if condition="ISNULL(trt_bank_flg)"> <!-- 托管银行标志 -->
+        <set name="TRT_BANK_FLGL" value="" />
+      </if>
+      <else>
+        <set name="TRT_BANK_FLGL" expr="STRCAT('and TRT_BANK_FLG=\'',TRT_BANK_FLG,'\'')" />
+      </else>
+      <if condition="ISNULL(bank_code)"> <!-- 银行编号 -->
+        <set name="BANK_CODEL" value="" />
+      </if>
+      <else>
+        <set name="BANK_CODEL" expr="STRCAT('and BANK_CODE=\'',BANK_CODE,'\'')" />
+      </else>
+      <if condition="ISNULL(bank_name)"><!-- 银行名称 -->
+        <set name="BANK_NAMEL" value="" />
+      </if>
+      <else>
+        <set name="BANK_NAMEL" expr="STRCAT('and BANK_NAME LIKE \'%',BANK_NAME,'%\'')" />
+      </else>
+      <!--获取按钮权限-->
+      <do func="GetOwnButton" />
+      <!-- 商户银行信息 -->
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql"       sql="coopBank" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="02001" />
+        <set name="RspMsg" value="没有合作银行信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411011" desc="合作银行详情">
+    <sql name="coopBanks">
+    	SELECT BANK_CODE,PAY_SYS_ID,BANK_NAME,BANK_REL_NO,BANK_STATUS,TRT_BANK_FLG,STL_AC_NO,CERT_NO,REG_NO,LEG_REP,CUST_MGR,TEL_NO,BANK_EMAIL,
+    	       BANK_ADDRESS,BIZ_RANGE,REMARK,CRE_OPER_ID,To_Char(to_date(CRE_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') AS CRE_TIME,
+    	       LST_UPT_OPER_ID,case WHEN LST_UPT_TIME !=' ' then To_Char(to_date(LST_UPT_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss')end LST_UPT_TIME,
+    	       (select FEE_NAME from FEERATE a where a.fee_code=b.fee_code) fee_name  
+    	  FROM COOPBANK b
+    	 WHERE BANK_CODE=#{BANK_CODE} AND BANK_REL_NO=#{BANK_REL_NO}
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/coopBank/coopBanks.jsp" />
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <!-- 合作银行详细 -->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="coopBanks" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="没有合作银行信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411012" desc="合作银行增加">
+    <sql name="coopBankId">
+    	SELECT BANK_CODE,BANK_NAME,BANK_REL_NO FROM COOPBANK WHERE BANK_CODE=#{BANK_CODE}
+    </sql>
+    <process>
+      <if condition="IS_EQUAL_STRING(PD,'000')">
+        <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/coopBank/coopBankin.jsp" />
+        <return />
+      </if>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod"          value="01001" />
+        <set name="RspMsg"          value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <!--判断银行信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="coopBankId" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="银行信息已存在" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=2">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="CRE_OPER_ID"     expr="SESSIONS.UID" />
+      <set name="CRE_TIME"        expr="GETDATETIME()" />
+      <set name="BANK_STATUS"     value="0" />
+      <set name="LST_UPT_OPER_ID" value="" />
+      <set name="LST_UPT_TIME"    value="" />
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="COOPBANK" />
+        <para name="Method"    value="INSERT" />
+        <para name="Columns"   value="BANK_CODE/PAY_SYS_ID/BANK_NAME/BANK_REL_NO/BANK_STATUS/TRT_BANK_FLG/STL_AC_NO/CERT_NO/REG_NO/LEG_REP/CUST_MGR/TEL_NO/BANK_EMAIL/BANK_ADDRESS/BIZ_RANGE/REMARK/CRE_OPER_ID/CRE_TIME/LST_UPT_OPER_ID/LST_UPT_TIME/FEE_CODE" />
+      </do>
+      <if condition="#RetCod==-3">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="支付系统ID已经存在！" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod"            value="00000" />
+      <set name="RspMsg"            value="交易成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+      <set name="DWZ_FORWARD_URL"   value="411010.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411013" desc="合作银行更新">
+    <sql name="coopBanks">
+    	SELECT BANK_CODE,PAY_SYS_ID,BANK_NAME,BANK_REL_NO,TRT_BANK_FLG,STL_AC_NO,CERT_NO,REG_NO,LEG_REP,CUST_MGR,TEL_NO,BANK_EMAIL,BANK_ADDRESS,
+    	       FEE_CODE FEE_CODE1,BIZ_RANGE,REMARK,CRE_OPER_ID,CRE_TIME,LST_UPT_OPER_ID,LST_UPT_TIME 
+    	  FROM COOPBANK 
+       WHERE BANK_CODE=#{BANK_CODE} AND BANK_REL_NO=#{BANK_REL_NO}
+    </sql>
+    <sql name="qryFeeList"><!-- 查询费率信息 -->
+      SELECT FEE_CODE,FEE_NAME FROM  FEERATE 
+    </sql>
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     value="用户登录平台不正确" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <if condition="IS_EQUAL_STRING(SL,'001')">
+        <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/coopBank/coopBankup.jsp" />
+        <!--商户开户银行明细 -->
+        <do func="ReadRecord" error="IGNORE">
+          <para name="SqlCmd" sql="coopBanks" />
+        </do>
+        <if condition="#RetCod==2">
+          <set name="RspCod" value="01004" />
+          <set name="RspMsg" value="没有商户开户银行信息" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </if>
+        <elseif condition="#RetCod!=0">
+          <set name="RspCod" value="09999" />
+          <set name="RspMsg" value="系统错误" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </elseif>
+        <!--查询费率代码-->
+        <do func="QueryInGroup" error="IGNORE">
+           <para name="SqlCmd"                    sql="qryFeeList" />
+           <para name="RecordName"                value="GETFEE"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RSPCOD"                      value="01002"/>
+           <set name="RSPMSG"                      value="没有费率信息"/>
+        </if>
+        <elseif condition="#RetCod!=0">
+           <set name="RSPCOD"                      value="09999"/>
+           <set name="RSPMSG"                      value="系统错误"/>
+           <return/>
+        </elseif> 
+        <return />
+      </if>
+      <set name="LST_UPT_OPER_ID" expr="SESSIONS.UID" />
+      <set name="LST_UPT_TIME"    expr="GETDATETIME()" />
+      <set name="BANK_STATUS"     value="0" />
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="COOPBANK" />
+        <para name="Method"    value="UPDATE" />
+        <para name="Columns"   value="PAY_SYS_ID/BANK_NAME/BANK_REL_NO/TRT_BANK_FLG/STL_AC_NO/CERT_NO/REG_NO/LEG_REP/CUST_MGR/TEL_NO/BANK_EMAIL/BANK_ADDRESS/BIZ_RANGE/REMARK/LST_UPT_OPER_ID/LST_UPT_TIME/FEE_CODE" />
+        <para name="keys"      value="BANK_CODE/BANK_STATUS" />
+      </do>
+      <if condition="#RetCod==-3">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="支付系统ID已经存在！" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      
+      <set name="RspCod"            value="00000" />
+      <set name="RspMsg"            value="交易成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+      <set name="DWZ_FORWARD_URL"   value="411010.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411014" desc="合作银行状态更新">
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     value="用户登录平台不正确" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <set name="LST_UPT_OPER_ID" expr="SESSIONS.UID" />
+      <set name="LST_UPT_TIME"    expr="GETDATETIME()" />
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="COOPBANK" />
+        <para name="Method"    value="UPDATE" />
+        <para name="Columns"   value="BANK_STATUS/LST_UPT_OPER_ID/LST_UPT_TIME" />
+        <para name="keys"      value="BANK_CODE/BANK_REL_NO" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="411010.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="411015" desc="合作银行删除">
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="COOPBANK" />
+        <para name="Method"    value="DELETE" />
+        <para name="Columns"   value="" />
+        <para name="keys"      value="BANK_CODE/BANK_NAME/BANK_REL_NO/" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+      <set name="DWZ_FORWARD_URL" value="411010.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="601030" desc="合作银行信息">
+    <sql name="coopBank">
+    	SELECT BANK_CODE,BANK_NAME,BANK_REL_NO,BANK_STATUS,TRT_BANK_FLG FROM COOPBANK WHERE BANK_STATUS='0'
+    </sql>
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <return />
+      </if>
+      <!-- 商户银行信息 -->
+      <do func="QueryInGroup">
+        <para name="SqlCmd" sql="coopBank" />
+        <para name="RecordName" value="GRP" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="02001" />
+        <set name="RspMsg" value="没有合作银行信息" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="412200" desc="客户已绑定银行卡数浏览">
+    <sql name="card_bind_list"><!-- 根据条件（客户编号、最大绑定主卡数量）查询卡绑定信息 -->
+      SELECT a.cust_id, a.bak_num,DAY_BAK_NUM,ADD_ADM,To_Char(to_date(ADD_DATE||ADD_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') ADD_TIME FROM STPBAKPAM a WHERE 1=1 ${CUST_ID1} ${BAK_NUM1} order by a.cust_id desc
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/pact/card_bind_list.jsp" />
+      <if condition="ISNULL(CUST_ID)">
+        <set name="CUST_ID1" value="" />
+      </if>
+      <else>
+        <set name="CUST_ID1" expr="STRCAT('and a.CUST_ID=\'',CUST_ID,'\'')" />
+      </else>
+      <if condition="ISNULL(BAK_NUM_MIN)">
+        <if condition="ISNULL(BAK_NUM_MAX)">
+          <set name="BAK_NUM1" value="" />
+        </if>
+        <else>
+          <set name="BAK_NUM1" expr="STRCAT('and to_number(a.BAK_NUM)&lt;=', 'to_number(', BAK_NUM_MAX, ')')" />
+        </else>
+      </if>
+      <else>
+        <if condition="ISNULL(BAK_NUM_MAX)">
+          <set name="BAK_NUM1" expr="STRCAT('and to_number(a.BAK_NUM)&gt;=', 'to_number(', BAK_NUM_MIN, ')')" />
+        </if>
+        <else>
+          <set name="BAK_NUM1" expr="STRCAT('and to_number(a.BAK_NUM) between', ' to_number(', BAK_NUM_MIN, ')', ' and to_number(', BAK_NUM_MAX, ')')" />
+        </else>
+      </else>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <!-- 执行条件查询 协议信息 -->
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum" expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql" sql="card_bind_list" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 有信息且查询成功-->
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="无信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     value="系统错误" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="412201" desc="银行卡绑定设置添加">
+    <sql name="SELBAKPAM"><!-- 查询账户银行卡是否设置 -->
+      SELECT cust_id FROM STPBAKPAM where CUST_ID = #{cust_id}
+    </sql>
+    <sql name="SELCUSINF"><!-- 查询客户信息 -->
+      SELECT cust_id FROM STPUSRINF where CUST_ID = #{cust_id}
+    </sql>
+    <sql name="UpdBak">
+      CUST_ID=#{CUST_ID}
+    </sql>
+    <process>
+      <!-- 跳转至增加页面 -->
+      <if condition="IS_EQUAL_STRING(PD,'000')">
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/pact/card_bind_add.jsp" />
+        <return />
+      </if>
+
+      <if condition="ISNULL(CUST_ID)">
+        <set name="CUST_ID" value="99999999999999" />
+      </if>
+      <else>
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="SELCUSINF" />
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="RspCod"          value="02008" />
+           <set name="RspMsg"          value="用户信息不存在" />
+           <set name="DWZ_STATUS_CODE" value="300" />
+           <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+           <return />
+         </if>
+      </else>
+      
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="SELBAKPAM" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="已存在该客户的银行卡设置" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      
+      <!-- 取系统时间、当前操作员 -->
+      <set name="ADD_DATE" expr="GETDATE()" />
+      <set name="ADD_TIME" expr="GETDATETIME('HHMISS')" />
+      <set name="ADD_ADM"  expr="SESSIONS.UID" />
+      <!-- 检查绑定卡数量是否为空 -->
+      <if condition="ISNULL(BAK_NUM)">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="绑定卡数量为空" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      
+      <if condition="ISNULL(DAY_BAK_NUM)">
+        <set name="DAY_BAK_NUM" expr="bak_num" />
+      </if>
+      <if condition="ISNULL(REMARK)">
+        <set name="REMARK"      value="" />
+      </if>
+      
+      <do func="InsertRecord">
+        <para name="TblNam"     value="stpbakpam" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      
+      <set name="RspCod"            value="00000" />
+      <set name="RspMsg"            value="银行卡绑定设置成功" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="412200.stp" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+      <set name="DWZ_NAV_TAB_ID"    value="银行卡绑定数设置" />
+
+    </process>
+  </transaction>
+  
+  <transaction code="412202" desc="设置删除">
+    <sql name="delBind">
+    	delete STPBAKPAM WHERE cust_id = ${CUST_ID}
+    </sql>
+    <process>
+      <if condition="IS_EQUAL_STRING(CUST_ID,'99999999999999')">
+        <set name="RspCod"          value="01008" />
+        <set name="RspMsg"          value="默认记录不能删除！" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <do func="ExecSql" error="IGNORE">
+        <para name="SqlCmd" sql="delBind" />
+      </do>
+      <set name="DWZ_RSP_MSG"       value="删除成功" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+    </process>
+  </transaction>
+  
+  <transaction code="412205" desc="设置修改">
+    <sql name="updBind">
+    	cust_id = ${CUST_ID}
+    </sql>
+    <process>
+      <set name="ADD_ADM"    expr="SESSIONS.UID" />
+      <if condition="ISNULL(DAY_BAK_NUM)">
+        <set name="DAY_BAK_NUM" expr="bak_num" />
+      </if>
+      <do func="UpdateRecord" error="IGNORE">
+        <para name="TblNam" value="STPBAKPAM" />
+        <para name="CndSts" sql="updBind" />
+      </do>
+      <set name="DWZ_RSP_MSG"       value="修改成功" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+    </process>
+  </transaction>
+  
+  <transaction code="412203" desc="客户已绑定银行卡数浏览">
+    <sql name="card_bind_list"><!-- 根据条件（客户编号、最大绑定主卡数量）查询卡绑定信息 -->
+      SELECT cust_id,bak_num,used_bak_num,to_number(bak_num) - to_number(used_bak_num) as sub_bak_num 
+        FROM (SELECT b.cust_id,decode(a.bak_num,'',c.numdef,a.bak_num) as bak_num, b.used_bak_num 
+                FROM STPBAKPAM a, (select count(*) as used_bak_num, cust_id 
+                                     from STPBANKTB where CARD_STATUS = '0' group by cust_id) b, 
+                                     (select bak_num as numdef from stpbakpam where cust_id='99999999999999') c 
+       WHERE a.cust_id(+)=b.cust_id ${BAK_NUM1} ) ${CUST_ID1} order by cust_id desc
+    </sql>
+    <sql name="selDef">
+    	select bak_num as numDef from STPBAKPAM where cust_id='99999999999999'
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/pact/card_bind_num.jsp" />
+      <if condition="ISNULL(CUST_ID)">
+        <set name="CUST_ID1" value="" />
+      </if>
+      <else>
+        <set name="CUST_ID1" expr="STRCAT(' where CUST_ID=\'',CUST_ID,'\'')" />
+      </else>
+      <if condition="ISNULL(BAK_NUM_MIN)">
+        <if condition="ISNULL(BAK_NUM_MAX)">
+          <set name="BAK_NUM1" value="" />
+        </if>
+        <elseif>
+          <set name="BAK_NUM1" expr="STRCAT('and to_number(a.BAK_NUM)&lt;=', 'to_number(', BAK_NUM_MAX, ')')" />
+        </elseif>
+      </if>
+      <elseif>
+        <if condition="ISNULL(BAK_NUM_MAX)">
+          <set name="BAK_NUM1" expr="STRCAT('and to_number(a.BAK_NUM)&gt;=', 'to_number(', BAK_NUM_MIN, ')')" />
+        </if>
+        <elseif>
+          <set name="BAK_NUM1" expr="STRCAT('and to_number(a.BAK_NUM) between', ' to_number(', BAK_NUM_MIN, ')', ' and to_number(', BAK_NUM_MAX, ')')" />
+        </elseif>
+      </elseif>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="selDef" />
+      </do>
+      <!-- 执行条件查询 协议信息 -->
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql"       sql="card_bind_list" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 有信息且查询成功-->
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="无信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="412204" desc="客户银行卡绑定详情">
+    <sql name="card_bind_echo"><!-- 根据条件（支付帐号、最大绑定主卡数量）查询卡绑定信息 -->
+      SELECT cust_id, bak_num, DAY_BAK_NUM, ADD_ADM, To_Char(to_date(ADD_DATE||ADD_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as ADD_DATE, REMARK 
+        FROM STPBAKPAM 
+       WHERE cust_id = ${CUST_ID} 
+       ORDER BY cust_id desc
+    </sql>
+    <process>
+      <if condition="ISNULL(CUST_ID)">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="客户编号为空" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/pact/card_bind_',bdF,'.jsp')" />
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="card_bind_echo" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="无信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="412206" desc="银行卡绑定状态浏览">
+    <sql name="oper_card_bind_stat"><!-- 根据条件（客户编号、银行卡号）查询银行卡绑定信息 -->
+       SELECT a.cust_id, a.CARD_NO,a.CARD_NO CARD_NODES, a.BANK_NAM BANKNAME,a.CARD_TYPE,b.CUST_LOGIN 
+         FROM STPBANKTB a,STPUSRINF b 
+        WHERE a.cust_id=b.cust_id ${CUST_ID1} ${CARD_NO1} ${BANKNAME1}
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/pact/oper_card_bind_list.jsp" />
+      <if condition="ISNULL(CUST_LOGIN)">
+        <set name="CUST_ID1" value="" />
+      </if>
+      <else>
+        <set name="CUST_ID1" expr="STRCAT('and b.CUST_LOGIN=\'',CUST_LOGIN,'\'')" />
+      </else>
+      <if condition="ISNULL(CARD_NO)">
+        <set name="CARD_NO1" value="" />
+      </if>
+      <else>
+        <set name="CARD_NO1" expr="STRCAT('and a.CARD_NO=\'',DES_ENCRYPT(CARD_NO),'\'')" />
+      </else>
+      
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <!-- 执行条件查询 -->
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql"       sql="oper_card_bind_stat" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 有信息且查询成功-->
+      <if condition="#RetCod==2">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="无信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      
+       <foreach name="GRP" iterator="#grp">
+         <set name="sDeData"       expr="#grp.CARD_NO"   />
+         <if condition="ISNULL(DES_DECRYPT(sDeData))">
+            <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+            <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+            <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+         </if>
+         <else>
+            <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+            <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+            <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+            <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+         </else>
+        <do func="loopSetEach">
+           <para name="ele"    expr="#grp.CARD_NO"/> 
+           <para name="value"  expr="descryptdata"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <set name="RspCod"            value="09998"/>
+           <set name="RspMsg"            value="系统错误"/>
+           <set name="DWZ_STATUS_CODE"   value="300"/>
+           <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+           <return/>
+        </if>
+      </foreach>
+      
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="412207" desc="添加银行卡">
+    <sql name="select_acc"><!-- 查询客户是否存在及其状态是否正常 cust_id -->
+    	 SELECT  b.cust_id, b.CUST_STATUS,b.CUST_TYPE FROM STPCUSINF b where b.CUST_LOGIN = #{CUST_LOGIN} 
+    </sql>
+    <sql name="select_acc_max_bind_num"> <!-- 查询账户设置的最大绑定数量 -->
+    	 SELECT cust_id, BAK_NUM FROM STPBAKPAM where CUST_ID = #{ORIG_CUST_ID}
+    </sql>
+    <sql name="select_default_max_bind_num"><!-- 查询默认设置的最大绑定数量 -->
+    	 SELECT BAK_NUM FROM STPBAKPAM where CUST_ID = '99999999999999'
+    </sql>
+    <sql name="select_binded_num"><!-- 查询当前已绑定的银行卡数量 -->
+    	 select count(*) as BINDED_BAK_NUM from STPBANKTB where CARD_STATUS='0' and cust_id = #{ORIG_CUST_ID}
+    </sql>
+    <sql name="select_bind"><!-- 添加一条银行卡绑定信息 先查询是否已有卡绑定记录，如果有，更新；没，插入一条记录 -->
+    	SELECT cust_id, CARD_NO, CARD_STATUS, BAK_OPEN_NUM FROM STPBANKTB where cust_id = #{ORIG_CUST_ID} and CARD_NO = #{CARD_NO}
+    </sql>
+    <sql name="oper_update_card_bind">
+    	UPDATE STPBANKTB set CARD_STATUS = '0', BAK_OPEN_DATE = #{ADD_DATE}, BAK_OPEN_TIME = #{ADD_TIME}, BAK_OPEN_NUM = ${BAK_OPEN_NUM1}, BAK_CUST_ID = #{ADD_ADM}, BAK_UPD_DATE = #{ADD_DATE}, BAK_UPD_TIME = #{ADD_TIME}, REMARK = #{REMARK} WHERE cust_id = #{ORIG_CUST_ID} and CARD_NO = #{CARD_NO}
+    </sql>
+    <sql name="oper_insert_card_bind">
+    	INSERT INTO STPBANKTB (BAK_SEQ, CUST_ID, CARD_TYPE,CARD_BANK, CARD_NO, CARD_STATUS, BAK_OPEN_DATE, BAK_OPEN_TIME, BAK_OPEN_NUM, BAK_CUST_ID, BAK_UPD_DATE, BAK_UPD_TIME, REV_FLAG,BANKNAME) 
+    	VALUES (#{BAK_SEQ}, #{ORIG_CUST_ID}, #{CARD_TYPE},#{BANKCODE}, #{CARD_NO}, '0', #{ADD_DATE}, #{ADD_TIME}, '1', #{ADD_ADM}, #{ADD_DATE}, #{ADD_TIME}, #{REMARK}, #{ISSBANKNAME})
+    </sql>
+    <sql name="selBankCard">
+    	select ISSNAM,BANKCODE from crdbininf where crdctt = #{CARD_NO1}
+    </sql>
+    <process>
+      <!-- 跳转至增加页面 -->
+      <if condition="IS_EQUAL_STRING(PD,'000')">
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/pact/oper_card_bind_add.jsp" />
+        <return />
+      </if>
+      <!-- 截取主账号6位，查询所属银行-->
+      <if condition="IS_EQUAL_STRING(PD,'005')">
+        <set name="CARD_NO1"  expr="SUBSTR(CARD_NO2,'1','6')" />
+        <do func="ReadRecord" error="IGNORE">
+          <para name="SqlCmd" sql="selBankCard" />
+        </do>
+        <if condition="#RetCod==2">
+          <set name="RspCod" value="01009" />
+          <set name="RspMsg" value="未找到所属银行" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </if>
+        <elseif condition="#RetCod==-1">
+          <set name="RspCod" value="01009" />
+          <set name="RspMsg" value="数据库错误" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </elseif>
+        <elseif condition="#RetCod==0">
+          <set name="RspCod" value="00000" />
+          <set name="RspMsg" value="查询成功" />
+          <set name="DWZ_STATUS_CODE" value="200" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </elseif>
+      </if>
+      <!-- 检查必输字段是否为空 -->
+      <if condition="ISNULL(CUST_LOGIN)">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="登录账号为空" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(CARD_TYPE)">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="卡类型为空" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(CARD_NO)">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="卡号为空" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <!-- 先保存正在的支付帐号ID -->
+      <set name="ORIG_CUST_ID" expr="CUST_ID" />
+      <!-- 查询帐户是否存在 -->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="select_acc" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="客户不存在" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="客户处于非正常状态！" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="IS_NOEQUAL_STRING(CUST_TYPE,'0')">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="该客户为非个人用户，不能绑定银行卡！" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      
+      <!-- 取系统时间、当前操作员 -->
+      <set name="ADD_DATE" expr="GETDATE()" />
+      <set name="ADD_TIME" expr="GETDATETIME('HHMISS')" />
+      <set name="ADD_ADM"  expr="SESSIONS.UID" />
+      <set name="CARD_NO"  expr="DES_ENCRYPT(CARD_NO)"/>
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="select_bind" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RspCod" value="01004" />
+        <set name="RspMsg" value="银行卡已绑定" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <else>
+        <!-- 获取编号 -->
+        <do func="GetSeqNo" error="IGNORE">
+          <para name="TblNam" value="stpseqrec" />
+          <para name="KeyNam" value="KeyNam" />
+          <para name="KeyVal" value="STPBANKTB_BAK_SEQ" />
+          <para name="SeqNam" value="KeyVal" />
+          <para name="Len" value="5" />
+          <para name="Circle" value="1" />
+        </do>
+        <if condition="#RetCod!=0">
+          <set name="RspCod" value="9001" />
+          <set name="RspMsg" value="生产序列号失败" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+          <return />
+        </if>
+        <set name="BAK_SEQ"  expr="STRCAT(ADD_DATE,KeyVal)" />
+        <set name="BANKNAME" expr="ISSBANKNAME" />
+        <!-- 插入新记录 -->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="oper_insert_card_bind" />
+        </do>
+        <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 插入成功-->
+        <if condition="#RetCod==2">
+          <set name="RspCod" value="01004" />
+          <set name="RspMsg" value="无信息" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </if>
+        <elseif condition="#RetCod!=0">
+          <set name="RspCod" value="09999" />
+          <set name="RspMsg" value="系统错误" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+          <return />
+        </elseif>
+      </else>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="银行卡绑定成功" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+    </process>
+  </transaction>
+  
+  <transaction code="412208" desc="解绑银行卡">
+    <sql name="select_bind">
+    	SELECT CUST_ID,CARD_BANK,BANK_NAM,CARD_TYPE,CARD_NAME,USER_ID FROM STPBANKTB where cust_id = #{cust_id} and CARD_NO = #{CARD_NO}
+    </sql>
+    <sql name="set_unbinding">
+    	delete STPBANKTB where cust_id = #{cust_id} and CARD_NO = #{CARD_NO}
+    </sql>
+    <process>
+      <if condition="IS_EQUAL_STRING(PD,'000')">
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/pact/oper_card_unbind.jsp" />
+        <return />
+      </if>
+
+      <!-- 查询卡的当前绑定状态 -->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="select_bind" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 查询成功 -->
+      <if condition="#RetCod==2">
+        <set name="RspCod"          value="01002" />
+        <set name="RspMsg"          value="该用户无此绑定信息，或已经解绑，请刷新后操作。" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+   
+      <!-- 解绑 -->
+      <do func="ExecSql" error="IGNORE">
+        <para name="SqlCmd" sql="set_unbinding" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="该用户无此绑定信息，或已经解绑，请刷新后操作。" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      
+      <!-- 获取编号 -->
+      <do func="GetSeqNo" error="IGNORE">
+        <para name="TblNam" value="stpseqrec" />
+        <para name="KeyNam" value="KeyNam" />
+        <para name="KeyVal" value="STPBANKHIS" />
+        <para name="SeqNam" value="KeyVal" />
+        <para name="Len"    value="5" />
+        <para name="Circle" value="1" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod"          value="09001" />
+        <set name="RspMsg"          value="生成序列号失败" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+        <return />
+      </if>
+      <set name="BAK_SEQ"       expr="STRCAT(ADD_DATE,KeyVal)" />
+      <set name="OPE_TYPE"      value="1" />   <!--解绑-->
+      <set name="CARD_STA_RES"  expr="CARD_STA_RES" />
+      <set name="BAK_CUST_ID"   expr="SESSIONS.UID" />
+      <set name="BAK_UPD_DATE"  expr="GETDATE()" />
+      <set name="BAK_UPD_TIME"  expr="GETDATETIME('HHMISS')" />
+      
+      <!-- 登记解绑历史记录 -->
+      <do func="InsertRecord" >
+         <para name="TblNam"  value="STPBANKHIS" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <continue/>
+      </if>
+      
+      <set name="RspCod"            value="00000" />
+      <set name="RspMsg"            value="交易成功" />
+      <set name="DWZ_STATUS_CODE"   value="200" />
+      <set name="DWZ_RSP_MSG"       expr="RspMsg" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="412206.stp" />
+    </process>
+  </transaction>
+  
+  <transaction code="qryBankHis" desc="查询银行卡解绑历史信息">
+    <sql name="qryBankHis">
+    	SELECT a.CUST_ID,b.CUST_LOGIN,a.CARD_NO,a.BANK_NAM,a.CARD_TYPE,a.CARD_NAME,a.USER_ID,a.OPE_TYPE,a.CARD_STA_RES,a.BAK_CUST_ID,
+    	        to_char(to_date(a.BAK_UPD_DATE||a.BAK_UPD_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd  hh24:mi:ss') updtim
+    	  FROM STPBANKHIS a,STPUSRINF b 
+    	 WHERE a.cust_id=b.cust_id ${cust_login1} ${CARD_NO1}
+    </sql>
+    <process>
+
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/pact/oper_card_bind_his.jsp" />
+      <if condition="ISNULL(cust_login)">
+        <set name="cust_login1" value="" />
+      </if>
+      <else>
+        <set name="cust_login1" expr="STRCAT('and b.cust_login=\'',cust_login,'\'')" />
+      </else>
+      <if condition="ISNULL(CARD_NO)">
+        <set name="CARD_NO1" value="" />
+      </if>
+      <else>
+        <set name="CARD_NO1" expr="STRCAT('and a.CARD_NO=\'',DES_ENCRYPT(CARD_NO),'\'')" />
+      </else>
+      
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <!-- 执行条件查询 -->
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql"       sql="qryBankHis" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 有信息且查询成功-->
+      <if condition="#RetCod==2">
+        <set name="RspCod"          value="01004" />
+        <set name="RspMsg"          value="无信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod"          value="09999" />
+        <set name="RspMsg"          value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG"     expr="RspMsg" />
+        <return />
+      </elseif>
+      
+       <foreach name="GRP" iterator="#grp">
+         <set name="sDeData"       expr="#grp.CARD_NO"   />
+         <if condition="ISNULL(DES_DECRYPT(sDeData))">
+            <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+            <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+            <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+         </if>
+         <else>
+            <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+            <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+            <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+            <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+         </else>
+        <do func="loopSetEach">
+           <para name="ele" expr="#grp.CARD_NO"/> 
+           <para name="value" expr="descryptdata"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <set name="RspCod"            value="09998"/>
+           <set name="RspMsg"            value="系统错误"/>
+           <set name="DWZ_STATUS_CODE"   value="300"/>
+           <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+           <return/>
+        </if>
+      </foreach>
+      
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+
+</application>

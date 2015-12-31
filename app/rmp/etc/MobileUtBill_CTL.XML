@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="rmp" code="102" log_level="INFO">
+   <!-- 公共宏文件引入-->
+   <include file="etc/PUBMACRO_RMP.XML"/>
+   
+    <before>
+        <do expr="@tangdi.engine.context.Msg@dump()"/>
+        <set name="ConfigName"   value="G_VARIABLE"/>
+        <quote name="ReadXmlCfg"/>
+        <if condition="IS_EQUAL_STRING(TELLERID,'')">
+            <set name="TellerID"      value="00000000000000000000"/>
+        </if>
+        <!--读取短信配置-->
+        <set name="ConfigName"   value="BeforeCfg"/>
+        <quote name="ReadXmlCfg"/>
+        <!--取当前日期设置会计日期-->
+        <set name="ActDat"        expr="GETDATE()"  />
+        <set name="NowDate"       expr="ActDat"  />               <!--当前日期-->
+        <set name="NowTime"       expr="GETDATETIME('HHMISS')"/>  <!--当前时间-->
+        <set name="TXN_ORG_NO"    value="000001"    /><!--机构号-->
+        <!--获取终端号-->
+        <set name="TermCode"  expr="DELBOTHSPACE(TermCode)"/>
+        <if condition="ISNULL(TermCode)">
+            <do func="GetIP2"/>
+            <set name="TermCode"   expr="Ip"                />
+            <set name="TermCode"   expr="_REQUESTATTR.REQIP"/><!-- GetIp2原子函数不生效，直接从属性中取 -->
+        </if>
+    </before>
+    
+    <after>
+        <do expr="@tangdi.engine.context.Msg@dump()"/>
+        <quote name="returnMsgMacro"/>
+    </after>
+
+    <!-- pei.ye addby20150910 -->
+    <transaction code="800053" desc="订单继续支付交易--暂不用">
+    	
+        <sql name="QryCustId"> <!--  根据手机号查询CUST_ID  -->
+            SELECT CUST_ID 
+            FROM STPUSRINF 
+            WHERE  CUST_LOGIN=#{UsrMp}
+        </sql> 
+            	
+        <process>
+            <set name="sPwds"    value="PAYPWD:G_RANDOM"/>
+            <quote name="ParseRequestParams"/>
+            
+            <!-- 根据手机号查询CUST_ID -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCustId" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="002008"/>
+                <set name="RspMsg"        value="用户信息不存在"/>
+                
+                <set name="RCS_USER_CODE"       expr="CUST_ID"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANDESC"         />
+                <set name="RCS_PRD_NO"          value=""                />
+                <set name="RCS_TCODE"           value="用户不存在"      />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            <if condition="ISNUMBER(UsrMp)">
+                <set name="RANDUSRMP"  expr="UsrMp"/>
+            </if>
+            <esle>
+                <set name="RANDUSRMP"  expr="usr_mobile"/>
+            </esle>
+        </process>
+    	
+    </transaction>
+    
+    <transaction code="800054" desc="物业代缴费--查询缴费交易">
+    	
+        <sql name="QryCustId"> <!--  根据手机号查询CUST_ID  -->
+            SELECT CUST_ID 
+            FROM STPUSRINF 
+            WHERE  CUST_LOGIN=#{UsrMp}
+        </sql>
+
+        <sql name="QueryUtilityBillInf">
+        	  select Bill_Monthfeeid,Bill_Item_Type,Bill_Cust_Id,Bill_Cust_Name,Bill_Cust_Id_Num,Bill_Room_Name,Bill_Period,Bill_Money,Bill_Memo,Bill_ctype,Bill_pactmainno,Bill_PrdOrdNo,Bill_Status 
+        	  from UtilityBillInf 
+        	  where Bill_Status = '00' and  Bill_Cust_Id = #{CUST_ID} and  Bill_Period = #{periodbegin}
+        </sql>
+            	
+        <process>
+            <!-- 对APP数据进行解密 -->
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams"/>
+            
+            <if condition="ISNULL(USRMP)">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="用户手机号为空"/>
+                <return/>
+            </if>
+            
+            <!-- 根据手机号查询CUST_ID -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCustId" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="002008"/>
+                <set name="RspMsg"        value="用户信息不存在"/>
+                <return/>
+            </if>
+            <if condition="ISNUMBER(UsrMp)">
+                <set name="RANDUSRMP"  expr="UsrMp"/>
+            </if>
+            <esle>
+                <set name="RANDUSRMP"  expr="usr_mobile"/>
+            </esle>
+            
+            <!-- 通过接口调用STP下交易，去物流系统查询账单信息  STP下统一交易完成去第三方的账单查询，账单表数据的登记 --> 
+            <set name="sthCode"    value="594105"/>
+            
+            <do func="CallThirdOther"     error="IGNORE">
+                <para name="channel"         value="STHDSTPU" />
+                <para name="code"            expr="sthCode"/>
+            </do>
+            <if condition="#RetCod!=0">
+            <!-- 回滚数据库 -->
+                <do func="RollBackWork"/>
+                <set name="RspCod"         value="009997"/>
+                <set name="RspMsg"         value="通讯错误"/>
+                <return/>
+            </if>
+            
+            <set name="periodbegin"    expr="SUBSTR(GETDATE(),1,6)"/>                 <!-- 查询时间 -->
+            
+            <!-- 请求STP查询交易完成后，账单表UtilityBillInf 会记录账单信息 查询用户账单信息 -->
+            <do func="QueryInGroup" error="IGNORE">
+                <para name="SqlCmd"      sql="QueryUtilityBillInf" />
+                <para name="RecordName"  value="GRP" />
+            </do>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="999999"/>
+                <set name="RspMsg"        value="数据库错误！"/>
+                <return/>
+            </if>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"        value="002008"/>
+                <set name="RspMsg"        value="账单信息不存在"/>
+                <return/>
+            </if>
+
+            <set name="RspCod"        value="000000"/>
+            <set name="RspMsg"        value="账单查询交易成功"/>
+        </process>
+
+    </transaction>
+    
+    <transaction code="800055" desc="物业代缴费--缴费交易">
+    	
+        <sql name="QryCustId"> <!--  根据手机号查询CUST_ID  -->
+            SELECT CUST_ID 
+            FROM STPUSRINF 
+            WHERE  CUST_LOGIN=#{UsrMp}
+        </sql> 
+            	
+        <process>
+           <!-- 对APP数据进行解密 -->
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams"/>
+            
+            <if condition="ISNULL(USRMP)">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="用户手机号为空"/>
+                <return/>
+            </if>        
+            
+            <!-- 根据手机号查询CUST_ID -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCustId" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="002008"/>
+                <set name="RspMsg"        value="用户信息不存在"/>
+                <return/>
+            </if>
+            <if condition="ISNUMBER(UsrMp)">
+                <set name="RANDUSRMP"  expr="UsrMp"/>
+            </if>
+            <esle>
+                <set name="RANDUSRMP"  expr="usr_mobile"/>
+            </esle>
+            
+            <set name="PrdOrdNo"      expr="BILL_PRDORDNO"/>   <!--账单批次号，即订单号-->
+            
+            <!-- 通过接口调用STP下交易，完成下单交易 --> 
+            <set name="sthCode"    value="594107"/>
+            <do func="CallThirdOther"     error="IGNORE">
+                <para name="channel"         value="STHDSTPU" />
+                <para name="code"            expr="sthCode"/>
+            </do>
+            <if condition="#RetCod==0">
+            	<if condition="IS_EQUAL_STRING(STP_RspCod,'00000')">
+            		  <set name="RspCod"        value="000000"/>
+                  <set name="RspMsg"        value="账单查询交易成功"/>
+            	</if>
+            	<else>
+            		  <set name="RspCod"        expr="STP_RspCod"/>
+                  <set name="RspMsg"        expr="STP_RspMsg"/>
+                  <return/>
+            	</else>
+            </if>
+            
+            <set name="PrdOrdNo"      expr="BILL_PRDORDNO"/>
+            <set name="OrdAmt"        expr="OrdAmt"/>
+            <set name="RspCod"        value="000000"/>
+            <set name="RspMsg"        value="账单查询交易成功"/>
+        </process>
+        
+    </transaction>
+    
+    <transaction code="800056" desc="物业代缴费成功--回写物业系统">
+    	
+        <sql name="QryCustId"> <!--  根据手机号查询CUST_ID  -->
+            SELECT CUST_ID 
+            FROM STPUSRINF 
+            WHERE  CUST_LOGIN=#{UsrMp}
+        </sql> 
+            	
+        <process>
+           <!-- 对APP数据进行解密 -->
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams"/>
+            
+            <if condition="ISNULL(USRMP)">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="用户手机号为空"/>
+                <return/>
+            </if>        
+            
+            <!-- 根据手机号查询CUST_ID -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCustId" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="002008"/>
+                <set name="RspMsg"        value="用户信息不存在"/>
+                <return/>
+            </if>
+            <if condition="ISNUMBER(UsrMp)">
+                <set name="RANDUSRMP"  expr="UsrMp"/>
+            </if>
+            <esle>
+                <set name="RANDUSRMP"  expr="usr_mobile"/>
+            </esle>
+            
+            <set name="PrdOrdNo"      expr="BILL_PRDORDNO"/>   <!--账单批次号，即订单号-->
+            
+            <!-- 通过接口调用STP下交易，完成下单交易 --> 
+            <set name="sthCode"    value="594106"/>
+            
+            <do func="CallThirdOther"     error="IGNORE">
+                <para name="channel"         value="STHDSTPU" />
+                <para name="code"            expr="sthCode"/>
+            </do>
+            <if condition="#RetCod!=0">
+            <!-- 回滚数据库 -->
+            <do func="RollBackWork"/>
+                <set name="RspCod"         value="009997"/>
+                <set name="RspMsg"         value="通讯错误"/>
+                <return/>
+            </if>
+            
+            <set name="RspCod"        value="000000"/>
+            <set name="RspMsg"        value="账单查询交易成功"/>
+        </process>
+        
+    </transaction>
+
+</application>

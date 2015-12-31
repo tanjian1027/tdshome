@@ -1,0 +1,97 @@
+<root>
+     <tran code="561402"><response>PAGEFLAGS|RECNUM|RSPCOD|RSPMSG|MSGTYP|OSTATUS|SELD|TRATYPE|GRP|PRDORDTYPE|MERNO|ORDAMT|SIGN|TRADECODE|PRDORDNO|ISPROXY|MERID|MERNAME|PAGENUM|NUMPERPAG|TRATYPE|LOGIN_NAME1|ALLPAGENUM|ZGD|STARTDATE|ENDDATE|TRANSTYPES|TOLCNT|_REQUESTATTR</response></tran>
+     <tran code="565087"><response>RSPCOD|RSPMSG|PRDORDNO|ISEC|ERRORPAGE|SUCCEPAGE|MERNO|_REQUESTATTR|MCRYPT_KEY|MSGTYP|PRDORDTYPE|ORDAMT|CUSTRPTACNO</response></tran>
+     <tran code="999999"><response>RSPCOD|RSPMSG</response></tran>
+     <tran code="565801"><response>RSPCOD|RSPMSG|ORDSTATUS|MSGTYP</response></tran>
+     <tran code="565987"><response>MSGTYP|PRDORDNO|RSPMSG</response></tran>
+     <tran code="700022"><response>RSPCOD|RSPMSG</response></tran>
+     <tran code="getCertificate"><response>RspMsg|RspCod|DWZ_STATUS_CODE|DWZ_RSP_MSG|CERTSIGNBUFP7|SESSIONS</response></tran>
+     <tran code="verifyPayPass"><response>RspMsg|RspCod</response></tran>
+     <tran code="selCertificate"><response>RspMsg|RspCod|DWZ_STATUS_CODE|DWZ_RSP_MSG|CERTSTATUS</response></tran>
+     <tran code="delCertificate"><response>RspMsg|RspCod|SESSIONS</response></tran>
+     <tran code="revokeCert"><response>RspMsg|RspCod|DWZ_STATUS_CODE|DWZ_RSP_MSG|DWZ_CALLBACK_TYPE|DWZ_FORWARD_URL</response></tran>
+     <tran code="verifySignature"><response>RspCod|RspCod</response></tran>
+     <tran code="selUserLocalCA"><response>DNID|DNNUM|CARspCod|CARspMsg</response></tran>
+     <tran code="insSessionCA"><response>RspMsg|RspCod|SESSIONS</response></tran>
+     <tran code="selUserInf"><response>USREMAIL|EMAIL_STATUS|USRMOBILE|CUSTNAME|RspCod|RspCod</response></tran>
+     <tran code="queryEnumValue"><response>PROGRP|PRONUM|RspCod|RspCod</response></tran>
+     <tran code="sendPMesCd"><response>RspMsg|RspCod</response></tran>
+     <tran code="verifyImgIdCode"><response>RspMsg|RspCod</response></tran>
+     <tran code="verifyImgCode"><response>RspMsg|RspCod</response></tran>	
+     <tran code="562561"><response>RspMsg|RspCod|MSGTYP|_REQUESTATTR</response></tran>
+     <tran code="562560"><response>RspMsg|RspCod|MERNAM|MSGTYP|_REQUESTATTR</response></tran>
+     <tran code="562569"><response>RspMsg|RspCod|GRP|MSGTYP|_REQUESTATTR</response></tran>
+     <tran code="562562"><response>RspMsg|RspCod|MSGTYP|_REQUESTATTR</response></tran>
+     <tran code="562563"><response>RspMsg|RspCod|MSGTYP</response></tran>
+     <tran code="562567"><response>RspMsg|RspCod|MSGTYP|_REQUESTATTR|USRMP</response></tran>
+     <tran code="562570"><response>RspMsg|RspCod|MSGTYP|_REQUESTATTR</response></tran>
+     <tran code="561111"><response>RspMsg|RspCod|MSGTYP</response></tran>
+     <tran code="561102"><response>RspMsg|RspCod|MSGTYP|USRMP|CUST_ID|LOGNAM|IDTYPECOD</response></tran> 
+     <tran code="561103"><response>RspMsg|RspCod|MSGTYP</response></tran>
+     <tran code="561105"><response>RspMsg|RspCod|MSGTYP</response></tran>
+     <tran code="561107"><response>RspMsg|RspCod|MSGTYP|_REQUESTATTR|USRMP</response></tran>
+     <tran code="561131"><response>RspMsg|RspCod|MSGTYP</response></tran>
+     <tran code="561132"><response>RspMsg|RspCod|MSGTYP</response></tran>
+     <tran code="561527"><response>MSGTYP|USER_NAME|RSPCOD|RSPMSG</response></tran>
+     <tran code="565116"><response>MsgTyp|RspCod|RspMsg|TOTAMT|traOrdNo|txAmt1|batNo|userID|txnDat|orderNo</response></tran>	
+     <tran code="561304"><response>MsgTyp|RspCod|RspMsg|GRP|PAGENUM|NUMPERPAG|MSGTYP|RSPCOD|RECNUM|TOTFEE|TRATYPE</response></tran>
+     <tran code="565125"><response>MsgTyp|RspCod|RspMsg|_REQUESTATTR</response></tran>	
+     <tran code="561521"><response>_REQUESTATTR|MSGTYP|RSPCOD|RSPMSG|AUTHSTAT|PAGENUM|NUMPERPAG|TOLCNT|GRP|RECNUM|ALLPAGENUM|MOB|PRONUM|RECORDNUM|PROGRP|PAY_AC_NO</response></tran>	
+     <tran code="561522"><response>_REQUESTATTR|MSGTYP|RSPCOD|RSPMSG|AUTHSTAT|PAGENUM|NUMPERPAG|TOLCNT|GRP|RECNUM|ALLPAGENUM|MOB|PAY_AC_NO</response></tran>	
+     <tran code="561526"><response>MSGTYP|RSPCOD|RSPMSG|BANKNAM|BANKNUM</response></tran>
+     <tran code="561525"><response>MSGTYP|RSPCOD|RSPMSG|GRP|USNUM</response></tran>
+     <tran code="565115"><response>MsgTyp|RspCod|RspMsg|txAmt|CasOrdNo|userID|payAcNo</response></tran>
+     <tran code="561710"><response>MSGTYP|MsgNum|RSPCOD|RSPMSG</response></tran>
+     <tran code="561520"><response>_REQUESTATTR|MSGTYP|RSPCOD|RSPMSG|PAGENUM|NUMPERPAG|TOLCNT|GRP|RECNUM|ALLPAGENUM|MOB</response></tran>	
+     <tran code="561400"><response>PAYACNO|LOGNAM|MSGTYP|RSPCOD|RSPMSG|CUSTNO|CONSACBAL|CASHACBAL|USRBAL|FROZBALANCE|CASHACBAL1|FROZBALANCE2|CASH|ACBAL|NOUSRBAL|CONSACBAL1|PAYCBAL|GETBAL</response></tran>
+     <tran code="565102"><response>PRDORDNO|RspCod|RspMsg|sucDat|SUCAMT|MERREMARK|_REQUESTATTR|PRDORDTYPE|AC_BAL</response></tran>	
+     <tran code="561117"><response>_REQUESTATTR|MSGTYP|RSPCOD|U_AUTH_STATUS|PAGENUM|NUMPERPAG|TOLCNT|GRP|RECNUM|ALLPAGENUM|MOB|PPNUM|FLAG|RSPMSG</response></tran>
+     <tran code="561128"><response>RspCod|RspMsg|msgTyp</response></tran>
+     <tran code="561524"><response>RSPCOD|MSGTYP|ISSBANKNAME|BANKCODE|BANKCARDTYPES|BANKCARDTYPE</response></tran>
+     <tran code="561114"><response>RSPCOD|RSPMSG|BNKACNO|MSGTYP|LOGIN_NAME1</response></tran>
+     <tran code="561125"><response>MSGTYP|ALT_NUM|RSPCOD|RSPMSG</response></tran>
+     <tran code="561146"><response>_REQUESTATTR|CREDTYPE|MSGTYP|RSPCOD|RSPMSG|CARDNO|CARDTYP|JOBNAM</response></tran>
+     <tran code="561134"><response>MSGTYP|ALT_NUM|RSPCOD|RSPMSG</response></tran>
+     <tran code="561124"><response>MSGTYP|RSPCOD|RSPMSG|NEWUSRMP</response></tran>
+     <tran code="561133"><response>MSGTYP|RSPCOD|RSPMSG</response></tran>
+     <tran code="561130"><response>MSGTYP|RSPCOD|RSPMSG|ZIP|EMAIL|ADDRESS|TELNUM</response></tran>
+     <tran code="561149"><response>MSGTYP|RSPCOD|RSPMSG</response></tran>
+     <tran code="561101"><response>MSGTYP|RSPCOD|RSPMSG</response></tran>
+     <tran code="561127"><response>MSGTYP|RSPCOD|RSPMSG</response></tran>
+     <tran code="561118"><response>MOBILE|MSGTYP|RSPCOD|RSPMSG|_REQUESTATTR</response></tran>
+     <tran code="561129"><response>MSGTYP|RSPCOD|RSPMSG|EMAIL|checkUrl</response></tran>
+     <!--565127不过滤(PRDORDNO|cmbAmount|CONO|Date|MerchantUrl|MerchantPara|BillNo)每个银行的参数不同-->
+     <tran code="561263"><response>MOBILE|MSGTYP|RSPCOD|RSPMSG|_REQUESTATTR|USRID|USER_NAME|EMAIL|FAX|JOB|ZIP|TELNUM|BIRTHDAY|NATION|GENDER|ADDRESS|EMAIL_STATE|USER_BEFORENAME|NATIONALITY|USER_NO1|CUST_LOGIN1|AUTHSTATUS|U_CARD_TYPE|PRE_TIM|U_AUTH_STATUS|PPCNUM|MAINNUM|REGISTER_DATE|CARDTYPE|USR_JOB</response></tran>
+     <tran code="561109"><response>_REQUESTATTR|RSPCOD|RSPMSG|DNID|CARSPCOD|CARSPMSG|SESSIONS|CUST_ID|CUST_LOGIN</response></tran>
+     <tran code="insSessionState"><response>RSPCOD|RSPMSG|SESSIONS</response></tran>    
+     <!--商户系统过滤配置-->
+     <!--商户信息查询-->
+     <tran code="562205"><response>RSPCOD|_REQUESTATTR|CUST_ID|CUST_NAME|MER_ADDR|WEB_ADDRESS|POST_CODE|COMPAY_TEL_NO|COMPAY_FAX|COMPAY_EMAIL|BIZ_CONTACT|BIZ_TEL_NO|BIZ_EMAIL|TECH_CONTACT|TECH_TEL_NO|TECH_EMAIL|SERV_CONTACT|SERV_TEL_NO|SERV_EMAIL|DEPOSIT_BANK_BRCH_NAME|CUST_BANK_DEPOSIT_NAME|CUST_STL_BANK_AC_NO|PACT_TAKE_EFF_DATE|PACT_LOSE_EFF_DATE|PACT_STATUS|BIZ_TYPE|CUST_SET_PERIOD|MARGIN_AMT</response></tran>
+     <!--商户信息修改保存-->
+     <tran code="562219"><response>RSPCOD|RSPMSG|BIZ_TEL_NO|BIZ_CONTACT|BIZ_EMAIL|TECH_CONTACT||TECH_TEL_NO|TECH_EMAIL|SERV_CONTACT|SERV_EMAIL|SERV_TEL_NO</response></tran>
+     <!--我的服务-账户查询-->
+     <tran code="562207"><response>RSPCOD|PAYACBAL|GRP</response></tran>
+     <!--我的服务-账户详情-->
+     <tran code="562213"><response>RSPCOD|RSPMSG|GRP|PAGENUMSHOWN|TOLCNT|PAGENUM|NUMPERPAG|TOTALPAGES|TOTAL|PAGENO|PAGE</response></tran>
+     <!--我的服务-充值记录-->
+     <tran code="562208"><response>RSPCOD|GRP|RSPMSG|TOLCNT|PAGENUM|NUMPERPAG|FLAG|PAGENUMSHOWN</response></tran>
+     <!--交易记录-->
+     <tran code="562212"><response>RSPCOD|FLAG|NUMS|GRP|PAGENUM|FROMDATE|PAGE</response></tran>
+     <!--商户、后台系统退款-->
+     <tran code="565804"><response>RSPCOD|RSPMSG|DWZ_STATUS_CODE|DWZ_RSP_MSG</response></tran>
+     <!--结算申请-->
+     <tran code="562221"><response>DWZ_STATUS_CODE|RSPMSG|STL_DATE|STLTIME|PAY_AC_NO</response></tran>
+     <!--结算申请提交-->
+     <tran code="562209"><response>RSPCOD|RSPMSG</response></tran>
+     <!--结算审核-->
+     <tran code="601008"><response>RSPCOD|RSPMSG</response></tran>
+     <!--结算审核拒绝-->
+     <tran code="562211"><response>RSPCOD|RSPMSG|PAGENO|PAGE|NUMS|PREPAG</response></tran>
+     <!--结算记录-->
+     <tran code="562224"><response>RSPCOD|GRP|PAGENO|PAGE|NUMS|PREPAG</response></tran>
+     <!--退款记录查询-->
+     <tran code="562222"><response>RSPCOD|GRP|NUMS|PAGENO|PAGE|PREPAG</response></tran>
+     <!--退款详情-->
+     <tran code="562226"><response>ORDSTATUS|RSPMSG|ORDDATE|RSPCOD|MSGTYP|_REQUESTATTR|PAGENO|ORIPRDORDNO1|ORDSTATUS1|NEARDATE|FROMDATE|TODATE|RFAMT|ORIPRDORDNO|REFORDNO|RFREQDATE|ORDDATES|USERID|PRDNAME|ORDERTIME|RFSAKE</response></tran>
+
+</root>

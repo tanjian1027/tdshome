@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="CTHDMNG1" log_level="INFO" minThreads="50" maxThreads="300">
+  <!--权限管理查询接口  包括权限用户信息、角色信息、菜单信息、修改密码-->
+  <listener name="listener1" class="tangdi.comm.tcp.TdTCPListener">
+    <para name="localPort" value="60003" />
+    <!--获取TxnCod-->
+    <interceptor class="tangdi.interceptor.XmlCodeInterceptor">
+       <para name="type"     value="xml"/>
+       <para name="charSet" value="UTF-8"/>
+    </interceptor>
+  </listener>
+
+  <process>
+    <do func="callservice">
+       <para name="service" expr="TxnCod"></para>
+    </do>
+    <do expr="@tangdi.engine.context.Msg@dump()"/>
+    <do expr="@tangdi.engine.context.Xml@begin()" />
+    <do func="pack">
+       <para name="code" expr="TxnCod"></para>
+       <para name="ITF"  value="etc/channel/CTHDMANAGE_ITF.XML" />
+    </do>
+  </process>
+
+</channel>

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="testPack" desc="testPack" log_level="INFO"  natures="base,channel,webapp,default,javaengine,remote">
+    <module>tangdi.engine.tags.xml.TdXMLModule</module>
+    <!--银联代付-->
+    <atc name="pub" package="com.unionpay.acp.demo10">
+      <class>UnionPayDF</class>
+    </atc>
+    <!-- 记账 -->  
+    <atc name="pub" package="tangdi.pay.module.business.accounting">
+        <class>Accounting</class>
+    </atc>
+    <!--身份证号码验证-->
+	  <atc name="pub" package="cn.linan.idcard.client">  <!-- updated by 冯定  at 2015-06-22 -->
+	    <class>IdCardValidClient</class>
+	  </atc>
+    <atc name="pub" package="tangdi.pay.module.app.fee">
+        <class>FeeCount</class>
+    </atc>
+    <atc name="pub" package="com.cn.httpgetpost">
+        <class>VersionUpdate</class>
+    </atc>
+    <atc name="pub" package="com.unionpay.acp.wap">
+        <class>upopapi</class>
+    </atc>
+    <!--短信发送-->
+     <atc name="pub" package="sendmes.sendMesSwt">
+         <class>sendMesSwt</class>
+           </atc>
+    <!--文件上传工具类-->
+    <atc name="pub" package="com.tangdi.image.util">
+        <class>ImageUtil</class>
+    </atc>
+    
+        <!--银联网关支付 -->
+    <atc name="pub" package="com.unionpay.acp.demo">
+        <class>getOrderInfo</class>
+    </atc>
+    
+        <!--银行卡bin信息验证-->
+    <atc name="pub" package="tangdi.util.tool">
+        <class>TdGetCrdInf</class>
+    </atc>
+    
+    	<!-- 银联代收 -->
+    <atc name="pub" package="com.unionpay.acp.daishou">
+      <class>AgentForPaying</class>
+    </atc>
+
+	<!--CFCA加签验签-->
+    <atc name="pub" package="com.tangdi.ca">
+        <class>CFCAMethod</class>
+    </atc>
+    <!-- sdk控件 -->
+    <atc name="pub" package="com.unionpay.acp.sdk">
+        <class>Upopsdk</class>
+    </atc>
+    
+    <transactions>
+        <file>etc/MobileSystem_CTL.XML</file>      <!--手机APP对接交易-->
+        <file>etc/MobileUtBill_CTL.XML</file>      <!-- 手机app物业缴费 -->
+        <file>etc/MobMerAcc_CTL.XML</file>         <!-- 手机app商户接入，订单支付 -->
+    </transactions>
+    
+    <channels>
+        <channel name="STHDRCSU" file="etc/channel/STHDRCS_ATR.XML"/>
+        <channel name="STHDSTPU" file="etc/channel/STHDSTPU_ATR.XML"/>   <!-- 请求stp渠道 -->
+        <channel name="STHDSMK1" file="etc/channel/STHDSMK1_ATR.XML"/>
+    </channels>
+    
+        
+</application>

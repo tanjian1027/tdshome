@@ -1,0 +1,675 @@
+﻿<?xml version="1.0" encoding="UTF-8"?> 
+<application name="APP" code="100" log_level="DEBUG">
+  
+    <before>
+      <quote name="ReadXmlCfg"/>
+      <set name="DWZ_ERROR_CODE"    value="300"/>
+      <set name="DWZ_SUCCESS_CODE"  value="200"/>
+      <set name="DWZ_TIME_OUT_CODE" value="301"/>
+      <do func="DumpMsg"/>
+    </before>
+    
+    <after>
+      <do func="DumpMsg"/>
+    </after>
+   
+    <!--读取XML配置-->
+    <macro name="ReadXmlCfg">
+     <!-- 读取XML配置文件中的数据，添加到ETF树上 -->
+     <!--0 成功; -1参数错误;2 取XML配置父节点失败 -->
+     <do func="ReadXmlConfig" error="IGNORE">
+       <para name="FILNAM"     value="etc/LIM_CONFIG.XML"/>
+       <para name="NAME"       value="UrlConfig"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"    value="08020"></set>
+       <set name="RspMsg"    value="参数错误"></set>
+       <return/>
+     </if>
+     <elseif condition="#RetCod==2">
+       <set name="RspCod"    value="08021"></set>
+       <set name="RspMsg"    value="取XML配置父节点失败"></set>
+       <return/>
+     </elseif>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09998"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <return/>
+     </elseif>
+    </macro>
+   
+    <transaction  code="568321" desc="查询请求的菜单">
+        <sql name="queryAuditByTranCode">
+          select m.menu_id from LIMMENINF M left join LimAudit a on m.menu_id=a.menu_id WHERE 1=1  ${desc}
+        </sql>
+        <process>
+            <if condition="OR(ISNULL(OPERID),ISNULL(REMOTEIP),ISNULL(BODY))">
+                <set name="RSPCOD" value="020080"/>
+                <set name="RSPMSG" value="用户名或IP或Body为空"/>
+                <return/>
+            </if>
+            
+            <do func="GetTrancode" error="IGNORE"/>
+          
+            <if condition="#RetCod==-1">
+                <set name="RSPCOD" value="020081"/>
+                <set name="RSPMSG" value="获取交易码失败"/>
+                <return/>
+            </if>
+            <set name="desc" value=""/>
+            <set name="desc" expr="STRCAT(desc,' AND m.menu_url like \'%' ,ReqTranCode,'%\'')"/>
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="queryAuditByTranCode"/>
+            </do>
+            <if condition="#RetCod==-1">
+                <set name="RSPCOD"  value="020082"/>
+                <set name="RSPMSG"  value="数据库操作失败"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod==2">
+                <set name="RSPCOD"  value="020083"/>
+                <set name="RSPMSG"  value="不存在的菜单，请录入"/>
+                <set name="MENU_ID" value=""/>
+            </elseif>
+        
+            <do func="callRecProcInsert" error="IGNORE" >
+                <para name="spname"       value="PRC_LIMOPEREC_INSERT"/>
+                <para name="opeRec"       expr="recid"/>
+                <para name="opeAaccount"  value="100000"/>
+                <para name="opeID"        expr="operid"/>
+                <para name="menuID"       expr="MENU_ID"/>
+                <para name="opeIP"        expr="remoteip"/>
+                <para name="operDate"     expr="GETDATE()"/>
+                <para name="operTime"     expr="GETDATETIME()"/>
+                <para name="operBrowser"  expr="header"/>
+                <para name="opeType"      value="0"/>
+                <para name="opeTranCode"  expr="reqTranCode"/>
+                <para name="opeReqParam"  expr="body"/>
+            </do>
+            <set name="RSPCOD"            value="000000"/>
+            <set name="RSPMSG"            value="操作成功"/>
+        </process>
+    </transaction>
+   
+    <transaction  code="568322" desc="接收返回数据交易码">
+        <process>
+            <if condition="OR(ISNULL(RECID),ISNULL(RESULT))">
+                <set name="RSPCOD"       value="020080"/>
+                <set name="RSPMSG"       value="RecID或Result为空"/>
+                <return/>
+            </if>
+            
+            <do func="callRecProcUpdate" error="IGNORE" >
+                <para name="spname"       value="PRC_LIMOPEREC_UPDATE"/>
+                <para name="opeRec"       expr="recid"/>
+                <para name="opeRepParam"  expr="result"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="RspCod"         value="08042"/>
+               <set name="RspMsg"         value="修改失败"/>
+               <return/>
+            </if>
+            
+            <set name="RSPCOD"            value="000000"/>
+            <set name="RSPMSG"            value="修改成功"/>
+        </process>
+    </transaction>
+  
+    <transaction code="568325"  desc="验证用户是否登录">
+        <sql name="queryUserLog">
+            select count(*) as logSign from limuseinf where account=#{account} and user_id=#{userId} and random=#{random}
+        </sql>
+        <process>
+            <set name="logStuats"  value="100000"/><!--是否登录标志  1 正常登录  0登录-->
+            <if condition="OR(ISNULL(userId),ISNULL(account),ISNULL(random))">
+                <set name="RSPCOD" value="030001"/>
+                <set name="RSPMSG" value="发送参数缺失,该用户需要重新登录"/>
+                <return/>
+            </if>
+            
+            <do func="ReadRecord">
+                <para name="SqlCmd"  sql="queryUserLog"/>
+            </do>
+            <if condition="#RetCod==0">
+                <set name="RSPCOD"  value="00000"/>
+                <if condition="INTCMP(logSign,3,1)">
+                    <set name="logStuats"   value="100001"/>
+                    <set name="RSPMSG"      value="正常登录"/>
+                    
+                    <!-- 检测用户是否拥有该操作权限 -->
+                    <!--do func="isValidTran">
+                        <para name="account"    expr="account"  />
+                        <para name="loginName"  expr="userId"   />
+                        <para name="tranCode"   expr="checkCode"/>
+                    </do>
+                    <if condition="#RetCod!=0">
+                        <set name="logStuats"   value="100010"        />
+                        <set name="RSPMSG"      value="无该操作权限!" />
+                    </if-->
+                </if>
+                <else>
+                    <set name="RSPMSG"          value="该用户已在别处登录,请重新登录"/>
+                </else>
+                <return/>
+            </if>
+            <elseif condition="#RetCod==-1">
+                <set name="RSPCOD"  value="030002"/>
+                <set name="RSPMSG"  value="操作数据库错误!"/>
+                <return/>
+            </elseif>
+            <elseif condition="#RetCod==2">
+                <set name="RSPCOD"  value="030003"/>
+                <set name="RSPMSG"  value="无匹配数据"/>
+                <return/>
+            </elseif>
+            <else>
+                <set name="RSPCOD"  value="030004"/>
+                <set name="RSPMSG"  value="未知错误!"/>
+                <return/>
+            </else>
+        </process>
+    </transaction>
+   
+    <transaction code="568326" desc="过滤商户企业会员权限操作">
+        <process>
+            <set name="logStuats"  value="100000"/> <!--是否登录标志  1 正常登录  0登录-->
+            <if condition="OR(ISNULL(userId),ISNULL(account),ISNULL(systemId))">
+                <set name="RSPCOD" value="030001"/>
+                <set name="RSPMSG" value="发送参数缺失,该用户需要重新登录"/>
+                <return/>
+            </if>
+        </process>
+    </transaction>
+   
+    <transaction code="568310"  desc="分页且带条条件查询审计信息">
+     <sql name="queryOperList">
+        With A AS (SELECT O.OPEREC, O.OPEID AS USER_NAM, O.MENUID , L.MENU_NAM , O.OPEIP, O.OPEREQPARAM, O.OPERDATE,
+          subStr(O.OPETIME, 0 , 4 )||'-'||subStr(O.OPETIME, 5 , 2 )||'-'||subStr(O.OPETIME, 7 , 2 )||' '||subStr(O.OPETIME, 9 , 2 )||':'||subStr(O.OPETIME, 11 , 2 )||':'||subStr(O.OPETIME, 13 , 2 )  as OPETIME, O.OPEBROWSER, 
+          add_months(to_date(subStr(O.OPETIME, 0, 4) || '-' ||
+                                subStr(O.OPETIME, 5, 2) || '-' ||
+                                subStr(O.OPETIME, 7, 2) || ' ' ||
+                                subStr(O.OPETIME, 9, 2) || ':' ||
+                                subStr(O.OPETIME, 11, 2) || ':' ||
+                                subStr(O.OPETIME, 13, 2),
+                                'yyyy-MM-dd HH24:mi:ss'),
+                        3) as OPETIME1 , O.OPEACCOUNT, O.OPETYPE, O.OPERESPARAM, O.OPETRANCODE FROM LIMOPEREC O 
+          LEFT JOIN LIMMENINF L ON O.MENUID = L.MENU_ID
+          <!--LEFT JOIN LIMUSEINF U ON O.OPEID = U.USER_ID-->
+          WHERE ${tj} 1=1 )
+       select A.* , case 
+         when A.OPETIME1 > sysdate then
+          1 <!--不可以删除-->
+         else
+          0 <!--可以删除-->
+       end as FALG
+      from A ORDER BY A.OPETIME DESC
+
+     </sql>
+     <process>
+         <do func="GetOwnButton"/>              <!--权限按钮控制-->
+        <!--检查跳转路径-->
+        <set name="operating" expr="operating"/>
+        <if condition="OR(ISNULL(operating),IS_EQUAL_STRING(operating,''))">
+           <set name="operating" value="show_operList.jsp"/>
+        </if>
+        <set name="tj" value=""/>
+        <set name="USERNAME" expr="USERNAME"/>
+        <!--菜单状态-->
+        <if condition="NOT(ISNULL(startDate))">
+         <set name="tj" expr="STRCAT(tj,'  O.OPERDATE &gt;= \'',  startDate ,'\' and ')"/>
+        </if>
+        <if condition="NOT(ISNULL(endDate))">
+         <set name="tj" expr="STRCAT(tj,'  O.OPERDATE &lt;= \'', endDate ,'\' and ')"/>
+        </if>
+        <if condition="NOT(ISNULL(USERNAME))">
+         <set name="tj" expr="STRCAT(tj,'  O.OPEID  like \'%', USERNAME ,'%\' and ')"/>
+        </if>
+         <if condition="ISNULL(PageNum)">
+           <set name="PageNum" value="1"/>
+         </if>
+         <if condition="ISNULL(NumPerPag)">
+           <set name="NumPerPag" value="19"/>
+         </if>
+         <do func="PagedQuery" error="IGNORE">
+           <para name="PageNum"   expr="PageNum"/>
+           <para name="NumPerPag" expr="NumPerPag"/>
+           <para name="sql"       sql="queryOperList"/>
+         </do>
+         <if condition="#RetCod!=-1">
+           <!--查询成功-->
+           <set name="RSPCOD"            value="00000"/>
+           <set name="RSPMSG"            value="查询审计信息成功!"/>
+           <set name="url"               expr="STRCAT('WEB-INF/html/audit/',operating)"/>
+           <set name="_REQUESTATTR.FORWARDURL" expr="url"/>
+           <return/>
+         </if>
+         <else>
+           <set name="RSPCOD"            value="00000"/>   
+           <set name="RSPMSG"            value="查询审计信息失败!"/>
+           <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+           <return/>
+         </else>
+     </process>
+    </transaction>
+
+   <transaction code="568311" desc="查看审计的详细信息">
+     <sql name="queryOperDetail">
+       SELECT O.OPEREC, O.OPEID, O.MENUID , L.MENU_NAM , U.USER_NAM , O.OPEIP, O.OPEREQPARAM, O.OPERDATE, subStr(O.OPETIME, 0 , 4 )||'-'||subStr(O.OPETIME, 5 , 2 )||'-'||subStr(O.OPETIME, 7 , 2 )||' '||subStr(O.OPETIME, 9 , 2 )||':'||subStr(O.OPETIME, 11 , 2 )||':'||subStr(O.OPETIME, 13 , 2 )  as OPETIME, O.OPEBROWSER, 
+              O.OPEACCOUNT, O.OPETYPE, O.OPERESPARAM, O.OPETRANCODE FROM LIMOPEREC O 
+         LEFT JOIN LIMMENINF L ON O.MENUID = L.MENU_ID
+         LEFT JOIN LIMUSEINF U ON O.OPEID = U.USER_ID AND O.OPEACCOUNT=U.ACCOUNT
+        WHERE O.OPEREC = #{operec} ORDER BY O.OPEID DESC 
+     </sql>
+     <process>
+       <if condition="OR(ISNULL(jumppath),IS_EQUAL_STRING(jumppath,''))">
+         <set name="RSPCOD"            value="02040"/>
+         <set name="RspMsg"            value="寻找跳转路径为空,操作执行失败!"/>
+         <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+        <return/>
+        </if>
+        <!--  查询是否已经有该角色  -->
+       <do func="ReadRecord"   error="IGNORE">
+         <para name="SqlCmd"     sql="queryOperDetail"/>
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="RSPCOD"            value="02040"/>
+         <set name="RspMsg"            value="系统错误"/>
+         <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="RSPCOD"            value="02050"/>
+         <set name="RspMsg"            value="对不起，没有该数据"/>
+         <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod==0">
+         <set name="RSPCOD"            value="00000"/>
+         <set name="RspMsg"            value="该信息存在，可以操作"/>
+         <set name="url"               expr="STRCAT('WEB-INF/html/audit/',jumppath)"/>
+         <set name="_REQUESTATTR.FORWARDURL" expr="url"/>
+         <return/>
+       </elseif>
+       <else>
+         <set name="RSPCOD"            value="02050"/>
+         <set name="RspMsg"            value="系统错误！"/>
+         <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+         <return/>
+       </else>
+     </process>
+   </transaction>
+   
+   <transaction code="568312"  desc="审计信息删除1个月前的数据可以删除">
+     <sql name="deleteOperSql"> 
+           DELETE FROM LIMOPEREC WHERE OPEREC IN ('${delOperec}') and  opetime  &lt; to_char(add_months(sysdate,-1),'yyyyMMddHH24miss')
+     </sql>
+     <process>
+       <set name="oper"      expr="STRCAT('\'',',','\'')"/>
+       <set name="delOperec" expr="REPALLSTR(delOperec,',',oper)"/>
+       <if condition="OR(ISNULL(delOperec),IS_EQUAL_STRING(delOperec,''))">
+           <set name="RSPCOD"            value="02040"/>
+           <set name="RspMsg"            value="系统参数错误,请重新选择!"/>
+           <set name="DWZ_STATUS_CODE"   expr="RSPCOD"/>
+           <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+           <return/>
+       </if>
+       <!--  查询是否已经有该角色  -->
+       <do func="ExecSql"   error="IGNORE">
+         <para name="SqlCmd"      sql="deleteOperSql"/>
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RSPCOD"            value="02050"/>
+         <set name="RspMsg"            value="对不起，只能删除1个月之前的数据！"/>
+         <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <do func="RollBackWork"/>
+         <set name="RSPCOD"            value="02040"/>
+         <set name="RspMsg"            value="系统删除信息异常,删除失败!"/>
+         <set name="DWZ_STATUS_CODE"   expr="RSPCOD"/>
+         <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+         <return/>
+       </elseif>
+       <else>
+         <set name="RSPCOD"             value="02035"/>
+         <set name="RSPMSG"             value="删除成功!"/>
+         <set name="DWZ_STATUS_CODE"    expr="DWZ_SUCCESS_CODE"/>
+         <set name="DWZ_CALLBACK_TYPE"  value="forward"/>
+         <set name="DWZ_FORWARD_URL"    value="568310.lim?operating=show_operList.jsp"/>
+         <set name="DWZ_RSP_MSG"        expr="RSPMSG"/> 
+       </else>
+     </process>
+   </transaction>
+   
+   <transaction code="568104" desc="企业客户设置邮箱为第二登录名">
+       <sql name="QryEmailCnt"> <!--检查邮箱是否已使用-->
+           select count(*) NumCnt from limuseinf where email=#{USER_EMAIL} and ACCOUNT=#{ACCOUNT} and SYS_ID=#{SYS_ID}
+      </sql>
+      <sql name="UpdCuInfoInf"> <!--重置登录密码-->
+           UPDATE limuseinf SET email=#{USER_EMAIL},MailFlg='1' WHERE USER_ID=#{USER_ID} and ACCOUNT=#{ACCOUNT} and SYS_ID=#{SYS_ID}
+      </sql>
+      <process>
+         <if condition="OR(ISNULL(SYS_ID),ISNULL(ACCOUNT),ISNULL(USER_ID),ISNULL(USER_EMAIL))">
+            <set name="status"    value="0"/>
+            <set name="RSPMSG"    value="发送报文不完整!"/>
+            <return/>
+         </if>
+         <if condition="IS_NOEQUAL_STRING(SYS_ID,'2204')">
+            <set name="status"    value="0"/>
+            <set name="RspMsg"    value="登录平台不正确"/>
+            <return/>
+         </if>
+         <!-- 检查邮箱是否已使用 -->
+         <do func="ReadRecord" error="IGNORE">        
+            <para name="SqlCmd" sql="QryEmailCnt"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="status"    value="0"/>
+            <set name="RspMsg"    value="查询失败"/>
+            <return/>
+         </if>
+         <if condition="INTCMP(NumCnt,6,0)">
+            <set name="status"    value="0"/>
+            <set name="RspMsg"    value="邮箱已使用"/>
+            <return/>
+         </if>
+         
+         <!-- 设置邮箱登录 -->
+         <do func="ExecSql" error="IGNORE">        
+            <para name="SqlCmd" sql="UpdCuInfoInf"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="status"    value="0"/>
+            <set name="RspMsg"    value="设置邮箱登录失败"/>
+            <return/>
+         </if>
+         <set name="status"       value="1"/>
+         <set name="RspMsg"       value="设置邮箱登录成功"/>
+      </process>
+   </transaction>
+   
+    <transaction code="568313"  desc="分页且带条条件查询操作员登录信息">
+     <sql name="queryOperList">    
+        select ACCOUNT,user_id,logn_ip,TO_CHAR(to_date(logn_time,'yyyymmdd hh24miss'),'yyyy-mm-dd hh24:mi:ss') logn_time,login_status,login_msg
+          from LIMLOGINF t
+         where  1=1 ${tj}
+        ORDER BY logn_time DESC                
+    </sql>
+     <process>
+        <!--检查跳转路径-->
+        <set name="operating" expr="operating"/>
+        <if condition="OR(ISNULL(operating),IS_EQUAL_STRING(operating,''))">
+           <set name="operating" value="show_login.jsp"/>
+        </if>
+        
+        <set name="tj"       value=""/>
+        <set name="USER_ID" expr="USER_ID"/>
+        <!--菜单状态-->
+        
+        <set name="START_DAT" expr="startDate"/>
+        <set name="END_DAT" expr="endDate"/>
+       <!--日期-->
+       <if condition="AND(NOT(ISNULL(START_DAT)),NOT(ISNULL(END_DAT)))">
+         <if condition="INTCMP(END_DAT,1,START_DAT)">
+           <set name="RSPCOD" value="02036"/>
+           <set name="RSPMSG" value="开始日期不能小于结束日期!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+         </if>
+       </if>
+       <if condition="AND(NOT(ISNULL(START_DAT)),NOT(ISNULL(END_DAT)))">
+           <set name="tj" expr="STRCAT(tj,' and subStr(t.logn_time,1,8) &gt;= \'', START_DAT, '\' and subStr(t.logn_time,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <if condition="AND(NOT(ISNULL(END_DAT)),ISNULL(START_DAT))">
+           <set name="tj" expr="STRCAT(tj,' and subStr(t.logn_time,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <if condition="AND(NOT(ISNULL(START_DAT)),ISNULL(END_DAT))">
+           <set name="END_DAT" expr="GETDATE()"/>
+           <set name="tj" expr="STRCAT(tj,' and subStr(t.logn_time,1,8) &gt;= \'', START_DAT, '\' and subStr(t.logn_time,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       
+        <if condition="NOT(ISNULL(USER_ID))">
+         <set name="tj" expr="STRCAT(tj,' and  t.user_id  like \'%', USER_ID ,'%\'  ')"/>
+        </if>
+       
+         <if condition="ISNULL(PageNum)">
+           <set name="PageNum" value="1"/>
+         </if>
+         <if condition="ISNULL(NumPerPag)">
+           <set name="NumPerPag" value="19"/>
+         </if>
+         <do func="PagedQuery" error="IGNORE">
+           <para name="PageNum"   expr="PageNum"/>
+           <para name="NumPerPag" expr="NumPerPag"/>
+           <para name="sql"       sql="queryOperList"/>
+         </do>
+         <if condition="#RetCod!=-1">
+           <!--查询成功-->
+           <set name="RSPCOD"                  value="00000"/>
+           <set name="RSPMSG"                  value="查询审计信息成功!"/>
+           <set name="url"                     expr="STRCAT('WEB-INF/html/audit/',operating)"/>
+           <set name="_REQUESTATTR.FORWARDURL" expr="url"/>
+           <return/>
+         </if>
+         <else>
+           <set name="RSPCOD" value="00000"/>   
+           <set name="RSPMSG" value="查询审计信息失败!"/>
+           <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+           <return/>
+         </else>
+     </process>
+    </transaction>
+    
+    <transaction code="568300"  desc="操作员审计查询">
+        <sql name="queryMopList">
+          SELECT  t.*,f.role_id,f.role_nam FROM  limuseinf t ,limrolinf f  WHERE t.account=f.account and  t.account='100000' and t.state='1' and t.user_id='admin'and t.sys_id='1000' and f.role_nam='Adminstrator' and f.crea_sign='0'
+        </sql>
+        <process> 
+            <do func="GetOwnButton"/>              <!--权限按钮控制-->
+           <set name="operating" expr="operating"/>
+           <if condition="OR(ISNULL(operating),IS_EQUAL_STRING(operating,''))">
+              <set name="operating"             value="mopDit_list.jsp"/>
+           </if>
+           <!--PageNum===>页码  NumPerPag ======>每页显示的条数 (默认 20)    recordNum========>查询出来的记录名(默认为GRP)   sql ========>SQL语句-->
+           <if condition="ISNULL(PageNum)">
+             <set name="PageNum"    value="1"/>
+           </if> 
+           <if condition="ISNULL(NumPerPag)">
+             <set name="NumPerPag"  value="19"/>
+           </if>
+           <do func="PagedQuery" error="ignore">
+             <para name="PageNum"       expr="PageNum"/>
+             <para name="NumPerPag"     expr="NumPerPag"/>
+             <para name="Sql"           sql="queryMopList"/>
+           </do>
+           <if condition="#RetCod!=-1">
+             <set name="RSPCOD"         value="000000"/>   
+             <set name="RSPMSG"         value="操作员审计查询成功!"/>
+             <set name="url"            expr="STRCAT('WEB-INF/html/audit/',operating)"/>
+             <set name="_REQUESTATTR.FORWARDURL" expr="url"/>
+             <return/>
+           </if>
+           <else>
+             <set name="RSPCOD"          value="329999"/>
+             <set name="RSPMSG"          value="操作员审计查询失败!"/>
+             <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+             <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+             <set name="url"             expr="STRCAT('WEB-INF/html/audit/',operating)"/>
+             <set name="_REQUESTATTR.FORWARDURL" expr="url"/>
+             <return/>
+           </else>
+        </process>
+    </transaction>
+    
+    <transaction code="568301" desc="查看审计详细信息">     
+        <sql name="queryUserqx">
+           SELECT f.menu_id as PAGID,f.menu_par_id as PAREID,f.menu_nam as PAGNAM  FROM limaudit t ,limmeninf f WHERE t.menu_id=f.menu_id  and t.role_id=#{ROLE_ID} order by t.menu_id 
+        </sql>
+        <process>
+           <do func="QueryInGroup"                      error="IGNORE">
+              <para name="SqlCmd"                       sql="queryUserqx"/>
+              <para name="RecordName"                   value="USERRQX_LST"/>
+           </do>
+            <if condition="#RetCod!=-1">
+               <set name="RSPCOD"                       value="000000"/>
+               <set name="RSPMSG"                       value="成功获取审计信息"/>
+               <set name="operating1"                   value="mopDit_view.jsp"/>
+               <set name="url"                          expr="STRCAT('WEB-INF/html/audit/',operating1)"/>
+               <set name="_REQUESTATTR.FORWARDURL"      expr="url"/>
+               <return/>
+            </if>
+            <else>
+               <set name="RSPCOD"                       value="329999"/>
+               <set name="RSPMSG"                       value="查询审计信息失败!"/>
+               <set name="DWZ_STATUS_CODE"              expr="DWZ_ERROR_CODE"/>
+               <set name="DWZ_CALLBACK_TYPE"            value="forward"/>  
+               <set name="DWZ_FORWARD_URL"              value="568300.lim"/>
+               <set name="DWZ_RSP_MSG"                  expr="RSPMSG"/> 
+               <return/>
+            </else>
+        </process>
+    </transaction>
+    
+    <transaction code="568302"  desc="读取审计树">
+        <sql name="queryShenjiqx">
+           SELECT menu_id as PAGID,menu_par_id as PAREID,menu_nam as PAGNAM FROM limmeninf WHERE menu_id IN 
+           (SELECT menu_id  FROM limaudit WHERE role_id=#{ROLE_ID} and opeuseraccount='100000')   ORDER BY menu_id ASC
+        </sql>
+        <sql name="queryRoleqx">
+           SELECT menu_id as PAGID,menu_par_id as PAREID,menu_nam as PAGNAM from limmeninf where menu_id in 
+           (select menu_id FROM limrmrele  WHERE role_id=#{ROLE_ID} and account='100000') ORDER BY menu_id asc
+        </sql>
+        <process>
+           <set name="account"                         value="100000"/>
+           <do func="QueryInGroup"                     error="IGNORE">
+              <para name="SqlCmd"                      sql="queryRoleqx"/>
+              <para name="RecordName"                  value="ROLEQX_LST"/>
+           </do>
+           <do func="QueryInGroup"                     error="IGNORE">
+              <para name="SqlCmd"                      sql="queryShenjiqx"/>
+              <para name="RecordName"                  value="ROQX_LST"/>
+           </do>
+             <if condition="#RetCod!=-1">
+                <set name="RSPCOD"                     value="000000"/>
+                <set name="RSPMSG"                     value="添加审计树成功!"/>
+                <set name="_REQUESTATTR.FORWARDURL"    value="/WEB-INF/html/audit/limDit_add.jsp"/>
+                <return/>
+             </if>
+             <else>
+                <do func="RollBackWork"/>
+                <set name="RSPCOD"                     value="329999"/>
+                <set name="RSPMSG"                     value="添加审计树失败!"/>
+                <set name="DWZ_STATUS_CODE"            value="300"/>
+                <set name="DWZ_CALLBACK_TYPE"          value="forward"/>
+                <set name="DWZ_FORWARD_URL"            value="568300.lim"/>
+                <set name="DWZ_RSP_MSG"                expr="RSPMSG"/>
+                <return/>
+             </else>
+        </process>
+    </transaction>
+    
+    <transaction code="568303"  desc="修改审计树的值">
+        <!--删除-->
+        <sql name="deleteUmRele">
+          delete from limaudit t where t.role_id=#{ROLE_ID} and t.opeuseraccount=#{ACCOUNT}
+        </sql>
+        <process>
+          <!--验证重要信息是否齐全-->
+          <if condition="OR(ISNULL(ACCOUNT),ISNULL(ROLE_ID))">
+            <set name="RSPCOD"                     value="02038"/>
+            <set name="RSPMSG"                     value="校验用户信息失败,添加用户失败!"/>
+            <set name="DWZ_STATUS_CODE"            expr="DWZ_ERROR_CODE"/>
+            <set name="DWZ_CALLBACK_TYPE"          value="forward"/>
+            <set name="DWZ_FORWARD_URL"            value="568300.lim"/>
+            <set name="DWZ_RSP_MSG"                expr="RSPMSG"/>
+            <return/>
+          </if>
+          <else>
+            <set name="opetime"                     expr="SUBSTR(GETDATETIME(),9,4)"/>
+            <set name="operdate"                    expr="SUBSTR(GETDATETIME(),1,8)"/>
+            <set name="opeuseraccount"              expr="ACCOUNT"/>
+          <!--删除遗留用户菜单关联-->
+            <do func="ExecSql"                      error="IGNORE">
+              <para name="SqlCmd"                   sql="deleteUmRele"/>
+            </do>
+             <if condition="#RetCod!=-1">
+               <set name="bbb"                      expr="GETMENUSTR('')"/>
+               <foreach name="MENU_ID"              iterator="#tmp">
+                 <set name="MENU_ID"                expr="#tmp"/>
+                  <do func="InsertRecord"           error="IGNORE">
+                    <para name="TblNam"             value="limaudit"/>
+                  </do>
+                  </foreach>
+                  <if condition="#RetCod==-1">
+                    <do func="RollBackWork"/>
+                    <set name="RSPCOD"              value="329999"/>
+                    <set name="RSPMSG"              value="添加审计失败!"/>
+                    <set name="DWZ_STATUS_CODE"     value="300"/>
+                    <set name="DWZ_CALLBACK_TYPE"   value="forward"/>
+                    <set name="DWZ_FORWARD_URL"     value="568300.lim"/>
+                    <set name="DWZ_RSP_MSG"         expr="RSPMSG"/>
+                    <return/>
+                  </if>
+                  <else>
+                    <set name="RSPCOD"              value="000000"/>
+                    <set name="RSPMSG"              value="添加审计成功!"/>
+                    <set name="DWZ_STATUS_CODE"     expr="DWZ_SUCCESS_CODE"/>
+                    <set name="DWZ_CALLBACK_TYPE"   value="forward"/>
+                    <set name="DWZ_FORWARD_URL"     value="568300.lim"/>
+                    <set name="DWZ_RSP_MSG"         expr="RSPMSG"/>
+                    <return/>
+                  </else>
+             </if>
+             <else>
+                <do func="RollBackWork"/>
+                <set name="RSPCOD"                  value="329999"/>
+                <set name="RSPMSG"                  value="添加信息失败!"/>
+                <set name="DWZ_STATUS_CODE"         expr="DWZ_ERROR_CODE"/>
+                <set name="DWZ_CALLBACK_TYPE"       value="forward"/>
+                <set name="DWZ_FORWARD_URL"         value="568300.lim"/>
+                <set name="DWZ_RSP_MSG"             expr="RSPMSG"/>
+                <return/>
+            </else>
+       </else>
+      </process>
+    </transaction>
+
+    <transaction   code="568304" desc="重置审计">
+        <sql  name="Delmsg_lis"> 
+          DELETE from limaudit  
+        </sql>  
+        <process> 
+          <do func="ExecSql"                       error="IGNORE"> 
+            <para   name="SqlCmd"                    sql="Delmsg_lis"/> 
+          </do> 
+          <if condition="#RetCod==2">
+            <set   name="DWZ_STATUS_CODE"            value="200"/>
+            <set   name="RspCod"                     value="10002"/>
+            <set   name="RspMsg"                     value="无记录"/>
+          </if>
+          <elseif condition="#RetCod!=0">
+            <set   name="DWZ_STATUS_CODE"            value="300"/>
+            <set   name="RspCod"                     value="329999"/>
+            <set   name="RspMsg"                     value="删除所有审计失败"/>
+            <set   name="DWZ_RSP_MSG"                expr="RspMsg"/> 
+            <return/>
+          </elseif>
+          <set   name="RspCod"                       value="000000"/>
+          <set   name="RspMsg"                       value="删除审计成功"/>
+          <set   name="DWZ_CALLBACK_TYPE"            value="forward"/>
+          <set   name="DWZ_STATUS_CODE"              value="200"/>
+          <set   name="DWZ_RSP_MSG"                  expr="RspMsg"/>
+          <set   name="DWZ_FORWARD_URL"              value="568300.lim"/>
+        </process> 
+    </transaction> 
+   
+</application>

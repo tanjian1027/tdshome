@@ -1,0 +1,2053 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="DEBUG">
+
+   <!-- 交易日志记录配置 -->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   <!-- 公共宏文件引入-->
+   <include file="etc/public/Merchant_MACRO.XML"/>
+   <include file="etc/public/Order_MACRO.XML"/>
+   <!-- 交易前处理 -->
+   <before>
+     <set name="MsgTyp"                       value="N"/>
+     <set name="RspCod"                       value="00000"/>
+     <!-- 操作员  -->
+     <set name="admin"   expr="SESSIONS.UID"/>
+      
+      <!-- 当前日期  -->
+      <set name="nowDate"   expr="GETDATETIME('YYYYMMDD')"/>
+      <!-- 当前时间  -->
+      <set name="nowTime"   expr="GETDATETIME('HHMISS')"/> 
+     <!-- 获取终端号 -->
+     <set name="TermCode"  expr="DELBOTHSPACE(TermCode)"/>
+     <if condition="ISNULL(TermCode)">
+        <set name="TermCode"   expr="_REQUESTATTR.REQIP"/>
+     </if>
+     <set name="BranchCode"                   value="0000"/>
+      <do func="GetOwnButton"/>
+     <do expr="@tangdi.engine.context.Msg@dump()"/>
+
+   </before>
+
+   <!-- 交易后处理 -->
+   <after>
+      <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+         <set name="MsgTyp"                   value="N"/>
+      </if>
+      <else>
+         <set name="MsgTyp"                   value="E"/>
+      </else>
+
+      <do expr="@tangdi.engine.context.Msg@dump()"/>
+   </after>
+
+  <transaction code="412401" desc="商户复核查询">
+     <sql name="selStl">
+       select seq_no,pay_ac_no,cust_id,CUST_SET_PERIOD CUSTSETPERIOD, cust_bank_deposit_name, deposit_bank_code, deposit_bank_brch_name, cust_stl_bank_ac_no, cust_stl_type, DECODE(CUST_SET_PERIOD,'D','按天','M','按月','W','按周','R','按时间') as CUST_SET_PERIOD, cust_set_frey, cust_set_day, cust_stl_time_set, TO_CHAR(to_number(MIN_STL_BALANCE)/100,'FM9999,999,999,990.00') as MIN_STL_BALANCE, cre_oper_id, cre_date, cre_time, lst_upt_oper_id, lst_upt_date, lst_upt_time 
+       from ARP_CUST_STL_INFO where CUST_ID=#{CUST_ID}
+     </sql>
+     <sql name="querybiztype">
+        select name biztype from bizType where code = #{biz_type}
+     </sql>
+     <sql name="QulGetMerFee"><!-- 查询费率信息 -->
+       SELECT FEE_CODE,FEE_NAME,CCY FROM  FEERATE 
+     </sql>
+     <sql name="selBnkNam">
+       select BANK_NAME DEPOSIT_BANK_CODE from MERACBANK where BANK_CODE=#{DEPOSIT_BANK_CODE}
+     </sql>
+     <process>
+        <set name="AUDIT_SEQ_NO"                       expr="SEQ_NO"/>
+        <do func="DataEntry">
+          <para name="TableName"                        value="MDL_AUDIT"/>
+          <para name="Method"                           value="Select"/>
+          <para name="Columns"                          value="*"/>
+          <para name="Keys"                             value="AUDIT_SEQ_NO"/>
+        </do>
+        
+        <switch expr="tranNo">
+          <case value="412332">
+            <!-- 商户开户 -->
+            <set name="nxtPag"                          value="open"/>
+            <quote name="openMer"/>
+            <!--证件号解密-->
+            <set name="LAW_PERSON_CRET_NO"              expr="DES_DECRYPT(LAW_PERSON_CRET_NO)"  />
+            <break/>
+          </case>
+          <case value="412359">
+            <!-- 商户修改 -->
+            <set name="nxtPag"                          value="upd"/>
+            <!--quote name="updMer"/-->
+            <!--证件号解密-->
+            <set name="LAW_PERSON_CRET_NO"              expr="DES_DECRYPT(LAW_PERSON_CRET_NO)"  />
+          <set name="CUST_CRED_NO"                    expr="DES_DECRYPT(CUST_CRED_NO)"/>
+            
+          <if condition="NOT(ISNULL(DEPOSIT_BANK_CODE))">
+            <do func="ReadRecord" >
+          <para name="SqlCmd" sql="selBnkNam"/>
+        </do>
+        <if condition="#RetCod!=0">
+               <set name="DEPOSIT_BANK_CODE"            expr="DEPOSIT_BANK_CODE"/> 
+        </if>
+         </if>
+            <break/>
+          </case>
+          <case value="412358">
+            <!-- 商户费率设置 -->
+            <set name="nxtPag"                          value="fee"/>
+            <quote name="feeMer"/>
+            <break/>
+          </case>
+        </switch>
+        <if condition="IS_NOEQUAL_STRING(tranNo,'412358')">
+          <if condition="IS_EQUAL_STRING(tranNo,'412332')">
+             <!-- 省市 --> 
+             <set name="proinfo"          expr="GETWORDDELIMITER(city,':',1)"/>
+             <set name="proId"            expr="GETWORDDELIMITER(proinfo,',',1)"/>
+             <set name="proNam"           expr="GETWORDDELIMITER(proinfo,',',2)"/>
+             <set name="cityinfo"         expr="GETWORDDELIMITER(city,':',2)"/>
+             <set name="cityId"           expr="GETWORDDELIMITER(cityinfo,',',1)"/>
+             <set name="cityNam"          expr="GETWORDDELIMITER(cityinfo,',',2)"/> 
+              <set name="proCity"           expr="STRCAT(proNam,'-',cityNam)"/>
+           </if>  
+           <elseif condition="IS_EQUAL_STRING(tranNo,'412359')">
+              <set name="CUSTSETPERIOD" expr="CUST_SET_PERIOD"/>
+               <if condition="IS_EQUAL_STRING(CUSTSETPERIOD,'W')">
+                  <set name="flag"          value="7"/>
+               </if>
+               <elseif condition="OR(IS_EQUAL_STRING(CUSTSETPERIOD,'D'),IS_EQUAL_STRING(CUSTSETPERIOD,'M'))">
+                   <set name="flag"    value="31"/>
+               </elseif>
+               <elseif condition="IS_EQUAL_STRING(CUSTSETPERIOD,'R')">
+                   <set name="flag"    value="23"/>
+               </elseif>
+               <set name="CUST_STL_TIME_SET"   expr="CUST_STL_TIME_SET"/>
+               <if condition="NOT(ISNULL(CUST_STL_TIME_SET))">
+                 <set name="len"                 expr="STRGETCOUNT(CUST_STL_TIME_SET,'|')"/>
+                 <if condition="INTCMP(len,6,0)"> 
+                     <set name="i" value="0"/>
+                     <while condition="INTCMP(i,2,len)">
+                         <set name="j" value="0"/>
+                         <set name="CUSTTIMESET"         expr="CUST_STL_TIME_SET"/>
+                        <set name="i" expr="ADD(i,'1')"/> 
+                        <set name="CUST_TIME_SET" expr="GETWORDDELIMITER(CUSTTIMESET,'|',i)"/>
+                        <while condition="INTCMP(j,1,flag)">
+                             <set name="j" expr="ADD(j,'1')"/>
+                            <if condition="IS_EQUAL_STRING(j,CUST_TIME_SET)">
+                                <do func="SetValue"  >
+                                   <para name="FieldValue" expr="CUST_TIME_SET"/>
+                                   <para name="FieldName"  expr="STRCAT('CUST_STL_TIME_SET',j)"/>
+                                </do>
+                            </if>
+                        </while> 
+                    </while> 
+                 </if>
+                 <else>
+                       <do func="SetValue"  >
+                         <para name="FieldValue" expr="CUST_STL_TIME_SET"/>
+                         <para name="FieldName"  expr="STRCAT('CUST_STL_TIME_SET',CUST_STL_TIME_SET)"/>
+                      </do>
+                 </else>
+               </if> 
+            
+           </elseif>
+             <do func="ReadRecord" >
+             <para name="SqlCmd" sql="querybiztype"/>
+           </do>
+           <if condition="#RetCod!=0">
+              <if condition="#RetCod==2">
+                 <set name="RSPCOD" value="02038"/>
+                <set name="RSPMSG" value="没有此业务合作类型!"/>
+                <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+                <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+                <do func="RollBackWork"/>  
+                <return/>
+              </if>
+              <else>
+               <set name="RSPCOD" value="02038"/>
+               <set name="RSPMSG" value="获取业务合作类型失败!"/>
+               <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+               <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+               <do func="RollBackWork"/>  
+               <return/>
+             </else>
+           </if>
+          
+         </if>
+         <elseif condition="IS_EQUAL_STRING(tranNo,'412358')">
+           
+            <!--查询商户费率信息-->
+            <do func="QueryInGroup" >
+               <para name="SqlCmd"                    sql="QulGetMerFee" />
+               <para name="RecordName"                value="GETMERFEE"/>
+            </do>
+            <if condition="#RetCod==2">
+               <set name="RSPCOD"                      value="02038"/>
+               <set name="RSPMSG"                      value="没有费率信息"/>
+               <set name="DWZ_STATUS_CODE"             value="300"/>
+               <set name="DWZ_RSP_MSG"                 expr="RSPMSG"/>
+               <do func="RollBackWork"/>  
+               <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="RSPCOD"                      value="02038"/>
+               <set name="RSPMSG"                      value="查询费率信息失败"/>
+               <set name="DWZ_STATUS_CODE"             value="300"/>
+               <set name="DWZ_RSP_MSG"                 expr="RSPMSG"/>
+               <do func="RollBackWork"/>  
+               <return/>
+            </elseif>
+            
+         </elseif>
+         <set name="MIN_STL_BALANCE"        expr="REPALLSTR(MIN_STL_BALANCE,',','')"/>
+         <set name="MIN_STL_BALANCE"        expr="REPALLSTR(MIN_STL_BALANCE,'.','')"/>
+         <if condition="OR(IS_EQUAL_STRING(MIN_STL_BALANCE,''),ISNULL(MIN_STL_BALANCE))">
+           <set name="MIN_STL_BALANCE"        value=""/>
+         </if>
+         <else>
+           <set name="MIN_STL_BALANCE"        expr="AMTADDDOT(MIN_STL_BALANCE)"/>
+         </else>
+        <set name="_REQUESTATTR.FORWARDURL"             expr="STRCAT('WEB-INF/html/audit/sel',nxtPag,'MerAudit.jsp')"/>
+     </process>
+  </transaction>
+
+  <transaction code="412402" desc="商户开户复核状态修改-通过/拒绝">
+     <sql name="qryContractInfo">
+        select * from STPMERINF   where CUST_ID = #{CUST_ID}
+     </sql>
+     <sql name="MerInfoChk">
+       select c.CUST_CRED_NO,c.cust_name as custName
+        from STPCUSINF c  where   c.CUST_CRED_NO = #{MER_BUSREGNUM}
+     </sql>
+     <sql name="chkMerAutInfo">
+       select m.* from STPMERAUTINF m   where   ID = #{ID}
+     </sql>
+     <sql name="UpdMerInf"><!--  更新商户信息  -->
+        CUST_ID = #{CUST_ID}
+     </sql>
+     <sql name="updMerSts"><!--  更新商户审核状态  -->
+        UPDATE STPMERINF SET AUT_STS=#{AUT_STS} WHERE CUST_ID = #{CUST_ID}
+     </sql>
+     <sql name="updMerAutSts"><!--  更新商户审核状态  -->
+        UPDATE STPMERAUTINF SET CUST_ID=#{CUST_ID},AUT_STATUS=#{AUT_STATUS},
+        AUT_NAME=#{AUT_NAME},AUT_DATE=#{AUT_DATE},REMARK=#{REMARK} WHERE ID = #{ID}
+     </sql>
+     <sql name="InMsgSed"><!--  登记短信信息  -->
+        INSERT INTO STPMSGSED VALUES(#{USRMP},#{MSG_DAT},#{MSG_TIM},#{CUS_NAM},#{SMSCONTENT},'0')
+     </sql>
+     <sql name="UpdMsgSed"><!--  更新短信发送状态  -->
+        UPDATE STPMSGSED SET MSG_STS='1' WHERE PHONE=#{USRMP} AND MSG_TIM=#{MSG_TIM}
+     </sql>
+     <process>
+          <!--审核状态 1 同意 2拒绝-->
+          <set name="result"                   expr="result"/>
+          <!-- 复核操作员  -->
+          <set name="AUT_NAME"                 expr="SESSIONS.UID"/><!-- DataEntry使用 -->
+          <!-- 当前日期  -->
+          <set name="AUT_DATE"                 expr="GETDATE()"/>
+          <set name="AUT_TYPE"                 expr="AUT_TYPE"/>
+          <set name="CUST_ID"                  expr="CUST_ID"/>
+          <set name="REMARK"                   expr="REMARK"/>
+          <!--审核状态1 同意 2拒绝-->
+          <if condition="IS_EQUAL_STRING(result,'1')">
+              
+              <!--查询商户审核的基本信息-->
+              <do func="ReadRecord" error="IGNORE">
+                 <para name="SqlCmd" sql="chkMerAutInfo"/>
+               </do>
+               <if  condition="#RetCod!=0">
+                   <set name="RSPCOD" value="02038"/>
+                   <set name="RSPMSG" value="获取该商户息失败!"/>
+                   <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+                   <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+                   <return/>
+               </if>
+               <set name="userName"   expr="COMPANY_BRIEF"/>
+               <set name="custName"   expr="COMPANY_BRIEF"/>
+              <!--审核类型 1商户开户 2商户修改 3线上商户认证-->
+              <if condition="IS_EQUAL_STRING(AUT_TYPE,'1')">
+                  <!--风控操作类型1新增，2修改-->
+                  <set name="DTYPE"       value="1"/>
+                  
+                  <!--查询验证商户注册号是否已经存在-->
+                  <do func="ReadRecord" error="IGNORE">
+                     <para name="SqlCmd" sql="MerInfoChk"/>
+                  </do>
+                  <if condition="#RetCod==2">
+                     <set name="RSPCOD" value="02038"/>
+                     <set name="RSPMSG" value="没有该商户信息!"/>
+                     <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+                     <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+                  </if>
+                  <elseif condition="#RetCod==0">
+                     <set name="RSPCOD" value="02038"/>
+                     <set name="RSPMSG" value="该商户注册号已经开户!"/>
+                     <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+                     <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+                     <!--return/--><!--update 20151126 gyl 允许同一商户注册号注册-->
+                  </elseif>
+                  <elseif condition="#RetCod!=0">
+                     <set name="RSPCOD" value="02038"/>
+                     <set name="RSPMSG" value="该商户已经开户!"/>
+                     <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+                     <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+                     <return/>
+                  </elseif>
+                  
+                  <!-- 获取商户编号  --> 
+                  <do func="GetSeqNo"  error="IGNORE">
+                    <para name="TblNam" value="stpseqrec"/>
+                    <para name="KeyNam" value="KeyNam"/>
+                    <para name="KeyVal" value="STPCUSINF_CUSTID"/>
+                    <para name="SeqNam" value="KeyVal"/>
+                    <para name="Len"    value="8"/>
+                    <para name="Circle" value="1"/>
+                  </do>
+                  <if condition="#RetCod!=0">
+                    <set name="RspCod"    value="9001"/>
+                    <set name="RspMsg"    value="生产商户号错误，请重新提交。"/>
+                    <set name="DWZ_STATUS_CODE" value="300"/>
+                    <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+                    <return/>
+                  </if> 
+                  <set name="CUST_ID"              expr="STRCAT('000000',KeyVal)"/>
+                  <set name="AUT_STS"              value="1"/>
+                  <do func="InsertRecord" error="IGNORE">
+                      <para name="TblNam"  value="STPMERINF" />
+                  </do>
+                  <if condition="#RetCod!=0">
+                      <set name="MRspCod"    value="09999"/>
+                      <set name="MRspMsg"    value="系统错误"/>
+                      <do func="RollBackWork"/>
+                      <return/>
+                  </if>
+                  
+                  <!-- 客户状态  -->
+                  <set name="CUST_STATUS"     value="0"/>
+                  <!-- 客户类型  -->
+                  <set name="CUST_TYPE"       value="1"/>
+                  <!-- 客户证件类型 9 企业营业执照  -->
+                  <set name="CUST_CRED_TYPE"  value="9"/>
+                  <!-- 客户名称  -->
+                  <set name="CUST_NAME"          expr="COMPANY_BRIEF"/>
+                  <!-- 客户证件号  -->
+                  <set name="CUST_CRED_NO"       expr="MER_BUSREGNUM"/>
+                  <!-- 开户操作员 -->
+                  <set name="CUST_REG_ID"        expr="admin"/>
+                  <!-- 开户日期 -->
+                  <set name="CUST_REG_DATE"      expr="nowDate"/>
+                  <!-- 开户时间 -->
+                  <set name="CUST_REG_TIME"      expr="nowTime"/>
+                  
+                  <do func="InsertRecord" error="IGNORE">
+                      <para name="TblNam"  value="STPCUSINF" />
+                  </do>
+                  <if condition="#RetCod!=0">
+                      <set name="MRspCod"    value="09999"/>
+                      <set name="MRspMsg"    value="系统错误"/>
+                      <do func="RollBackWork"/>
+                      <return/>
+                  </if>
+                  
+                  <!-- 账户类型 -->
+                  <set name="AC_TYPE"           value="01"/>
+                  <!-- 生成商户现金支付账号  -->
+                  <set name="PAY_AC_NO"            expr="STRCAT(CUST_ID,'01')"/> 
+                  <quote name="openMer"/>
+                  <!-- 账户类型 01现金账户；02结算账户-->
+                  <set name="AC_TYPE"           value="02"/>
+                  <!-- 生成商户结算支付账号  -->
+                  <set name="PAY_AC_NO"            expr="STRCAT(CUST_ID,'02')"/> 
+                  <quote name="openMer"/>
+                  
+                  <!--  随机字符串长度  -->
+                  <!--  随机字符: ALL 字母和数字;  NUM 数字;   STR 字母  -->
+                  <!--  大小写标识: MIX 混合;   UPP 大写;   LOW 小写;  -->
+                  <do expr="@TdRandom@generateMixRandom(8, 'NUM', 'LOW')"/>
+                  <set name="CFCAPWD"         expr="Random"/>
+                  <set name="CFCAPWD"         value="12345678"/>
+                  
+                  <!---证书生成 start-->
+                  <!--if condition="IS_EQUAL_STRING(AUT_TYPE,'1')">
+                    <set name="signType"        value="ZJCA"/>
+                    <if condition="IS_EQUAL_STRING(signType,'CFCA')">
+                       
+                    </if>
+                    <elseif condition="IS_EQUAL_STRING(signType,'ZJCA')"-->
+                        <!--自建ca证书生成 end-->
+                        <!--do func="TdCertCreate"    error="IGNORE">
+                          <para name="MerID"       expr="CUST_ID"/>
+                          <para name="Passwd"      expr="CFCAPWD"/>
+                          <para name="Path"        expr="STRCAT(GETCURAPPHOME(),'/key/')"/>
+                        </do>
+                        <if condition="#RetCod!=0">
+                          <set name="RspCod"                          value="9997"/>
+                          <set name="RspMsg"                          value="证书生成失败！"/>
+                          <return/>
+                        </if>
+                    </elseif>
+                    
+                    <delete name="CFCAPWD"/>
+                    <delete name="Random"/>
+                  </if-->
+                  <!---证书生成 end-->
+                  
+                  <!--发送邮件通知商户开户成功-->
+                  <set name="UsrMp"           expr="COMPAY_EMAIL"/><!--公司邮箱-->
+                  <set name="user_id"         expr="COMPAY_EMAIL"/>
+                  <set name="merpasswd"       expr="login_pwd"/>
+                  <!--set name="merpasswd"       expr="DES_DECRYPT(merpasswd)"/-->
+                  <set name="ConfigName"   value="passwdper"/>
+                  <quote name="ReadXmlCfg"/>
+                  <set name="merpasswd"      expr="merpasswd"/>
+                  
+                  <if condition="ISNUMBER(UsrMp)">
+                     <set name="SmsContent"      expr="STRCAT('欢迎加入商物通！您的商户ID号是【',CUST_ID,'】,账户名为【',user_id,'】，密码为默认【',merpasswd,'】。')"/>
+                  </if>
+                  <else>
+                     <set name="SmsContent"      expr="STRCAT('欢迎加入商物通！您的商户ID号是【',CUST_ID,'】,账户名为【',user_id,'】，密码为默认【',merpasswd,'】。')"/>
+                  </else>
+                  
+                  <!-- 插入短信信息 -->
+                  <set name="Msg_Dat"         expr="GETDATE()"/>
+                  <set name="Msg_Tim"         expr="GETDATETIME()"/>
+                  <set name="Cus_Nam"         value="商户注册"/>
+                  <do func="ExecSql" >
+                      <para name="SqlCmd" sql="InMsgSed"/>
+                  </do>
+                  <if condition="#RetCod!=0">
+                      <set name="RspCod"        value="01006"/>
+                      <set name="RspMsg"        value="登记短信发送表失败"/>
+                      <set name="DWZ_STATUS_CODE"                   value="300"/>
+                      <set name="DWZ_RSP_MSG"                       expr="RSPMSG"/>
+                      <do func="RollBackWork"/>  
+                      <return/>
+                  </if>
+                  <do func="CommitWork"/>
+                  
+                  <if condition="ISNUMBER(UsrMp)">
+                      
+                  </if>
+                  <else>
+                      <set name="Email"        expr="UsrMp"/>
+                      <set name="ConfigName"   value="CheckEmailNew"/>
+                      <quote name="ReadXmlCfg"/>
+                      <set name="EmText"        value="欢迎注册商户"/>
+                      <set name="EmerchantOper" value="mer"/>
+                      <set name="EmerchantId"   expr="STRCAT(CUST_ID,':',Email,':',merpasswd)" />
+                      <set name="EmResAddr"     expr="G_VALURLMER"/>
+                      <set name="G_EMCOMPHTTP"  expr="G_VALURLMER"/>
+                      <set name="G_VALURL"      expr="G_VALURLMER"/>
+                      <!--  发送邮件至指定邮箱  -->
+                      <quote name="MerSendEmail"/>
+                      
+                      <delete name="login_pwd"/>
+                      <delete name="merpasswd"/>
+                      
+                  </else>
+                  <!-- 更新短信发送状态 --> 
+                  <do func="ExecSql" >
+                      <para name="SqlCmd" sql="UpdMsgSed" />
+                  </do>
+                  <if condition="#RetCod!=0">
+                      <set name="RspCod"       value="08517"/>
+                      <set name="RspMsg"       value="修改发送状态失败"/>
+                      <set name="DWZ_STATUS_CODE"    value="300"/>
+                      <set name="DWZ_RSP_MSG"        value="系统错误"/>
+                      <do func="RollBackWork"/>  
+                      <return/>
+                  </if>
+              </if>
+              <elseif condition="IS_EQUAL_STRING(AUT_TYPE,'2')">
+                  <!--风控操作类型1新增，2修改-->
+                  <set name="DTYPE"       value="2"/>
+                  <set name="AUT_STS"              value="1"/>
+                  
+                  <do func="UpdateRecord" error="IGNORE">
+                     <para name="TblNam" value="STPMERINF"/>
+                     <para name="CndSts" sql="UpdMerInf"/>
+                  </do>
+                  <if condition="#RetCod==2">
+                     <set name="RspCod"    value="01003"/>
+                     <set name="RspMsg"    value="无符合条件记录"/>
+                     <do func="RollBackWork"/>
+                     <return/>
+                  </if>
+                  <elseif condition="#RetCod!=0">
+                     <set name="RspCod"    value="06003"/>
+                     <set name="RspMsg"    value="更新订单信息错误"/>
+                     <return/>
+                  </elseif>
+                  
+              </elseif>
+              
+              <!--查询商户表 通知并调用风控接口 -->
+              <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"       sql="qryContractInfo"/> 
+              </do>
+              <set name="CERT_END_DATE"        expr="CERT_END_DATE"/><!--商户注册时间-->
+              <set name="COMPAY_EMAIL"         expr="COMPAY_EMAIL"/><!--公司邮箱-->
+              
+              <set name="DTYPE"                              expr="DTYPE"/>
+              <set name="CCODE"                              expr="CUST_ID"/>
+              <set name="PCAD"                               expr="PAYACNO"/>
+              <set name="CNAME"                              expr="CUSTNAME"/>
+              <set name="CDATE"                              expr="CONTRACT_STR_DATE"/>
+              <set name="MDATE"                              expr="CONTRACT_END_DATE"/>
+              <set name="DATE"                               expr="CERT_END_DATE"/>
+              <set name="TIME"                               expr="CERT_END_DATE"/>
+              <set name="sthCode"                            value="540505"/>
+              <quote name="rcsMaro"/>
+              
+              <!-- 状态：审核状态 0 未审核 1审核不通过 2审核通过 -->
+              <set name="AUT_STATUS"         value="2"/>
+          </if>
+          <elseif condition="IS_EQUAL_STRING(result,'2')">
+              <!-- 状态：审核状态 0 未审核 1审核不通过 2审核通过 -->
+              <set name="AUT_STATUS"   value="1"/>
+              
+              <!--查询商户表-->
+              <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"       sql="qryContractInfo"/>
+              </do>
+              <if condition="#RetCod==0"><!--商户修改、线上认证-->
+                 <if condition="IS_EQUAL_STRING(AUT_STS,'3')"><!--认证状态 0 未认证 1 认证通过 2 认证拒绝 3认证中-->
+                    <set name="AUT_STS"  value="2"/> <!--原状态为认证中的需置为认证拒绝，保证线上可以再次进行认证-->
+                    
+                    <do func="ExecSql" >
+                       <para name="SqlCmd" sql="updMerSts"/>
+                    </do>
+                 </if>
+              </if>
+              <elseif condition="#RetCod!=2">
+                 <set name="RSPCOD" value="02038"/>
+                 <set name="RSPMSG" value="获取该商户信息失败!"/>
+                 <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+                 <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+                 <return/>
+              </elseif>
+          </elseif>
+          
+          <!--修改商户审核状态-->
+          <do func="ExecSql" >
+                <para name="SqlCmd" sql="updMerAutSts"/>
+          </do>
+          <if condition="#RetCod!=0">
+                <set name="RspCod"        value="01006"/>
+                <set name="RspMsg"        value="修改商户审核状态失败！"/>
+                <set name="DWZ_STATUS_CODE"                   value="300"/>
+                <set name="DWZ_RSP_MSG"                       expr="RSPMSG"/>
+                <do func="RollBackWork"/>  
+                <return/>
+          </if>
+          
+          <set name="RSPCOD"                              value="00000"/>
+          <set name="RSPMSG"                              value="审核成功!"/>
+          <set name="DWZ_STATUS_CODE"                     value="200"/>
+          <set name="DWZ_CALLBACK_TYPE"                   value="closeCurrent"/>
+          <set name="DWZ_RSP_MSG"                         expr="RSPMSG"/>
+          
+     </process>
+  </transaction>
+  
+  <transaction code="412403" desc="退款结果处理">
+     <sql name="QryStpRefInf"> 
+       select refOrdNo,bankCode,OrdStatus,BnkDat,OBankStlDate,BankStlDate,oriPrdOrdNo prdOrdNo,rfAmt,fee rfFee,netRecAmt,oriPayOrdNo,MerNo,cust_id from stprefinf where refOrdNo=#{refOrdNo}
+     </sql>
+     <sql name="UpdStatus">
+       update stprefinf set OrdStatus=#{ORDSTATUS},rfReqDate=#{rfReqDate} where refOrdNo=#{refOrdNo}
+     </sql>
+     <sql name="UpdPrd">
+        update stpprdinf set ordstatus=#{ordstatus}${updrfComAmt}
+        ,rfTotalAmt=(SELECT case when rfTotalAmt is null then 0+${rfAmt} else rfTotalAmt+${rfAmt} end rfTotalAmt FROM stpprdinf WHERE prdOrdNo=#{prdOrdNo} and MerNo=#{MerNo}) 
+        WHERE prdOrdNo=#{prdOrdNo} and MerNo=#{MerNo}
+     </sql>
+     <sql name="QryStpPayInf"><!-- 查询支付方式 -->
+       select s.ORDSTATUS paystatus,payType,MulType,fee,accAmt,mulAmt,t.bizType,bankcod,rfTotalAmt,netRecAmt,t.PrdOrdType,prdordsts,t.rfComAmt as prdRfComAmt from stppayinf s,(select bizType,rfTotalAmt,PrdOrdType,payordno,ORDSTATUS prdordsts,rfComAmt from stpprdinf where payordno = #{oriPayOrdNo}) t where s.payordno=t.payordno and t.payOrdNo=#{oriPayOrdNo}
+     </sql>
+     <sql name="UpdPay">
+        update stppayinf set ordstatus=#{ordstatus} where payOrdNo=#{oriPayOrdNo}
+     </sql>  
+     <sql name="SelFrzInf">
+       select PAY_AC_NO,FROZ_AMT,BIZ_CODE,STATUS,FROZ_NO from ARP_AC_FORZZ_DETAILS where BIZ_CODE=#{refOrdNo} and STATUS='01'
+     </sql>
+     <sql name="UpdFrezInf"><!-- 更新冻结信息-->
+        UPDATE ARP_AC_FORZZ_DETAILS SET STATUS='00',LST_UPT_DATE=#{LST_UPT_DATE},LST_UPT_TIME=#{LST_UPT_TIME}  WHERE FROZ_NO=#{FROZ_NO}
+     </sql>
+     <attr name="DB_CONNECTION_HOLD_TYPE">WHOLE_TRANSACTION</attr>   <!--全程数据库连接-->
+     <process>
+        <!--检查用户登录平台是否正确-->
+        <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+           <set name="RspCod"    value="01001"/>
+           <set name="RspMsg"    value="用户登录平台不正确"/>
+           <set name="DWZ_STATUS_CODE"     value="300"/>
+           <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+           <return/>
+        </if>
+        <set name="updrfComAmt" value=""/><!--初始化累计退款更新SQL，非退款成功情况则不更新-->
+        <set name="result"      expr="RESULT"/><!-- 状态：1 复核成功 2 复核失败 -->
+        <!--提交复核信息--> 
+        <set name="OperaterId"         expr="SESSIONS.UID"/><!-- DataEntry使用 -->
+        <set name="refOrdNo"   expr="refOrdNo"/>  <!-- 主键 -->
+        
+        <!--查询退款订单-->
+        <do func="ReadRecord" >
+           <para name="SqlCmd" sql="QryStpRefInf"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"    value="01003"/>
+           <set name="RspMsg"    value="无符合条件记录"/>
+           <set name="DWZ_STATUS_CODE"     value="300"/>
+           <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </if>
+        <set name="netRecAmtRef" expr="netRecAmt"/>                         <!-- 退款订单中的净额 --> 
+        <set name="commAmtRef"   expr="SUB(ADD(rfAmt,rfFee),netRecAmt)"/>   <!-- 退款退佣金金额 -->
+        <if condition="IS_EQUAL_STRING(result,'1')">   <!-- 复核通过 -->           
+           <!--查询支付方式-->
+           <do func="ReadRecord" >
+              <para name="SqlCmd" sql="QryStpPayInf"/>
+           </do>
+           <if condition="#RetCod==2">
+              <set name="RspCod"    value="01003"/>
+              <set name="RspMsg"    value="无符合条件记录"/>
+              <set name="DWZ_STATUS_CODE"     value="300"/>
+              <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+              <do func="RollBackWork"/>
+              <return/>
+           </if>
+           <elseif condition="#RetCod!=0">
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"     value="300"/>
+              <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+              <do func="RollBackWork"/>
+              <return/>
+           </elseif>
+           
+           <if condition="IS_EQUAL_STRING(prdordsts,'01')">
+              <set name="rfAfterPay" value="1"/>   <!--担保支付确认付款标识 1 确认付款-->
+           </if>
+            
+            <!--退款成功-->
+            <set name="updrfComAmt"  expr="STRCAT(',rfComAmt= \'',ADD(prdRfComAmt,commAmtRef),'\'')"/><!--查询出累计退佣金，退款成功的情况累计，update by gyl 20150505 -->
+            <set name="TXN_TYP"      value="7"/>                  <!--用途 7 退款-->
+            <set name="OrdStatus"    value="02"/>
+            <set name="status"       value="05"/> 
+            <set name="rfReqDate"    expr="GETDATETIME()"/>       <!--退款成功时间-->  
+            <if condition="IS_EQUAL_STRING(payType,'04')">        <!-- 混合支付退款--> 
+               <set name="acPayAmtTmp"       expr="accAmt"/>
+               <if condition="ISNULL(rfTotalAmt)">
+                  <set name="rfTotalAmt"     value="0"/>  
+               </if> 
+               
+               <!--准备记账参数-->
+               <if condition="INTCMP(rfTotalAmt,5,accamt)">       <!--全部退回网银-->
+                  <set name="otPayAmtTmp"    expr="rfAmt"/>
+                  
+                  <if condition="AND(IS_EQUAL_STRING(PRDORDTYPE,'2'),IS_NOEQUAL_STRING(rfAfterPay,'1'))"><!--担保支付未确认付款前 担保账户-  -->
+                    <set name="pltMidPar"  expr="STRCAT('99999900000001','/','04','/','-','/','CNY','/',rfAmt,'/','N','/')"/>  <!--平台担保账户记账参数-->
+                    <set name="PARAMS"     expr="pltMidPar"/>
+                  </if>
+                  <else>     <!--已经支付成功的订单退款 商户- -->
+                    <!--查询冻结信息-->
+                    <quote name="SelFrzInf"/>
+                    
+                    <!--账务处理 商户解冻 商户-  --> 
+                    <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+                    <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+                    <quote name="frezzAmt"/>
+                    
+                    <!--更新冻结状态-->
+                    <quote name="UpdFrezz"/>
+                    
+                    <set name="merPar"     expr="STRCAT(MERNO,'/','01','/','-','/','CNY','/',FROZ_AMT,'/','Y','/')"/>  <!--商户记账参数-->
+                    <!--update by gyl 20150505 rfFee为退款手续费，需要通过退款表的rffee来判断是否为退款收手续费，而不是订单表的fee-->
+                    <if condition="AND(IS_NOEQUAL_STRING(rfFee,'0'),IS_NOEQUAL_STRING(commAmtRef,'0'))">    <!--有手续费退佣金-->
+                      <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',rfFee,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="commPar"    expr="STRCAT('99999900000001','/','03','/','-','/','CNY','/',commAmtRef,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="PARAMS"     expr="STRCAT(merPar,',',commPar,',',feePar)"/>
+                    </if>
+                    <elseif condition="AND(IS_EQUAL_STRING(rfFee,'0'),IS_NOEQUAL_STRING(commAmtRef,'0'))">  <!--无手续费退佣金-->
+                      <set name="commPar"    expr="STRCAT('99999900000001','/','03','/','-','/','CNY','/',commAmtRef,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="PARAMS"     expr="STRCAT(merPar,',',commPar)"/> 
+                    </elseif>
+                    <elseif condition="AND(IS_EQUAL_STRING(rfFee,'0'),IS_EQUAL_STRING(commAmtRef,'0'))">    <!--无手续费不退佣金-->
+                      <set name="PARAMS"     expr="merPar"/> 
+                    </elseif>
+                    <elseif condition="AND(IS_NOEQUAL_STRING(rfFee,'0'),IS_EQUAL_STRING(commAmtRef,'0'))">  <!--有手续费不退佣金-->
+                      <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',rfFee,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="PARAMS"     expr="STRCAT(merPar,',',feePar)"/>
+                    </elseif>
+                  </else>
+               </if>
+               <else>    <!-- 部分退回网银  部分退回用户支付账户-->
+                  <set name="acPayAmtTmp"    expr="SUB(accamt,rfTotalAmt)"/>    <!--部分退款至虚拟账户-->
+                  <set name="otPayAmtTmp"    expr="SUB(rfAmt,acPayAmtTmp)"/>    <!--部分退款至网银-->
+                  
+                  <set name="usrPar"         expr="STRCAT(CUST_ID,'/','01','/','+','/','CNY','/',acPayAmtTmp,'/','Y','/')"/>  <!--用户记账参数-->
+                  <if condition="AND(IS_EQUAL_STRING(PRDORDTYPE,'2'),IS_NOEQUAL_STRING(rfAfterPay,'1'))"><!--担保支付未确认付款前 担保账户-  -->
+                    <set name="pltMidPar"    expr="STRCAT('99999900000001','/','04','/','-','/','CNY','/',rfAmt,'/','N','/')"/>  <!--平台担保账户记账参数-->
+                    <set name="PARAMS"       expr="STRCAT(pltMidPar,',',usrPar)"/>
+                  </if>
+                  <else>     <!--已经支付成功的订单退款 商户- -->
+                    <!--查询冻结信息-->
+                    <quote name="SelFrzInf"/>
+                    
+                    <!--解冻金额 --> 
+                    <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+                    <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+                    <quote name="frezzAmt"/>
+                    
+                    <!--更新冻结状态-->
+                    <quote name="UpdFrezz"/>
+                    
+                    <set name="merPar"       expr="STRCAT(MERNO,'/','01','/','-','/','CNY','/',FROZ_AMT,'/','Y','/')"/>  <!--商户记账参数-->
+                    <!--update by gyl 20150505 rfFee为退款手续费，需要通过退款表的rffee来判断是否为退款收手续费，而不是订单表的fee-->
+                    <if condition="AND(IS_NOEQUAL_STRING(rfFee,'0'),IS_NOEQUAL_STRING(commAmtRef,'0'))">    <!--有手续费退佣金-->
+                      <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',rfFee,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="commPar"    expr="STRCAT('99999900000001','/','03','/','-','/','CNY','/',commAmtRef,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="PARAMS"     expr="STRCAT(merPar,',',commPar,',',feePar,',',usrPar)"/>
+                    </if>
+                    <elseif condition="AND(IS_EQUAL_STRING(rfFee,'0'),IS_NOEQUAL_STRING(commAmtRef,'0'))">  <!--无手续费退佣金-->
+                      <set name="commPar"    expr="STRCAT('99999900000001','/','03','/','-','/','CNY','/',commAmtRef,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="PARAMS"     expr="STRCAT(merPar,',',commPar,',',usrPar)"/> 
+                    </elseif>
+                    <elseif condition="AND(IS_EQUAL_STRING(rfFee,'0'),IS_EQUAL_STRING(commAmtRef,'0'))">    <!--无手续费不退佣金-->
+                      <set name="PARAMS"     expr="STRCAT(merPar,',',usrPar)"/> 
+                    </elseif>
+                    <elseif condition="AND(IS_NOEQUAL_STRING(rfFee,'0'),IS_EQUAL_STRING(commAmtRef,'0'))">  <!--有手续费不退佣金-->
+                      <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',rfFee,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                      <set name="PARAMS"     expr="STRCAT(merPar,',',feePar,',',usrPar)"/>
+                    </elseif>
+                  </else>
+               </else>
+               
+               <!--记账处理-->
+               <set name="prdordnotmp"  expr="prdordno"/>
+               <set name="prdordno"     expr="refordno"/>
+               <quote name="accProcess"/> 
+               <if condition="#RetCod!=0"> 
+                  <set name="RspCod"    value="07001"/>
+                  <set name="RspMsg"    value="交易失败，请联系客服！"/>
+                  <set name="DWZ_STATUS_CODE"     value="300"/>
+                  <set name="DWZ_RSP_MSG"         expr="RspMsg"/> 
+                  <do func="RollBackWork"/>    <!--回滚复核提交数据-->
+                  <return/>
+               </if>
+               <set name="prdordno"  expr="prdordnotmp"/>
+            </if>
+            <else><!-- 网银支付 等 退款 --> 
+              <!--准备记账参数-->
+              <if condition="AND(IS_EQUAL_STRING(PRDORDTYPE,'2'),IS_NOEQUAL_STRING(rfAfterPay,'1'))"><!--担保支付未确认付款前 担保账户-  -->
+                <set name="pltMidPar"  expr="STRCAT('99999900000001','/','04','/','-','/','CNY','/',rfAmt,'/','N','/')"/>  <!--平台担保账户记账参数-->
+                <set name="PARAMS"     expr="pltMidPar"/>
+              </if>
+              <else>     <!--已经支付成功的订单退款 商户- -->
+                <!--查询冻结信息-->
+                <quote name="SelFrzInf"/>
+                
+                <!--账务处理 商户解冻 商户- --> 
+                <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+                <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+                <quote name="frezzAmt"/>
+                
+                <!--更新冻结状态-->
+                <quote name="UpdFrezz"/>
+                
+                <set name="merPar"       expr="STRCAT(MERNO,'/','01','/','-','/','CNY','/',FROZ_AMT,'/','Y','/')"/>  <!--商户记账参数-->
+                <!--update by gyl 20150505 rfFee为退款手续费，需要通过退款表的rffee来判断是否为退款收手续费，而不是订单表的fee-->
+                <if condition="AND(IS_NOEQUAL_STRING(rfFee,'0'),IS_NOEQUAL_STRING(commAmtRef,'0'))">  <!--有手续费退佣金-->
+                  <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',rfFee,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                  <set name="commPar"    expr="STRCAT('99999900000001','/','03','/','-','/','CNY','/',commAmtRef,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                  <set name="PARAMS"     expr="STRCAT(merPar,',',commPar,',',feePar)"/>
+                </if>
+                <elseif condition="AND(IS_EQUAL_STRING(rfFee,'0'),IS_NOEQUAL_STRING(commAmtRef,'0'))">  <!--无手续费退佣金-->
+                  <set name="commPar"    expr="STRCAT('99999900000001','/','03','/','-','/','CNY','/',commAmtRef,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                  <set name="PARAMS"     expr="STRCAT(merPar,',',commPar)"/> 
+                </elseif>
+                <elseif condition="AND(IS_EQUAL_STRING(rfFee,'0'),IS_EQUAL_STRING(commAmtRef,'0'))">  <!--无手续费不退佣金-->
+                  <set name="PARAMS"     expr="merPar"/> 
+                </elseif>
+                <elseif condition="AND(IS_NOEQUAL_STRING(rfFee,'0'),IS_EQUAL_STRING(commAmtRef,'0'))">  <!--有手续费不退佣金-->
+                  <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',rfFee,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                  <set name="PARAMS"     expr="STRCAT(merPar,',',feePar)"/>
+                </elseif>
+              </else>
+
+              <!--记账处理-->
+              <set name="prdordnotmp"  expr="prdordno"/>
+              <set name="prdordno"     expr="refordno"/>
+              <quote name="accProcess"/> 
+              <if condition="#RetCod!=0"> 
+                 <set name="RspCod"    value="07001"/>
+                 <set name="RspMsg"    value="交易失败，请联系客服！"/>
+                 <set name="DWZ_STATUS_CODE"     value="300"/>
+                 <set name="DWZ_RSP_MSG"         expr="RspMsg"/> 
+                 <do func="RollBackWork"/>    <!--回滚复核提交数据-->
+                 <return/>
+              </if>
+              <set name="prdordno"  expr="prdordnotmp"/>
+            </else>
+            
+            <!--通知风控系统登记订单信息-->
+            <set name="ServiceCode" value="680517"/>
+            <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+            <set name="TCODE"       expr="refOrdNo"/>           <!--平台流水号 退款订单号-->
+            <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+            <set name="CLIENTCODE"  expr="CUST_ID"/>            <!--客户编号-->
+            <set name="CLIENTNAME"  value=" "/>
+            <set name="MOBILEPHONE" value=" "/>
+            <set name="TRANTYPE"    value="8"/>                 <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+            <set name="TAMT"        expr="rfAmt"/>
+            <set name="REGDTTIME"   expr="GETDATETIME()"/>
+            <set name="Time"        expr="SUBSTR(REGDTTIME,1,8)"/>
+            <quote name="noticRcs"/>
+            
+        </if>
+        <else><!-- 复核拒绝 -->
+           
+           <set name="OrdStatus" value="03"/> 
+           <set name="rfAmt"     value="0"/>
+           <set name="status"    value="01"/>      <!--商品订单状态  01 支付成功--> 
+        </else> 
+        
+        <if condition="IS_EQUAL_STRING(result,'1')"> <!-- 通过的前提下  更新成功时间 -->
+            <set name="rfReqDate"      expr="GETDATETIME()"/>       <!--退款成功时间--> 
+        </if>
+        <else>
+            <set name="rfReqDate"      value=""/>   
+        </else>
+        
+        <!--更新退款订单-->   
+        <set name="OrdStatus"      expr="OrdStatus"/> 
+        <do func="ExecSql" >  
+           <para name="SqlCmd" sql="UpdStatus"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"    value="01003"/>
+           <set name="RspMsg"    value="无符合条件记录"/>
+           <set name="DWZ_STATUS_CODE"     value="300"/>
+           <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+           <set name="RspCod"    value="06003"/>
+           <set name="RspMsg"    value="更新订单信息错误"/>
+           <set name="DWZ_STATUS_CODE"     value="300"/>
+           <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </elseif> 
+        
+        <!--更新商品订单状态-->
+        <set name="OrdStatus"      expr="status"/>   
+        <do func="ExecSql" >  
+           <para name="SqlCmd" sql="UpdPrd"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"    value="01003"/>
+           <set name="RspMsg"    value="无符合条件记录"/>
+           <set name="DWZ_STATUS_CODE"     value="300"/>
+           <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+           <set name="RspCod"    value="06003"/>
+           <set name="RspMsg"    value="更新订单信息错误"/>
+           <set name="DWZ_STATUS_CODE"     value="300"/>
+           <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </elseif>  
+        
+        <set name="MsgTyp"    value="N"/>
+        <set name="RspCod"    value="00000"/>
+        <set name="RspMsg"    value="交易成功"/>
+        <set name="DWZ_STATUS_CODE"     value="200"/>
+       <set name="DWZ_CALLBACK_TYPE" value="forward"/>
+       <set name="DWZ_FORWARD_URL"   value="411066.stp?number=2"/>
+       <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+     </process>
+  </transaction>
+  
+  <transaction code="601025" desc="结算复核详情">
+      <sql name="SelStlInf">
+        select  TO_CHAR((TO_NUMBER(a.stl_amt) -TO_NUMBER(NVL(a.stl_fee,0)))/100,'FM9999,999,999,990.00') STL_AMT,
+        STL_FEE,REC_BANK_CODE,REC_BANK_NAME,REC_STL_AC_NO,REC_NAME from ARP_BANK_PAY_STL a  where SEQ_NO=#{SEQ_NO}
+      </sql>
+      <process> 
+       <set name="AUDIT_SEQ_NO"        expr="SEQ_NO"/>
+       <do func="DataEntry" >
+         <para name="TableName"    value="MDL_AUDIT"/>
+         <para name="Method"   value="Select"/>
+         <para name="Columns"    value="*"/>
+         <para name="Keys"   value="AUDIT_SEQ_NO"/>
+       </do>
+       
+       <foreach name="GROUP"  iterator="#tmp">  
+          <set name="NAME"                        expr="#tmp.NAME"/>
+          <set name="AUDIT_FUN_NO"                expr="#tmp.AUDIT_FUN_NO"/>
+          <set name="IS_REALNAME"                 expr="#tmp.IS_REALNAME"/>
+          <set name="AUDIT_POWER"                 expr="#tmp.AUDIT_POWER"/>
+          <set name="AUDIT_APPLY_DATE"            expr="SUBSTR(#tmp.AUDIT_APPLY_DATE,1,SUB(STRLEN(#tmp.AUDIT_APPLY_DATE),2))"/>
+          <set name="AUDIT_DATE"                  expr="#tmp.AUDIT_DATE"/>
+          <set name="AUDIT_LEVEL"                 expr="#tmp.AUDIT_LEVEL"/>
+          <set name="AUDIT_SEQ_NO"                expr="#tmp.AUDIT_SEQ_NO"/>
+          <set name="IS_ACTIVE"                   expr="#tmp.IS_ACTIVE"/>
+          <set name="SEQ_NO"                      expr="#tmp.SEQ_NO"/>
+          <set name="UPT_DATE"                    expr="#tmp.UPT_DATE"/>
+          <set name="CRE_DATE"                    expr="#tmp.CRE_DATE"/>
+          <set name="CRE_OPER_ID"                 expr="#tmp.CRE_OPER_ID"/>
+          <set name="AUDIT_OPERATE_METHOD"        expr="#tmp.AUDIT_OPERATE_METHOD"/>      
+          <set name="AUDIT_APPLICANT"             expr="#tmp.AUDIT_APPLICANT"/>
+          <set name="AUDIT_OPERATER"              expr="#tmp.AUDIT_OPERATER"/>
+          <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+          <set name="BELONG_GROUP"                expr="#tmp.BELONG_GROUP"/>
+          <set name="RELATE_TABLE_INDEX"          expr="#tmp.RELATE_TABLE_INDEX"/> 
+          <set name="TRAN_CODE_AUDIT"             expr="#tmp.TRAN_CODE_AUDIT"/>
+          <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+          <set name="AUDIT_RESULT"                expr="#tmp.AUDIT_RESULT"/>
+          <set name="CODE"                        expr="#tmp.CODE"/>
+          <set name="RELATE_TABLE_NAME"           expr="#tmp.RELATE_TABLE_NAME"/>  
+          <set name="SEQ_NO"                      expr="#tmp.SEQ_NO"/> 
+          <set name="PAY_STL_STATUS"              expr="#tmp.PAY_STL_STATUS"/> 
+          <set name="AUDIT_COMMENTS"              expr="#tmp.AUDIT_COMMENTS"/> 
+       </foreach>
+       
+       <foreach name="CHILDGROUP"   iterator="#child">
+          <set name="tableName"     expr="#child.RELATE_TABLE_NAME" /> 
+       </foreach> 
+       
+       <do func="ReadRecord" >
+          <para name="SqlCmd" sql="SelStlInf" />
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"    value="08069"/>
+          <set name="RspMsg"    value="该结算订单信息不存在"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"    value="08069"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <return/>
+       </elseif>
+       
+       <if condition="ISNULL(STL_FEE)">
+          <set name="STL_FEE" value="0.00"/>    
+       </if> 
+       <else>
+          <set name="STL_FEE" expr="AMTADDDOT(STL_FEE)"/>     
+       </else>
+       
+       <set name="_REQUESTATTR.FORWARDURL"  value="WEB-INF/html/audit/selStlAudit.jsp"/> 
+    </process>
+  </transaction>
+  
+  <transaction code="601024" desc="结算结果处理">
+     <sql name="UpdStatus">
+       SEQ_NO=#{SEQ_NO}
+     </sql>     
+     <sql name="SelStatus">
+       select SEQ_NO,STL_TYPE,BATCH_NO,a.pay_ac_no,stl_amt,nvl(STL_FEE,0) STL_FEE,REC_BANK_CODE,b.cust_id from  ARP_BANK_PAY_STL a,ARP_AC_CUST_REL b where a.PAY_AC_NO=b.PAY_AC_NO and SEQ_NO=#{RELATE_TABLE_INDEX}
+     </sql> 
+     <sql name="SelFrzInf">
+       select PAY_AC_NO,FROZ_AMT,BIZ_CODE,STATUS,FROZ_NO from ARP_AC_FORZZ_DETAILS where BIZ_CODE=#{BATCH_NO} and STATUS='01'
+     </sql> 
+     <sql name="UpdFrezInf"><!-- 更新冻结信息-->
+        UPDATE ARP_AC_FORZZ_DETAILS SET STATUS='00',LST_UPT_DATE=#{LST_UPT_DATE},LST_UPT_TIME=#{LST_UPT_TIME}  WHERE FROZ_NO=#{FROZ_NO}
+     </sql>
+     <sql name="UpdMerStl">  <!--更新客户结算信息 -->
+       UPDATE stpmerstl SET STL_STATUS=#{STL_STATUS},STL_APPLYSTLAMT=(select STL_AMT from ARP_BANK_PAY_STL where SEQ_NO=#{SEQ_NO}) WHERE STL_SEQNO=#{SEQ_NO}
+     </sql>
+     <sql name="UpdPrdOrdInf"><!-- 更新商品订单信息-->
+        UPDATE STPPRDINF
+           SET stlSts=''
+         WHERE stlBatno=#{BATCH_NO}
+     </sql>
+     <sql name="UpdRefOrdInf"><!-- 更新退款订单信息-->
+        UPDATE STPREFINF
+           SET stlSts=''
+         WHERE stlBatno=#{BATCH_NO} 
+     </sql>
+     <sql name="UpdStlSts">
+        update ARP_BANK_PAY_STL set PAY_STL_STATUS = '1' where SEQ_NO=#{SEQ_NO}
+     </sql>
+     <process>
+        <!--检查用户登录平台是否正确-->
+        <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+           <set name="RspCod"    value="01001"/>
+           <set name="RspMsg"    value="用户登录平台不正确"/>
+           <set name="DWZ_STATUS_CODE" value="300"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/> 
+           <return/>
+        </if>         
+        <set name="AUDIT_OPERATE_METHOD"       value="UPDATE"/>
+        <set name="AUDIT_SEQ_NO"               expr="SEQNO"/>
+        <set name="AUDIT_RESULT"               expr="result"/>
+        <set name="AUDIT_COMMENTS"             expr="remark"/>
+        <quote name="commitAudit"/>
+        
+        <set name="AUDIT_INF"                  expr="AUDIT_INF"/>
+        <set name="PAY_STL_STATUS"             expr="GETWORDDELIMITER(AUDIT_INF,':',2)"/>
+       
+        <do func="ReadRecord" >
+           <para name="SqlCmd"                 sql="SelStatus"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"                  value="01003"/>
+           <set name="RspMsg"                  value="无符合条件记录"/>
+           <set name="DWZ_STATUS_CODE"         value="300"/>
+           <set name="DWZ_RSP_MSG"             expr="RSPMSG"/> 
+           <do func="RollBackWork"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(result,'1')">       <!--同意-->          
+           
+           <if condition="OR(IS_EQUAL_STRING(PAY_STL_STATUS,'2'),IS_EQUAL_STRING(PAY_STL_STATUS,'4'))">       <!--成功/重新付款-->
+              <set name="SucDat"   expr="GETDATETIME()"/>
+              
+              <!--查询冻结信息-->
+              <quote name="SelFrzInf"/>
+              
+              <!--商户解冻 商户-  --> 
+              <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+              <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+              <quote name="frezzAmt"/>
+              
+              <!--更新冻结状态-->
+              <quote name="UpdFrezz"/>
+              
+              <set name="MERNO"      expr="cust_id"/>
+              <set name="merPar"     expr="STRCAT(MERNO,'/','01','/','-','/','CNY','/',FROZ_AMT,'/','Y','/')"/>  <!--商户记账参数-->
+              <if condition="IS_EQUAL_STRING(STL_FEE,'0')"> 
+                 <set name="PARAMS"     expr="merPar"/>
+              </if>
+              <else>
+                 <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',STL_FEE,'/','N','/')"/>   <!--平台账户（手续费）记账参数-->
+                 <set name="PARAMS"     expr="STRCAT(merPar,',',feePar)"/>
+              </else>
+              
+              <!--记账处理-->
+              <set name="prdordno"     expr="BATCH_NO"/>
+              <set name="TXN_TYP"      value="8"/>       <!-- 用途：结算-->
+              <quote name="accProcess"/>
+              <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="07005"/>
+                 <set name="RspMsg"    value="付款失败"/>
+                 <set name="DWZ_STATUS_CODE" value="300"/>
+                 <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+                 <do func="RollBackWork"/>
+                 <return/>
+              </if>
+              <set name="STL_STATUS"  value="3"/>
+           </if>
+           <elseif condition="IS_EQUAL_STRING(PAY_STL_STATUS,'3')">   <!--失败-->
+              <set name="STL_STATUS"  value="4"/>
+           </elseif>
+           <elseif condition="IS_EQUAL_STRING(PAY_STL_STATUS,'5')">   <!--退回支付账户-->
+              <!--查询冻结信息-->
+              <quote name="SelFrzInf"/>
+              
+              <!--商户解冻 商户-  --> 
+              <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+              <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+              <quote name="frezzAmt"/>
+              
+              <!--更新冻结状态-->
+              <quote name="UpdFrezz"/>    
+              
+              <!--更新商品订单表中相应记录为未结算-->
+              <do func="ExecSql" >
+                <para name="SqlCmd"  sql="UpdPrdOrdInf" />
+              </do>
+              <if condition="#RetCod==2">
+                <set name="RspCod"              value="02001"/>
+                <set name="RspMsg"              value="无记录"/>
+              </if>
+              <elseif condition="#RetCod!=0">
+                <set name="RspCod"              value="09999"/>
+                <set name="RspMsg"              value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"     value="300"/>
+                <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+                <do func="RollBackWork"/>
+                <return/>
+              </elseif>
+              
+              <!--更新退款订单表中相应记录为未结算-->
+              <do func="ExecSql" >
+                <para name="SqlCmd"  sql="UpdRefOrdInf" />
+              </do>
+              <if condition="#RetCod==2">
+                <set name="RspCod"              value="02001"/>
+                <set name="RspMsg"              value="无记录"/>
+              </if>
+              <elseif condition="#RetCod!=0">
+                <set name="RspCod"              value="09999"/>
+                <set name="RspMsg"              value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"     value="300"/>
+                <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+                <do func="RollBackWork"/>
+                <return/>
+              </elseif>
+              <set name="STL_STATUS"  value="4"/>
+           </elseif>
+           <else>
+              <set name="RspCod"    value="02069"/>
+              <set name="RspMsg"    value="无此订单状态"/>
+              <set name="DWZ_STATUS_CODE" value="300"/>
+              <set name="DWZ_RSP_MSG"     expr="RSPMSG"/> 
+              <do func="RollBackWork"/>
+              <return/>
+           </else>  
+           <delete name="actDat"/>
+        </if>
+        <else>
+           <if condition="OR(IS_EQUAL_STRING(PAY_STL_STATUS,'5'),IS_EQUAL_STRING(PAY_STL_STATUS,'4'))">   <!--失败-->
+              <set name="PAY_STL_STATUS" value="3"/> 
+           </if>
+           <else>
+              <set name="PAY_STL_STATUS" value="0"/> 
+           </else>
+        </else>
+        <set name="STL_OPER_ID"   expr="SESSIONS.UID"/>   <!--操作员ID-->  
+        <set name="STL_DATE"      expr="GETDATE()"/>
+        <set name="STL_TIME"      expr="GETDATETIME('HHMISS')"/>
+        <!--更新-->
+        <do func="UpdateRecord"   >
+           <para name="TblNam"    value="ARP_BANK_PAY_STL"/>
+           <para name="CndSts"    sql="UpdStatus"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"     value="01003"/>
+           <set name="RspMsg"     value="无符合条件记录"/>
+           <set name="DWZ_STATUS_CODE" value="300"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+           <set name="RspCod"    value="06003"/>
+           <set name="RspMsg"    value="系统错误"/>
+           <set name="DWZ_STATUS_CODE" value="300"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/> 
+           <do func="RollBackWork"/>
+           <return/>
+        </elseif>
+        
+        <!--更新商户系统商户结算信息  自助结算需要更新-->
+        <if condition="AND(IS_EQUAL_STRING(STL_TYPE,'01'),IS_EQUAL_STRING(result,'1'))">
+           <quote name="UpdMerStl"/>
+        </if>
+        
+        <set name="MsgTyp"               value="N"/>
+        <set name="RspCod"               value="00000"/>
+        <set name="RspMsg"               value="交易成功"/>
+        <set name="DWZ_STATUS_CODE"      value="200"/>
+        <set name="DWZ_CALLBACK_TYPE"    value="forward"/>
+        <set name="DWZ_FORWARD_URL"      value="412400.stp?number=3"/>
+        <set name="DWZ_RSP_MSG"          expr="RSPMSG"/>
+     </process>
+  </transaction>
+
+  <transaction code="412410" desc="费率复核详情">
+    <process>
+       <set name="AUDIT_SEQ_NO"                        expr="SEQ_NO"/>
+       <do func="DataEntry"                            >
+         <para name="TableName"                        value="MDL_AUDIT"/>
+         <para name="Method"                           value="Select"/>
+         <para name="Columns"                          value="*"/>
+         <para name="Keys"                             value="AUDIT_SEQ_NO"/>
+       </do>
+       <foreach name="CHILDGROUP"              iterator="#child">
+          <set name="MAX_AMT1"                           expr="#child.MAX_AMT"/>          
+          <set name="FEE_AMT1"                           expr="#child.FEE_AMT"/>          
+          <set name="FEE_RATIO1"                         expr="#child.FEE_RATIO"/>                  
+          <if condition="IS_NOEQUAL_STRING(FEE_AMT1,'')">                  
+            <set name="FEE_AMT"                            expr="AMTADDDOT(FEE_AMT1)"/>                                          
+          </if> 
+          <if condition="IS_NOEQUAL_STRING(FEE_RATIO1,'')">            
+            <set name="FEE_RATIO"                          expr="DIV(FEE_RATIO1,100)"/>                                           
+          </if>
+          <if condition="IS_NOEQUAL_STRING(MAX_AMT1,'')">            
+            <set name="MAX_AMT"                            expr="AMTADDDOT(MAX_AMT1)"/>                  
+          </if>
+         </foreach>
+       <foreach name="GROUP"  iterator="#tmp">
+          <set name="AUDIT_FUN_NO"                       expr="#tmp.AUDIT_FUN_NO"/>
+          <set name="AUDIT_POWER"                        expr="#tmp.AUDIT_POWER"/>
+          <set name="AUDIT_APPLY_DATE"                   expr="SUBSTR(#tmp.AUDIT_APPLY_DATE,1,SUB(STRLEN(#tmp.AUDIT_APPLY_DATE),2))"/>
+          <set name="AUDIT_DATE"                         expr="#tmp.AUDIT_DATE"/>
+          <set name="AUDIT_LEVEL"                        expr="#tmp.AUDIT_LEVEL"/>
+          <set name="AUDIT_SEQ_NO"                       expr="#tmp.AUDIT_SEQ_NO"/>
+          <set name="AUDIT_OPERATE_METHOD"               expr="#tmp.AUDIT_OPERATE_METHOD"/>
+          <set name="AUDIT_APPLICANT"                    expr="#tmp.AUDIT_APPLICANT"/>
+          <set name="RELATE_TABLE_INDEX"                 expr="#tmp.RELATE_TABLE_INDEX"/>
+          <set name="TRAN_INF_AUDIT"                     expr="#tmp.TRAN_INF_AUDIT"/>
+          <set name="AUDIT_RESULT"                       expr="#tmp.AUDIT_RESULT"/>
+          <set name="RELATE_TABLE_NAME"                  expr="#tmp.RELATE_TABLE_NAME"/>
+          <set name="AUDIT_OPERATER"                     expr="#tmp.AUDIT_OPERATER"/>
+          <set name="AUDIT_COMMENTS"                     expr="#tmp.AUDIT_COMMENTS"/>
+          <set name="TRAN_CODE_AUDIT"                    expr="#tmp.TRAN_CODE_AUDIT"/>
+          <!-- 费率信息 --> 
+          <set name="FEE_CODE"                           expr="#tmp.FEE_CODE"/>
+          <set name="MAX_FEE"                            expr="AMTFMT(#tmp.MAX_FEE)"/>         
+          <set name="CAL_MODE"                           expr="#tmp.CAL_MODE"/>
+          <if condition="IS_EQUAL_STRING(CAL_MODE,'0')">
+            <set name="CAL_MODE_NAM"      value="定额收费"/>
+          </if>                        expr="#tmp.CAL_MODE"/>
+          <elseif condition="IS_EQUAL_STRING(CAL_MODE,'1')">
+            <set name="CAL_MODE_NAM"      value="按比例收费"/>
+          </elseif>
+          <set name="FEE_NAME"                           expr="#tmp.FEE_NAME"/>
+          <set name="MIN_FEE"                            expr="AMTFMT(#tmp.MIN_FEE)"/>
+          
+          <set name="START_CAL_AMT"                      expr="AMTFMT(#tmp.START_CAL_AMT)"/>
+          <set name="CCY"                                expr="#tmp.CCY"/>
+          <set name="MULTI_SECTION_MODE"                 expr="#tmp.MULTI_SECTION_MODE"/>
+          <if condition="IS_EQUAL_STRING(MULTI_SECTION_MODE,'0')">
+            <set name="MULTI_SECTION_MODE_NAM"      value="不套档"/>
+          </if>                        expr="#tmp.CAL_MODE"/>
+          <elseif condition="IS_EQUAL_STRING(MULTI_SECTION_MODE,'1')">
+            <set name="MULTI_SECTION_MODE_NAM"      value="套档"/>
+          </elseif>              expr="#tmp.CAL_MODE"/>
+          <elseif condition="IS_EQUAL_STRING(MULTI_SECTION_MODE,'2')">
+            <set name="MULTI_SECTION_MODE_NAM"      value="分段累计"/>
+          </elseif>
+       </foreach>
+
+       <set name="_REQUESTATTR.FORWARDURL"               value="WEB-INF/html/audit/selFeeAudit.jsp"/>
+    </process>
+  </transaction>
+
+  <transaction code="412411" desc="费率复核处理">
+    <process>
+       <set name="AUDIT_OPERATE_METHOD"                 value="UPDATE"/>
+       <set name="AUDIT_RESULT"                         expr="result"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 -->
+       <set name="OperaterId"                           expr="SESSIONS.UID"/><!-- DataEntry使用 -->
+       <set name="AUDIT_OPERATER"                       expr="SESSIONS.UID"/>
+       <set name="AUDIT_SEQ_NO"                         expr="SEQNO"/>
+       <set name="AUDIT_COMMENTS"                       expr="REMARK"/>
+         <!-- 2 无记录  -2 审核人和提交人不能相同 1 提交复核成功 0 处理成功 -1 数据库错误 -->
+        <do func="DataEntry"                            >
+          <para name="TableName"                        value="MDL_AUDIT"/>
+          <para name="Method"                           value="UPDATE"/>
+          <para name="Columns"                          value="*"/>
+          <para name="Keys"                             value="AUDIT_SEQ_NO"/>
+        </do>
+        <if condition="#RetCod==2">
+          <set name="RSPCOD"                            value="02038"/>
+          <set name="RSPMSG"                            value="无此复核记录!"/>
+          <set name="DWZ_STATUS_CODE"                   value="300"/>
+          <set name="DWZ_RSP_MSG"                       expr="RSPMSG"/>
+          <return/>
+        </if>
+        <elseif condition="#RetCod==-2">
+          <set name="RSPCOD"                            value="02038"/>
+          <set name="RSPMSG"                            value="审核人不能审核自己提交的复核信息!"/>
+          <set name="DWZ_STATUS_CODE"                   value="300"/>
+          <set name="DWZ_RSP_MSG"                       expr="RSPMSG"/>
+          <return/>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+          <set name="RSPCOD"                            value="02038"/>
+          <set name="RSPMSG"                            value="复核失败!"/>
+          <set name="DWZ_STATUS_CODE"                   value="300"/>
+          <set name="DWZ_RSP_MSG"                       expr="RSPMSG"/>
+          <return/>
+        </elseif>
+        
+        <set name="RSPCOD"                              value="00000"/>
+        <set name="RSPMSG"                              value="复核成功!"/>
+        <set name="DWZ_STATUS_CODE"                     value="200"/>
+        <set name="DWZ_CALLBACK_TYPE" value="forward"/>
+        <set name="DWZ_FORWARD_URL"   value="412400.stp?number=5"/>
+        <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+        <return/>
+    </process>
+  </transaction>
+  
+  <transaction code="412407" desc="商户费率设置复核状态修改-通过/拒绝">  
+     <process> 
+        <set name="AUDIT_OPERATE_METHOD"       value="UPDATE"/> 
+        <set name="AUDIT_RESULT"       expr="result"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 -->
+        <set name="OperaterId"         expr="SESSIONS.UID"/><!-- DataEntry使用 -->
+        <set name="AUDIT_SEQ_NO"       expr="SEQNO"/> 
+        <set name="AUDIT_COMMENTS"     expr="REMARK"/>
+         
+        <do func="DataEntry" >
+          <para name="TableName"    value="MDL_AUDIT"/>
+          <para name="Method"   value="UPDATE"/>
+          <para name="Columns"    value="*"/>
+          <para name="Keys"   value="AUDIT_SEQ_NO"/>
+        </do>
+        <if condition="#RetCod==2"> 
+          <set name="RSPCOD" value="02038"/>
+          <set name="RSPMSG" value="无此复核记录!"/>
+          <set name="DWZ_STATUS_CODE"   value="300"/> 
+          <set name="DWZ_RSP_MSG" expr="RSPMSG"/>  
+          <return/>
+        </if>
+        <elseif condition="#RetCod==-2"> 
+          <set name="RSPCOD" value="02038"/>
+          <set name="RSPMSG" value="审核人不能审核自己提交的复核信息!"/>
+          <set name="DWZ_STATUS_CODE"   value="300"/> 
+          <set name="DWZ_RSP_MSG" expr="RSPMSG"/>   
+          <return/>
+        </elseif>
+        <elseif condition="#RetCod!=0"> 
+          <set name="RSPCOD" value="02038"/>
+          <set name="RSPMSG" value="复核失败!"/>
+          <set name="DWZ_STATUS_CODE"   value="300"/> 
+          <set name="DWZ_RSP_MSG" expr="RSPMSG"/>   
+          <return/>
+        </elseif> 
+        
+       <set name="RSPCOD" value="00000"/>
+       <set name="RSPMSG" value="复核成功!"/>
+       <set name="DWZ_STATUS_CODE" value="200"/> 
+       <set name="DWZ_CALLBACK_TYPE" value="closeCurrent"/>
+       <set name="DWZ_RSP_MSG" expr="RSPMSG"/>    
+     </process>
+  </transaction>  
+  
+  <transaction code="412400" desc="商户复核浏览">
+     <process> 
+       <if condition="AND(IS_EQUAL_STRING(startDate,''),IS_EQUAL_STRING(endDate,''))"> 
+          <set name="DFN_AUDIT_APPLY_DATE"    value=""/>
+       </if>
+       <elseif condition="AND(IS_NOEQUAL_STRING(startDate,''),IS_NOEQUAL_STRING(endDate,''))">
+          <set name="STARTDATEs"               expr="STRCAT('\'',STARTDATE,'000000','\'')"/>
+          <set name="ENDDATEs"                 expr="STRCAT('\'',ENDDATE,'235959','\'')"/>
+          <set name="geshi"                   value=" 'yyyyMMddhh24miss' "/>
+           <set name="DFN_AUDIT_APPLY_DATE"    expr="STRCAT('between  to_date(',STARTDATEs,',',geshi,') and to_date(',ENDDATEs,',',geshi,')')"/>    
+       </elseif>
+       <elseif condition="AND(IS_EQUAL_STRING(startDate,''),IS_NOEQUAL_STRING(endDate,''))">
+          <set name="STARTDATEs"               value="'19700101000000'"/>
+          <set name="ENDDATEs"                 expr="STRCAT('\'',ENDDATE,'235959','\'')"/>
+          <set name="geshi"                   value=" 'yyyyMMddhh24miss' "/>
+           <set name="DFN_AUDIT_APPLY_DATE"    expr="STRCAT('between  to_date(',STARTDATEs,',',geshi,') and to_date(',ENDDATEs,',',geshi,')')"/>    
+       </elseif>
+       <elseif condition="AND(IS_NOEQUAL_STRING(startDate,''),IS_EQUAL_STRING(endDate,''))">
+          <set name="STARTDATEs"               expr="STRCAT('\'',STARTDATE,'000000','\'')"/>
+          <set name="ENDDATEs"                 expr="GETDATETIME()"/>
+          <set name="geshi"                   value=" 'yyyyMMddhh24miss' "/>
+           <set name="DFN_AUDIT_APPLY_DATE"    expr="STRCAT('between  to_date(',STARTDATEs,',',geshi,') and to_date(',ENDDATEs,',',geshi,')')"/>    
+       </elseif>
+       
+       <switch expr="number">
+         <case value="0">  <!-- 商户复核 --> 
+           <set name="AUDIT_LEVEL"             value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 -->
+           <set name="selTyp"                  value="Mer"/>        
+           <set name="TranCodeAudit"           value="in ('412332','412359','412358')"/>      
+           <if condition="IS_EQUAL_STRING(selTran,'0')">
+             <set name="TranCodeAudit"           value="in ('412332')"/>  
+           </if>            
+           <elseif condition="IS_EQUAL_STRING(selTran,'1')">
+             <set name="TranCodeAudit"           value="in ('412359')"/>  
+           </elseif>         
+           <elseif condition="IS_EQUAL_STRING(selTran,'2')">
+             <set name="TranCodeAudit"           value="in ('412358')"/>  
+           </elseif>       
+           <elseif condition="IS_EQUAL_STRING(selTran,'3')">
+           </elseif>  
+           <break/> 
+         </case> 
+         <case value="1">  <!-- 提现复核维护 -->
+           <set name="AUDIT_LEVEL"             value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 -->
+           <set name="TranCodeAudit"           value="in ('565117')"/>      
+           <set name="selTyp"                  value="GetCash"/>                       
+           <break/> 
+         </case> 
+         <case value="2">  <!-- 退款复核维护 -->
+           <set name="AUDIT_LEVEL"             value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 -->
+           <set name="TranCodeAudit"           value="in ('565804','565119')"/>           
+           <set name="selTyp"                  value="Refund"/>            
+           <break/> 
+         </case> 
+         <case value="3">  <!-- 结算复核维护  -->
+           <set name="AUDIT_LEVEL"              value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 -->
+           <set name="TranCodeAudit"           value="in ('601023')"/> 
+           <set name="selTyp"                  value="Stl"/>             
+           <break/> 
+         </case> 
+         <case value="4">  <!-- 账务调账复核维护 -->
+           <set name="AUDIT_LEVEL"             value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 --> 
+           <set name="TranCodeAudit"           value="in ('413013')"/>   
+           <set name="selTyp"                  value="ChgAcc"/>             
+           <break/> 
+         </case> 
+         <case value="5">  <!-- 费率复核维护 --> 
+           <set name="AUDIT_LEVEL"             value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 --> 
+           <set name="TranCodeAudit"           value="in ('412064','412066','412063')"/>    
+           <set name="selTyp"                  value="Fee"/>              
+           <break/> 
+         </case> 
+         <case value="6">  <!-- 合作银行费用复核维护 -->
+           <set name="selTyp"                  value="CptBnk"/>   
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 --> 
+           <set name="TranCodeAudit"           value="in ('411041','411044','411042')"/>  
+           <if condition="IS_EQUAL_STRING(selTran,'0')">
+             <set name="TranCodeAudit"           value="in ('411041')"/>  
+           </if>            
+           <elseif condition="IS_EQUAL_STRING(selTran,'1')">
+             <set name="TranCodeAudit"           value="in ('411044')"/>  
+           </elseif>         
+           <elseif condition="IS_EQUAL_STRING(selTran,'2')">
+             <set name="TranCodeAudit"           value="in ('411042')"/>  
+           </elseif> 
+           <break/> 
+         </case> 
+         <case value="7">  <!-- 手工补通知复核维护 -->
+           <set name="selTyp"                  value="Msn"/>    
+           <set name="AUDIT_LEVEL"             value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 --> 
+           <set name="TranCodeAudit"           value="in ('565201')"/>             
+           <break/> 
+         </case> 
+         <case value="8">  <!-- 预付卡挂失 -->
+           <set name="selTyp"                  value="App"/>    
+           <set name="AUDIT_LEVEL"             value="1"/>
+           <set name="AUDIT_RESULT"            expr="SELSTATUS"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 --> 
+           <set name="TranCodeAudit"           value="in ('561116')"/>             
+           <break/> 
+         </case> 
+         <default>
+           <set name="selTyp"                  value="Mer"/>               
+         </default>
+       </switch> 
+       
+        <if condition="IS_EQUAL_STRING(TranCodeAudit,'')">
+          <set name="DFN_TRAN_CODE_AUDIT"         value="in ('412087')"/> 
+        </if>
+        <else> 
+          <set name="DFN_TRAN_CODE_AUDIT"         expr="TranCodeAudit"/> 
+        </else> 
+        <if condition="IS_EQUAL_STRING(PageNum,'')">
+           <set name="PageNum"       value="1"/>
+        </if>
+        <if condition="IS_EQUAL_STRING(NumPerPag,'')">
+           <set name="NumPerPag"       value="19"/>
+        </if>
+        <do func="DataEntry" >
+          <para name="TableName"    value="MDL_AUDIT"/>
+          <para name="Method"       value="Select"/>
+          <para name="Columns"      value="*"/>
+          <para name="Keys"         value="AUDIT_LEVEL/AUDIT_RESULT/TRAN_CODE_AUDIT/AUDIT_APPLY_DATE"/>
+        </do> 
+        <!-- 2 数据库没有找到信息   -1 数据库错误  0 数据操作成功  1 提交审核  -2不能审核自己提交的记录  -3主键冲突  -4Update影响0行  -5;// 存在下级科目，不允许直接操作-->
+        <if condition="#RetCod==2">
+          <set name="RspCod"    value="02001"/>
+          <set name="RspMsg"    value="没有找到信息"/>
+        </if>
+        <elseif condition="#RetCod==-1">
+          <set name="RspCod"    value="09992"/>
+          <set name="RspMsg"    value="系统错误"/>
+        </elseif>
+        
+        <foreach name="GROUP" iterator="#grp">
+           <set name="AUDIT_APPLY_DATE"   expr="#grp.AUDIT_APPLY_DATE"   />
+           <set name="AUDIT_APPLY_DATE"   expr="SUBSTR(AUDIT_APPLY_DATE,1,SUB(STRLEN(AUDIT_APPLY_DATE),2))"/>
+           <do func="loopSetEach">
+              <para name="ele"   expr="#grp.AUDIT_APPLY_DATE"/> 
+              <para name="value" expr="AUDIT_APPLY_DATE"/>
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="RspCod"            value="09998"/>
+              <set name="RspMsg"            value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"   value="300"/>
+              <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+              <return/>
+           </if>
+       </foreach>
+       
+       <set name="_REQUESTATTR.FORWARDURL"   expr="STRCAT('WEB-INF/html/audit/quer',selTyp,'Audit.jsp')"/>   
+     </process>
+  </transaction>
+  
+  <transaction code="412412" desc="补单复核查询">
+    <sql name="SelPayInf"> <!--查询订单信息 -->
+        select OrdStatus,txAmt,payType,prdordno,accAmt,mulAmt,To_Char(to_date(ActDat,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as ActDat from StpPayInf where payOrdNo=#{payordno}
+    </sql>
+    <process> 
+       <set name="AUDIT_SEQ_NO"        expr="SEQ_NO"/>
+       <do func="DataEntry" >
+         <para name="TableName"    value="MDL_AUDIT"/>
+         <para name="Method"       value="Select"/>
+         <para name="Columns"      value="*"/>
+         <para name="Keys"         value="AUDIT_SEQ_NO"/>
+       </do>
+       
+       <foreach name="GROUP"  iterator="#tmp">  
+          <set name="NAME"                        expr="#tmp.NAME"/>
+          <set name="AUDIT_FUN_NO"                expr="#tmp.AUDIT_FUN_NO"/>
+          <set name="IS_REALNAME"                 expr="#tmp.IS_REALNAME"/>
+          <set name="AUDIT_POWER"                 expr="#tmp.AUDIT_POWER"/>
+          <set name="AUDIT_APPLY_DATE"            expr="SUBSTR(#tmp.AUDIT_APPLY_DATE,1,SUB(STRLEN(#tmp.AUDIT_APPLY_DATE),2))"/>
+          <set name="AUDIT_DATE"                  expr="#tmp.AUDIT_DATE"/>
+          <set name="AUDIT_LEVEL"                 expr="#tmp.AUDIT_LEVEL"/>
+          <set name="AUDIT_SEQ_NO"                expr="#tmp.AUDIT_SEQ_NO"/>
+          <set name="IS_ACTIVE"                   expr="#tmp.IS_ACTIVE"/>
+          <set name="SEQ_NO"                      expr="#tmp.SEQ_NO"/>
+          <set name="UPT_DATE"                    expr="#tmp.UPT_DATE"/>
+          <set name="CRE_DATE"                    expr="#tmp.CRE_DATE"/>
+          <set name="CRE_OPER_ID"                 expr="#tmp.CRE_OPER_ID"/>
+          <set name="AUDIT_OPERATE_METHOD"        expr="#tmp.AUDIT_OPERATE_METHOD"/>      
+          <set name="AUDIT_APPLICANT"             expr="#tmp.AUDIT_APPLICANT"/>
+          <set name="AUDIT_OPERATER"              expr="#tmp.AUDIT_OPERATER"/>
+          <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+          <set name="BELONG_GROUP"                expr="#tmp.BELONG_GROUP"/>
+          <set name="RELATE_TABLE_INDEX"          expr="#tmp.RELATE_TABLE_INDEX"/> 
+          <set name="TRAN_CODE_AUDIT"             expr="#tmp.TRAN_CODE_AUDIT"/>
+          <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+          <set name="AUDIT_RESULT"                expr="#tmp.AUDIT_RESULT"/>
+          <set name="CODE"                        expr="#tmp.CODE"/>
+          <set name="RELATE_TABLE_NAME"           expr="#tmp.RELATE_TABLE_NAME"/>   
+          <set name="PAYORDNO"                    expr="#tmp.PAYORDNO"/>
+          <set name="ORDSTATUS"                   expr="#tmp.ORDSTATUS"/>
+          <set name="PAYRET"                      expr="#tmp.PAYRET"/>
+          <set name="AUDIT_COMMENTS"              expr="#tmp.AUDIT_COMMENTS"/> 
+       </foreach>
+       
+       <foreach name="CHILDGROUP"   iterator="#child">
+          <set name="tableName"     expr="#child.RELATE_TABLE_NAME" /> 
+       </foreach> 
+
+       <do func="ReadRecord" >
+          <para name="SqlCmd" sql="SelPayInf" />
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"    value="08069"/>
+          <set name="RspMsg"    value="该支付订单信息不存在"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"    value="08069"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <return/>
+       </elseif>
+       
+       <if condition="ISNULL(FEE)">
+          <set name="FEE" value="0.00"/>    
+       </if> 
+       <set name="ORDAMT" expr="AMTADDDOT(txAmt)"/>   
+       
+       <set name="_REQUESTATTR.FORWARDURL"  value="WEB-INF/html/audit/selMsnAudit.jsp"/> 
+    </process>
+  </transaction>
+  
+  <transaction code="565132" desc="补单记账处理">
+     <sql name="QryPayOrd"> <!--查询订单信息 -->
+        select * from StpPayInf where payOrdNo=#{payordno}
+     </sql>
+     <sql name="SelAccBal"><!-- 查询客户账户余额信息-->
+        SELECT CASH_AC_BAL,FROZ_BALANCE FROM ARP_AC_PROFILE p,arp_ac_cust_rel c
+         WHERE p.pay_ac_no=c.pay_ac_no and c.cust_id=#{cust_id}
+     </sql>
+     <sql name="UpdPayOrd"> <!--更新订单付款状态成功 -->
+        update stppayinf set OrdStatus=#{OrdStatus} where payOrdNo=#{payOrdNo}
+     </sql>
+     <sql name="UpdPay"> <!-- 更新支付订单表 -->
+        payOrdNo=#{payOrdNo} 
+     </sql>
+     <sql name="UpdReg"> <!-- 更新充值订单表 -->
+        prdordno=#{PrdOrdNo} and prdOrdType='1'
+     </sql> 
+     <sql name="UpdPrd"> <!-- 更新商品订单表 -->
+        prdOrdNo=#{prdOrdNo}
+     </sql> 
+     <sql name="SelBnkFee"><!-- 查询银行费率信息-->
+        SELECT FEE_CODE FROM CoopBank WHERE BANK_CODE=#{bankCod}
+     </sql> 
+     <sql name="SelBnkMerFee"><!-- 查询银行商户费率信息-->
+        SELECT FEE_CODE FROM COOPBANK_FEE WHERE BANK_CODE=#{bankCod} and BANK_MERNO=#{BnkMerNo}
+     </sql>
+     
+     
+     <!-- 物业缴费相关表 -->
+   	  <sql name="QryUtilityBillPayInf"><!-- 查询账单支付信息表 -->
+   	  	select * from UtilityBillPayInf where BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+   	  </sql>   
+   	
+   	  <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>  
+     <process>
+        <!--检查用户登录平台是否正确-->
+        <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="01001"/>
+           <set name="RspMsg"    value="用户登录平台不正确"/>
+           <set name="DWZ_STATUS_CODE"   value="300"/>
+           <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+           <return/>
+        </if>
+        
+        <do func="ReadRecord" >      
+           <para name="SqlCmd"   sql="QryPayOrd"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="08001"/>
+           <set name="RspMsg"    value="该支付订单信息不存在"/>
+           <set name="DWZ_STATUS_CODE"   value="300"/>
+           <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="09998"/>
+           <set name="RspMsg"    value="系统错误"/>
+           <set name="DWZ_STATUS_CODE"   value="300"/>
+           <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+           <do func="RollBackWork"/>
+           <return/>
+        </elseif>
+        <if condition="IS_EQUAL_STRING(OrdStatus,'01')">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08022"/>
+            <set name="RspMsg"    value="该支付订单已付款成功"/>
+            <set name="DWZ_STATUS_CODE"   value="300"/>
+            <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+            <return/>
+        </if>
+        
+        <set name="BANKCODE"    expr="bankCod"/>
+        <set name="bnkCod"    expr="bankCod"/>
+        <set name="result"      value="1"/>
+        <if condition="IS_EQUAL_STRING(result,'1')">       <!--同意-->
+           <!--查询账户余额-->
+           <quote name="selAccBal"/> 
+           
+           <if condition="IS_EQUAL_STRING(PrdOrdType,'0')">                   <!-- 消费-直接支付  -->  
+              <set name="NotifyTyp"    value="0"/>
+              <set name="#url"         expr="NotifyUrl" />                    <!-- 同步返回 URL  -->
+              
+              <if condition="ISNULL(merRemark)">
+                 <set name="merRemark"         value="商物通"/>
+              </if>
+              
+              <set name="OrdStatus"    value="01"/>
+              <set name="Status"       value="1"/>
+  
+              <!--记账处理 start-->
+              <if condition="OR(IS_EQUAL_STRING(payType,'01'),IS_EQUAL_STRING(payType,'03'))">                          <!--网银支付-->
+                 <set name="Tran_type"      value="1"/>                                 <!--交易方式 1网银、2终端、3消费卡、4虚拟积分 5混合-->
+                 <set name="txnAmt_fee"     expr="txAmt"/>
+                 
+                 <!--记账所需数据-->
+                 <set name="ACC_TYP"    value="02"/>               <!--商户结算账户-->
+                 <set name="DR_CR_FLAG" value="+"/>                <!--账户余额增减标识 + 增加 - 减少-->
+                 <set name="CCY"        value="CNY"/>              <!--货币类型-->
+                 <set name="AMT"        expr="TXAMT"/>             <!--金额-->
+                 <set name="IS_ACT"     value="Y"/>                <!--是否实时记账 Y 是 N 否-->
+                 
+                 <if condition="IS_EQUAL_STRING(flag,'1')">        <!--有手续费-->
+                    <set name="merPar"     expr="STRCAT(MERNO,'/',ACC_TYP,'/','+','/',CCY,'/',netRecAmt,'/',IS_ACT,'/')"/>  <!--商户记账参数-->
+                    <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/',CCY,'/',fee,'/','N','/')"/>   <!--平台账户（手续费）记账参数-->
+                    <set name="PARAMS"     expr="STRCAT(merPar,',',feePar)"/>
+                 </if>
+                 <else>                                            <!--无手续费-->
+                    <set name="merPar"     expr="STRCAT(MERNO,'/',ACC_TYP,'/','+','/',CCY,'/',AMT,'/',IS_ACT,'/')"/>        <!--商户记账参数-->
+                    <set name="PARAMS"     expr="merPar"/>
+                 </else>
+              </if>
+              <elseif condition="AND(IS_EQUAL_STRING(payType,'04'),OR(IS_EQUAL_STRING(MulType,'01'),IS_EQUAL_STRING(MulType,'03')))">    <!--混合支付-->
+                 <set name="bankJrnNo"     expr="payOrdNo"/>                         <!--银行返回订单号--> 
+                 <set name="Tran_type"     value="5"/>                               <!--交易方式 1网银、2终端、3消费卡、4虚拟积分 5混合--> 
+                 <set name="txnAmt_fee"    expr="mulAmt"/>
+                 
+                 <if condition="ISNULL(CASH_AC_BAL)">
+                   <set name="CASH_AC_BAL" value="0"/>
+                 </if>
+                 <if condition="ISNULL(FROZ_BALANCE)">
+                   <set name="FROZ_BALANCE" value="0"/>
+                 </if>
+                 <set name="casBal"     expr="SUB(CASH_AC_BAL,FROZ_BALANCE)"/>
+                 
+                 <!--记账所需数据-->
+                 <set name="ACC_TYP"    value="02"/>               <!--商户结算账户-->
+                 <set name="CCY"        value="CNY"/>              <!--货币类型-->
+                 <set name="IS_ACT"     value="Y"/>                <!--是否实时记账 Y 是 N 否-->
+                 <set name="usrPar"     expr="STRCAT(CUST_ID,'/',ACC_TYP,'/','-','/',CCY,'/',ACCAMT,'/',IS_ACT,'/')"/>  <!--用户记账参数-->
+                 
+                 <if condition="INTCMP(casBal,5,ACCAMT)">        <!--现金账户-->
+                    <if condition="IS_EQUAL_STRING(flag,'1')">   <!--有手续费-->
+                       <set name="merPar"     expr="STRCAT(MERNO,'/',ACC_TYP,'/','+','/',CCY,'/',netRecAmt,'/',IS_ACT,'/')"/>  <!--商户记账参数-->
+                       <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/',CCY,'/',fee,'/','N','/')"/>   <!--平台账户（手续费）记账参数-->
+                       <set name="PARAMS"     expr="STRCAT(usrPar,',',merPar,',',feePar)"/>
+                    </if>
+                    <else>                                       <!--无手续费-->
+                       <set name="merPar"     expr="STRCAT(MERNO,'/',ACC_TYP,'/','+','/',CCY,'/',txAmt,'/',IS_ACT,'/')"/>      <!--商户记账参数-->
+                       <set name="PARAMS"     expr="STRCAT(usrPar,',',merPar)"/>
+                    </else>
+                 </if>
+              </elseif>
+           
+              <set name="TRANTYPE"     value="2"/>                                    <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->  
+              <set name="TRANWAY"      value="01"/>                                   <!--01网银、02终端、03消费卡、04虚拟账户、05快捷支付-->
+              <set name="CCODE"        expr="merNo"/>                                 <!--商户编号-->
+              <set name="CNAME"        expr="MERREMARK"/>          
+              
+              <set name="TXN_TYP"      value="5"/>      <!--用途 消费补记账-->               
+              <quote name="accProcess"/>
+              <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="07005"/>
+                 <set name="RspMsg"    value="支付失败"/>
+                 <set name="DWZ_STATUS_CODE"     value="300"/>
+                 <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+                 <return/>
+              </if>
+              <!--记账处理 end-->
+              
+              <!--计算银行手续费-->
+              <quote name="CalBnkFee"/> 
+              
+              <set name="ORDAMT"        expr="TXAMT"/>
+              <quote name="UpdPrd"/>
+           
+              <set name="SmsContent"    expr="STRCAT('您好，您在',merRemark,'消费金额：',AMTADDDOT(txAmt),'元，通过商物通付款成功，付款卡号为*',SUBSTR(bankPayAcNo,STRLEN(bankPayAcNo)-3,4),'，如有疑问请联系',merRemark,'。')"></set>
+              <quote name="sendSms"/>
+              
+              <set name="ActDat"        expr="GETDATETIME()"/>
+              <quote name="UpdPay"/>        <!--更新支付订单表-->
+              
+              <set name="RspMsg"              value="复核成功"/>
+              <set name="DWZ_CALLBACK_TYPE"   value="closeCurrent"/>
+              <set name="DWZ_STATUS_CODE"     value="200"/>
+              <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+              <quote name="TimeTouch2"/>    <!--通知商城--> 
+              
+              <!--增加宏文件，处理物业缴费成功，通知第三方-->
+            	<set name="ConfigName"   value="PropertyMerId"/>
+            	<quote name="ReadXmlCfg"/>
+            	<if condition="IS_EQUAL_STRING(MERNO,ProMerId)">       <!--  生产商户号为固定商户号 需要配置  -->
+            	  <quote name="RetBill"/>
+            	</if>
+           </if>
+           <elseif condition="IS_EQUAL_STRING(PrdOrdType,'2')">               <!-- 消费-担保支付  -->  
+              <set name="NotifyTyp"    value="0"/>
+              <set name="#url"         expr="NotifyUrl" />                    <!-- 同步返回 URL  -->
+              
+              <if condition="ISNULL(merRemark)">
+                 <set name="merRemark"         value="商物通"/>
+              </if>
+              <set name="OrdStatus"    value="12"/>
+              <set name="Status"       value="1"/>
+           
+              <!--记账处理 start-->
+              <if condition="OR(IS_EQUAL_STRING(payType,'01'),IS_EQUAL_STRING(payType,'03'))">                          <!--网银支付-->
+                 <set name="Tran_type"      value="1"/>                                <!--交易方式 1网银、2终端、3消费卡、4虚拟积分 5混合-->
+                 <set name="txnAmt_fee"     expr="txAmt"/>
+                 
+                 <!--记账参数准备-->
+                 <set name="pltMidPar"      expr="STRCAT('99999900000001','/','04','/','+','/','CNY','/',txAmt,'/','N','/')"/>        <!--平台担保账户记账参数-->
+                 <set name="PARAMS"         expr="pltMidPar"/>
+              </if>
+              <elseif condition="AND(IS_EQUAL_STRING(payType,'04'),OR(IS_EQUAL_STRING(MulType,'01'),IS_EQUAL_STRING(MulType,'03')))">    <!--混合支付-->
+                 <set name="Tran_type"     value="5"/>                                  <!--交易方式 1网银、2终端、3消费卡、4虚拟积分 5混合--> 
+                 <set name="txnAmt_fee"    expr="mulAmt"/>
+                 
+                 <if condition="ISNULL(CASH_AC_BAL)">
+                   <set name="CASH_AC_BAL" value="0"/>
+                 </if>
+                 <if condition="ISNULL(FROZ_BALANCE)">
+                   <set name="FROZ_BALANCE" value="0"/>
+                 </if>
+                 <set name="casBal"     expr="SUB(CASH_AC_BAL,FROZ_BALANCE)"/>
+                 
+                 <if condition="INTCMP(casBal,5,ACCAMT)">          <!--现金账户-->
+                    <set name="usrPar"     expr="STRCAT(CUST_ID,'/','01','/','-','/','CNY','/',ACCAMT,'/','Y','/')"/>            <!--用户记账参数-->
+                    <set name="pltMidPar"  expr="STRCAT('99999900000001','/','04','/','+','/',CCY,'/',txAmt,'/','N','/')"/>      <!--平台担保账户记账参数-->
+                    <set name="PARAMS"     expr="STRCAT(usrPar,',',pltMidPar)"/> 
+                 </if>
+              </elseif>
+           
+              <set name="TRANTYPE"     value="2"/>                                    <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->  
+              <set name="TRANWAY"      value="01"/>                                   <!--01网银、02终端、03消费卡、04虚拟账户、05快捷支付-->
+              <set name="CCODE"        expr="merNo"/>                                 <!--商户编号-->
+              <set name="CNAME"        expr="MERREMARK"/>          
+              
+              <set name="TXN_TYP"      value="5"/>      <!--用途 消费补记账-->  
+              <quote name="accProcess"/>
+              <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="07005"/>
+                 <set name="RspMsg"    value="支付失败"/>
+                 <set name="DWZ_STATUS_CODE"     value="300"/>
+                 <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+                 <return/>
+              </if>
+              <!--记账处理 end-->
+              
+              <!--计算银行手续费-->
+              <quote name="CalBnkFee"/>
+              
+              <set name="ORDAMT"        expr="TXAMT"/>
+              <quote name="UpdPrd"/>
+           
+              <set name="SmsContent"    expr="STRCAT('您好，您在',merRemark,'消费金额：',AMTADDDOT(txAmt),'元，通过商物通付款成功，付款卡号为*',SUBSTR(bankPayAcNo,STRLEN(bankPayAcNo)-3,4),'，如有疑问请联系',merRemark,'。')"></set>
+              <quote name="sendSms"/>
+              
+              <set name="OrdStatus"     value="01"/>
+              <set name="ActDat"        expr="GETDATETIME()"/>
+              <quote name="UpdPay"/>        <!--更新支付订单表-->
+              
+              <set name="RspMsg"              value="复核成功"/>
+              <set name="DWZ_CALLBACK_TYPE"   value="closeCurrent"/>
+              <set name="DWZ_STATUS_CODE"     value="200"/>
+              <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+              
+              <quote name="TimeTouch2"/>    <!--通知商城--> 
+           </elseif>
+           <elseif condition="IS_EQUAL_STRING(PrdOrdType,'1')">               <!-- 充值  --> 
+              <set name="OrdStatus"    value="01"/>
+              <set name="Status"       value="1"/>
+              
+              <set name="feeFlag" value="0"/>      <!--充值手续费收取标识   1 收取   0 不收 -->
+              <if condition="IS_EQUAL_STRING(feeFlag,'1')">
+                 <set name="txnAmt_fee"    expr="txAmt"/>
+              </if>
+              <else>
+                 <set name="flag"           value="0"/> 
+                 <set name="fee"            value="0"/>   
+                 <set name="usrPar"         expr="STRCAT(CUST_ID,'/','01','/','+','/','CNY','/',txAmt,'/','Y','/')"/>  <!--用户记账参数-->
+                 <set name="PARAMS"         expr="usrPar"/>
+              </else>
+              <set name="netRecAmt"      expr="SUB(txAmt,fee)"/>                  <!--净额-->  
+           
+              <!--记账处理-->  
+              <set name="TXN_TYP"        value="9"/>      <!--用途 充值补记账-->  
+              <quote name="accProcess"/>
+              <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="07005"/>
+                 <set name="RspMsg"    value="充值失败"/>
+                 <return/>
+              </if>
+              
+              <!--计算银行手续费-->
+              <quote name="CalBnkFee"/>
+              
+              <set name="TRANTYPE"       value="1"/>                  <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+              <set name="TRANWAY"        value="01"/>                 <!--交易方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付--> 
+              <set name="TXCCY"          value="CNY"/>
+              <set name="payType"        value="01"/>
+              <set name="ORDAMT"         expr="TXAMT"/>
+              <set name="ActDat"         expr="GETDATETIME()"/>
+              <quote name="UpdReg"/>               <!--  更新充值订单  --> 
+              <quote name="UpdPay"/>               <!--  更新支付订单  --> 
+           
+              <set name="NXTPAG"         expr="succePage"/>     
+              <set name="merRemark"      value="商物通"/> <!-- 商户信息 -->
+           </elseif>
+           <else>
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09001"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"     value="300"/>
+              <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+              <return/>   
+           </else>
+           
+           <!--通知风控系统登记订单信息-->
+           <set name="ServiceCode" value="680517"/>
+           <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+           <set name="TCODE"       expr="payOrdNo"/>           <!--平台流水号 支付订单号-->
+           <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+           <set name="CLIENTCODE"  expr="SESSIONS.USRID"/>     <!--客户编号-->
+           <set name="CLIENTNAME"  expr="SESSIONS.USRNAME"/>
+           <set name="MOBILEPHONE" expr="SESSIONS.USRMP"/>
+           <set name="TAMT"        expr="txAmt"/>
+           <set name="REGDTTIME"   expr="STRCAT(acDate,acTime)"/>
+           <set name="Time"        expr="acDate"/>
+           <quote name="noticRcs"/>
+           
+        </if>
+        
+        <set name="MsgTyp"    value="N"/>
+        <set name="RspCod"    value="00000"/>
+        <set name="RspMsg"    value="补单成功"/>
+        <set name="DWZ_CALLBACK_TYPE"   value="closeCurrent"/>
+        <set name="DWZ_STATUS_CODE"     value="200"/>
+        <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+     </process>
+  </transaction> 
+  
+  <transaction code="413016" desc="账务调账复核查询">
+    <process> 
+       <set name="AUDIT_SEQ_NO"        expr="SEQ_NO"/>
+       <do func="DataEntry" >
+         <para name="TableName"    value="MDL_AUDIT"/>
+         <para name="Method"       value="Select"/>
+         <para name="Columns"      value="*"/>
+         <para name="Keys"         value="AUDIT_SEQ_NO"/>
+       </do>
+       
+       <foreach name="GROUP"  iterator="#tmp">  
+          <set name="NAME"                        expr="#tmp.NAME"/>
+          <set name="AUDIT_FUN_NO"                expr="#tmp.AUDIT_FUN_NO"/>
+          <set name="IS_REALNAME"                 expr="#tmp.IS_REALNAME"/>
+          <set name="AUDIT_POWER"                 expr="#tmp.AUDIT_POWER"/>
+          <set name="AUDIT_APPLY_DATE"            expr="SUBSTR(#tmp.AUDIT_APPLY_DATE,1,SUB(STRLEN(#tmp.AUDIT_APPLY_DATE),2))"/>
+          <set name="AUDIT_DATE"                  expr="#tmp.AUDIT_DATE"/>
+          <set name="AUDIT_LEVEL"                 expr="#tmp.AUDIT_LEVEL"/>
+          <set name="AUDIT_SEQ_NO"                expr="#tmp.AUDIT_SEQ_NO"/>
+          <set name="IS_ACTIVE"                   expr="#tmp.IS_ACTIVE"/>
+          <set name="SEQ_NO"                      expr="#tmp.SEQ_NO"/>
+          <set name="UPT_DATE"                    expr="#tmp.UPT_DATE"/>
+          <set name="CRE_DATE"                    expr="#tmp.CRE_DATE"/>
+          <set name="CRE_OPER_ID"                 expr="#tmp.CRE_OPER_ID"/>
+          <set name="AUDIT_OPERATE_METHOD"        expr="#tmp.AUDIT_OPERATE_METHOD"/>      
+          <set name="AUDIT_APPLICANT"             expr="#tmp.AUDIT_APPLICANT"/>
+          <set name="AUDIT_OPERATER"              expr="#tmp.AUDIT_OPERATER"/>
+          <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+          <set name="BELONG_GROUP"                expr="#tmp.BELONG_GROUP"/>
+          <set name="RELATE_TABLE_INDEX"          expr="#tmp.RELATE_TABLE_INDEX"/> 
+          <set name="TRAN_CODE_AUDIT"             expr="#tmp.TRAN_CODE_AUDIT"/>
+          <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+          <set name="AUDIT_RESULT"                expr="#tmp.AUDIT_RESULT"/>
+          <set name="CODE"                        expr="#tmp.CODE"/>
+          <set name="RELATE_TABLE_NAME"           expr="#tmp.RELATE_TABLE_NAME"/>   
+          <set name="ADJUST_KIND"                 expr="#tmp.ADJUST_KIND"/>
+          <set name="AC_TYPE"                     expr="#tmp.AC_TYPE"/>
+          <set name="CUST_ID"                     expr="#tmp.CUST_ID"/>
+          <set name="ADJUST_AMT"                  expr="#tmp.ADJUST_AMT"/>
+          <set name="REMARKS"                     expr="#tmp.REMARKS"/> 
+          <set name="ADJUSTMENT_ID"                     expr="#tmp.ADJUSTMENT_ID"/> 
+       </foreach>
+       
+       <set name="ADJUST_AMT" expr="AMTADDDOT(ADJUST_AMT)"/>   
+       
+       <set name="_REQUESTATTR.FORWARDURL"  value="WEB-INF/html/audit/selChgAccAudit.jsp"/> 
+    </process>
+  </transaction>
+  
+  <transaction code="413017" desc="账务调账复核-通过/拒绝">
+     <sql name="QryAccOrd">
+       select * from ARP_AC_ADJUSTMENT where ADJUSTMENT_ID = #{ADJUSTMENT_ID}
+     </sql>
+      <sql name="SelAccInf"><!-- 查询客户账户信息-->
+         SELECT a.AC_STATUS FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b WHERE b.CUST_ID=#{CUST_ID} AND a.PAY_AC_NO=b.PAY_AC_NO and b.ac_type=#{ac_type}
+      </sql>
+     <sql name="updSts">
+        update ARP_AC_ADJUSTMENT set status=#{STATUS} where ADJUSTMENT_ID=#{ADJUSTMENT_ID}
+     </sql>
+     <process>
+        <set name="AUDIT_OPERATE_METHOD"                value="UPDATE"/>
+        <set name="AUDIT_RESULT"                        expr="result"/><!-- 状态：0 待复核；1 复核成功 2 复核失败 -->
+        <set name="OperaterId"                          expr="SESSIONS.UID"/><!-- DataEntry使用 -->
+        <set name="AUDIT_SEQ_NO"                        expr="SEQNO"/>
+        <set name="AUDIT_COMMENTS"                      expr="REMARK"/>
+        <quote name="commitAudit"/>
+
+        <if condition="IS_EQUAL_STRING(result,'1')">       <!--同意-->   
+           <set name="ADJUSTMENT_ID"             expr="ADJUSTMENT_ID"/>
+  
+           <do func="ReadRecord" >      
+              <para name="SqlCmd"   sql="QryAccOrd"/>
+           </do>
+           <if condition="#RetCod==2">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="08001"/>
+              <set name="RspMsg"    value="该调账记录不存在"/>
+              <set name="DWZ_STATUS_CODE"   value="300"/>
+              <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+              <do func="RollBackWork"/>
+              <return/>
+           </if>
+           <elseif condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09998"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"   value="300"/>
+              <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+              <do func="RollBackWork"/>
+              <return/>
+           </elseif>
+           
+          <!--验证账户状态是否正常-->
+          <quote name="chkAcc"/>
+          
+           <!--记账-->
+           <set name="TXN_TYP"    value="6"/>      <!--用途 6 错账调账--> 
+           <if condition="IS_EQUAL_STRING(ADJUST_KIND,'1')">
+             <set name="DR_CR_FLAG" value="+"/>  
+           </if>
+           <else>
+             <set name="DR_CR_FLAG" value="-"/>  
+           </else>
+           <set name="chgPar"     expr="STRCAT(CUST_ID,'/',AC_TYPE,'/',DR_CR_FLAG,'/','CNY','/',ADJUST_AMT,'/','Y','/')"/>           <!--记账参数-->
+           <set name="PARAMS"     expr="chgPar"/>
+           
+           <!-- 记账处理 -->
+           <set name="prdordno"     expr="ADJUSTMENT_ID"/>
+           <quote name="accProcess"/> 
+           <if condition="#RetCod!=0"> 
+              <set name="STATUS" value="02"/><!--调账失败更新订单状态-->
+              <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="updSts"/>
+              </do>
+              <set name="RspCod"    value="07001"/>
+              <set name="RspMsg"    expr="STRCAT('交易失败：',RspMsg)"/>
+              <set name="DWZ_STATUS_CODE"     value="300"/>
+              <set name="DWZ_RSP_MSG"         expr="RspMsg"/> 
+              <do func="RollBackWork"/>
+              <return/>
+           </if>
+           
+           <set name="STATUS" value="01"/><!--调账成功更新订单状态-->
+           <do func="ExecSql" error="IGNORE">
+              <para name="SqlCmd" sql="updSts"/>
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"     value="300"/>
+              <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+              <do func="RollBackWork"/>
+              <return/>    
+           </if>
+            
+        </if>
+        
+        <set name="MsgTyp"                               value="N"/>
+        <set name="RSPCOD"                               value="00000"/>
+        <set name="RSPMSG"                               value="复核成功!"/>
+        <set name="DWZ_STATUS_CODE"                      value="200"/>
+        <set name="DWZ_CALLBACK_TYPE"                    value="closeCurrent"/>
+        <set name="DWZ_RSP_MSG"                          expr="RSPMSG"/>
+     </process>
+  </transaction>
+  
+	 <transaction code="bujiuwuyexitong" desc="补单记账处理">
+
+     <!-- 物业缴费相关表 -->
+   	  <sql name="QryUtilityBillPayInf"><!-- 查询账单支付信息表 -->
+   	  	select * from UtilityBillPayInf where BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+   	  </sql>   
+   	
+   	  <sql name="updateUtilityBillInf"><!-- 更新客户物业缴费账单信息记录表 -->
+         UPDATE UtilityBillInf SET Bill_Status = #{Status}  WHERE Bill_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>
+      
+      <sql name="updateUtilityBillPayInf"><!-- 更新客户物业缴费缴费信息表 -->
+         UPDATE UtilityBillPayInf SET BillPay_Status = #{Status}  WHERE BillPay_PrdOrdNo=#{Bill_PrdOrdNo}
+      </sql>  
+     <process>
+     	<set name="prdOrdNo"    value="20151117092513"/>          <!-- 付款批次号 -->
+     		<!--增加宏文件，处理物业缴费成功，通知第三方-->
+            	  <quote name="RetBill"/>
+     </process>
+  </transaction> 
+  
+</application>

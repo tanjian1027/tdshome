@@ -1,0 +1,723 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="DEBUG">
+   <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+
+   <before>
+       <!--打印ETF树-->
+       <do func="DumpEtf"/>
+       <!--翻页每页显示的条数-->
+       <set name="NumPerPag"                    value="19"/>
+   </before>
+   <after>
+       <do func="DumpEtf"/>
+   </after>
+  
+  <transaction code="700010" desc="会计分录查询">
+    <sql name="merchantsBank">
+    	select txn_cod, txn_sub_cod, acc_seq, dr_cr_flag, subject_from, subject, acc_org_no, rmk_cod 
+    	from fcs_acc_entry 
+    	WHERE 1=1 ${TXN_COD1} ${TXN_SUB_COD1} ${ACC_SEQ1}
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/zzgl/zzgl.jsp" />
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <if condition="ISNULL(TXN_COD)">
+        <!-- BANK_STATUS 交易码 -->
+        <set name="TXN_COD1" value="" />
+      </if>
+      <else>
+        <set name="TXN_COD1" expr="STRCAT('and TXN_COD=\'',TXN_COD,'\'')" />
+      </else>
+      <if condition="ISNULL(TXN_SUB_COD)">
+        <!-- BANK_CODE 交易子码 -->
+        <set name="TXN_SUB_COD1" value="" />
+      </if>
+      <else>
+        <set name="TXN_SUB_COD1" expr="STRCAT('and TXN_SUB_COD=\'',TXN_SUB_COD,'\'')" />
+      </else>
+      <if condition="ISNULL(ACC_SEQ)">
+        <!-- BANK_NAME 记账序号 -->
+        <set name="ACC_SEQ1" value="" />
+      </if>
+      <else>
+        <set name="ACC_SEQ1" expr="STRCAT('and ACC_SEQ LIKE \'%',ACC_SEQ,'%\'')" />
+      </else>
+      <!-- 会计分录信息 -->
+      <do func="PagedQuery" error="ignore">
+        <para name="PageNum" expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="Sql" sql="merchantsBank" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息   -1 数据库错误  0 有信息切查询成功-->
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="02001" />
+        <set name="RspMsg" value="没有商户开户银行信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="700011" desc="添加会计分录维护">
+    <process>
+      <if condition="ISNULL(ACC_SEQ)">
+        <!-- BANK_STATUS 交易码 -->
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/zzgl/addzzgl.jsp" />
+        <return />
+      </if>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <set name="sytime" expr="GETDATETIME()" />
+      <set name="systime" expr="SUBSTR(sytime,9,6)" />
+      <do func="GetSeqNo" error="IGNORE">
+        <para name="TblNam" value="stpseqrec" />
+        <para name="KeyNam" value="KeyNam" />
+        <para name="KeyVal" expr="STRCAT('BankFeeRel','seq_no')" />
+        <para name="SeqNam" value="KeyVal" />
+        <para name="Len" value="8" />
+        <para name="Circle" value="1" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="MsgTyp" value="E" />
+        <set name="RspCod" value="09001" />
+        <set name="RspMsg" value="获取序号错误" />
+        <return />
+      </if>
+      <set name="seq_no" expr="KeyVal" />
+      <set name="rout_flg" value="1" />
+      <set name="pri_flg" value="1" />
+      <set name="cre_time" expr="systime" />
+      <set name="cre_date" expr="GETDATE()" />
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="fcs_acc_entry" />
+        <para name="Method" value="Insert" />
+        <para name="Columns" value="txn_cod/txn_sub_cod/acc_seq/dr_cr_flag/subject_from/subject/acc_org_no/rmk_cod/" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RSPCOD" value="329999" />
+        <set name="RSPMSG" value="添加信息失败!" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+        <return />
+      </if>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="329999" />
+        <set name="RspMsg" value="没有符合条件的数据" />
+        <return />
+      </if>
+      <set name="RSPCOD" value="000000" />
+      <set name="RSPMSG" value="添加会计分录成功!" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+      <set name="DWZ_NAV_TAB_ID" value="会计分录维护" />
+      <set name="DWZ_CALLBACK_TYPE" value="closeCurrent" />
+      <return />
+    </process>
+  </transaction>
+  
+  <transaction code="700012" desc="会计分录维护详情查询">
+    <sql name="fcsaccentry">
+    	select txn_cod, txn_sub_cod, acc_seq, dr_cr_flag, subject_from, subject, acc_org_no, rmk_cod 
+    	from fcs_acc_entry 
+    	WHERE txn_cod=#{txn_cod} AND txn_sub_cod=#{txn_sub_cod} AND acc_seq=#{acc_seq}
+    </sql>
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/zzgl/editzzgl.jsp" />
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <!-- 明细 -->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="fcsaccentry" />
+      </do>
+      <!--原子函数 2 数据库没有找到信息   -1 数据库错误  0 有信息切查询成功-->
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="02001" />
+        <set name="RspMsg" value="没有会计分录信息" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="700013" desc="会计分录维护修改">
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="fcs_acc_entry" />
+        <para name="Method" value="update" />
+        <para name="Columns" value="dr_cr_flag/subject_from/subject/acc_org_no/rmk_cod/" />
+        <para name="keys" value="txn_cod/txn_sub_cod/acc_seq/" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="MsgTyp" value="E" />
+        <set name="RspCod" value="08514" />
+        <set name="RspMsg" value="更新信息失败" />
+        <return />
+      </if>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="329999" />
+        <set name="RspMsg" value="没有符合条件的数据" />
+        <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('WEB-INF/html/',operating)" />
+        <return />
+      </if>
+      <set name="MsgTyp" value="N" />
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="更新信息成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_FORWARD_URL" value="700010.stp?syscod=1120" />
+      <return />
+    </process>
+  </transaction>
+  
+  <transaction code="700014" desc="会计分录维护删除护">
+    <process>
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum" value="1" />
+      </if>
+      <do func="DataEntry" error="IGNORE">
+        <para name="TableName" value="fcs_acc_entry" />
+        <para name="Method" value="DELETE" />
+        <para name="Columns" value="*" />
+        <para name="keys" value="txn_cod/txn_sub_cod/acc_seq/" />
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="删除成功" />
+      <set name="DWZ_FORWARD_URL" value="700010.stp?syscod=1120" />
+      <set name="DWZ_STATUS_CODE" value="200" />
+      <set name="DWZ_RSP_MSG" expr="RspMsg" />
+    </process>
+  </transaction>
+  
+  <transaction code="700015" desc="账户详细信息查询">
+    <sql name="zhxx">
+    	select To_Char(to_date(acc_dat,'yyyymmdd'),'yyyy-mm-dd') as acc_dat, tck_no, tck_sub_no, biz_typ_code, 
+    	To_Char(to_date(txn_dat,'yyyymmdd'),'yyyy-mm-dd') as txn_dat, To_Char(to_date(txn_tim,'hh24miss'),'hh24:mi:ss') as txn_tim, 
+    	txn_org_no, re_entry,upd_tck_flag, chk_flag, acc_org_no, ccy, acc_subject, acc_no, acc_no_bal,dr_cr_flag, txn_amt, vch_typ, 
+    	vch_cod, opp_acc_sign,opp_acc_no, opp_acc_name, rmk_cod_inf, tck_inf 
+    	from acc_tck_inf a 
+    	left join arp_ac_cust_rel l on a.acc_no=l.pay_ac_no 
+    	WHERE 1=1 ${txn_dat1} ${acc_no1} ${rmk_cod_inf1} ${CUST_ID1} order by txn_dat desc,txn_tim desc
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="/WEB-INF/html/zhxx/zhxx.jsp" />
+      <!--检查用户登录平台是否正确-->
+      <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+        <set name="RspCod" value="01001" />
+        <set name="RspMsg" value="用户登录平台不正确" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RspMsg" />
+        <return />
+      </if>
+      <if condition="AND(ISNULL(begin_date),ISNULL(end_date),ISNULL(acc_no),ISNULL(rmk_cod_inf),ISNULL(CUST_ID))">
+        <set name="TOLCNT" value="0" />
+      </if>
+      <else>
+        <if condition="ISNULL(PageNum)">
+          <set name="PageNum" value="1" />
+        </if>
+        <if condition="AND(ISNULL(begin_date),ISNULL(end_date))">
+          <!-- txn_dat 交易日期 -->
+          <set name="txn_dat1" value="" />
+        </if>
+        <elseif condition="ISNULL(end_date)">
+          <set name="txn_dat1" expr="STRCAT('and txn_dat &gt;=\'',begin_date,'\'')" />
+        </elseif>
+        <elseif condition="ISNULL(begin_date)">
+          <set name="txn_dat1" expr="STRCAT('and txn_dat &lt;=\'',CALCDATE(end_date,'+','d','1'),'\'')" />
+        </elseif>
+        <else>
+          <set name="txn_dat1" expr="STRCAT('and txn_dat &gt;=\'',begin_date,'\' and txn_dat &lt;=\'',CALCDATE(end_date,'+','d','1'),'\'')" />
+        </else>
+        <if condition="ISNULL(acc_no)">
+          <!-- acc_no 记账账号 -->
+          <set name="acc_no1" value="" />
+        </if>
+        <else>
+          <set name="acc_no1" expr="STRCAT('and acc_no=\'',acc_no,'\'')" />
+        </else>
+        <if condition="ISNULL(rmk_cod_inf)">
+          <!-- rmk_cod_inf 摘要 -->
+          <set name="rmk_cod_inf1" value="" />
+        </if>
+        <else>
+          <set name="rmk_cod_inf1" expr="STRCAT('and rmk_cod_inf LIKE \'%',rmk_cod_inf,'%\'')" />
+        </else>
+        <if condition="ISNULL(CUST_ID)">
+          <!-- BANK_NAME 用户编号 -->
+          <set name="CUST_ID1" value="" />
+        </if>
+        <else>
+          <set name="CUST_ID1" expr="STRCAT('and CUST_ID LIKE \'%',CUST_ID,'%\'')" />
+        </else>
+        <!-- 账户详细信息 -->
+        <do func="PagedQuery" error="ignore">
+          <para name="PageNum" expr="PageNum" />
+          <para name="NumPerPag" expr="NumPerPag" />
+          <para name="Sql" sql="zhxx" />
+        </do>
+        <!--原子函数 2 数据库没有找到信息   -1 数据库错误  0 有信息切查询成功-->
+        <if condition="#RetCod==2">
+          <set name="RspCod" value="02001" />
+          <set name="RspMsg" value="无信息" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG" expr="RspMsg" />
+          <return />
+        </if>
+        <elseif condition="#RetCod!=0">
+          <set name="RspCod" value="09999" />
+          <set name="RspMsg" value="系统错误" />
+          <set name="DWZ_STATUS_CODE" value="300" />
+          <set name="DWZ_RSP_MSG" expr="RspMsg" />
+          <return />
+        </elseif>
+      </else>
+      <set name="RspCod" value="00000" />
+      <set name="RspMsg" value="交易成功" />
+    </process>
+  </transaction>
+  
+  <transaction code="411098" desc="总账余额查询">
+     <sql name="balance"> 
+          SELECT A.BR_NO,A.CCY,A.GL_CODE, 
+          TO_CHAR(to_date(A.AC_DATE,'yyyymmdd'),'yyyy-mm-dd') AC_DATE ,
+          TO_CHAR(to_number(A.CR_AMT)/100,'9999,999,999,990.00') AS CRAMT,
+          TO_CHAR(to_number(A.DR_AMT)/100,'9999,999,999,990.00') AS DRAMT,
+          TO_CHAR(to_number(A.CURR_DR_BAL)/100,'FM9999,999,999,990.00') CURR_DR_BAL ,
+          TO_CHAR(to_number(A.CURR_CR_BAL)/100,'FM9999,999,999,990.00') CURR_CR_BAL,B.GL_NAME
+          FROM   ARP_GENERAL_LEDGER_HIS A ,FCS_ACC_SUBJECT B
+          WHERE  1=1 AND A.GL_CODE=B.GL_CODE ${BR_NOL} ${CCYL}  ${GL_CODEL}  ${AC_DATEL}    ORDER BY AC_DATE DESC     
+     </sql>
+     <process>
+         <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/ledger/balancez.jsp"/>
+         <!--检查用户登录平台是否正确-->
+         <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+             <set name="RspCod"               value="01001"/>
+             <set name="RspMsg"               value="用户登录平台不正确"/>
+             <set name="DWZ_STATUS_CODE"      value="300"/>
+             <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+             <return/>
+         </if>
+         <if condition="ISNULL(PageNum)">
+             <set name="PageNum"              value="1"/>
+         </if>
+         <if condition="ISNULL(br_no)">
+             <set name="BR_NOL"               value=""/>
+         </if>
+         <else>
+             <set name="BR_NOL"               expr="STRCAT('and A.BR_NO=\'',BR_NO,'\'')"/>
+         </else>
+         <if condition="ISNULL(ccy)">
+             <set name="CCYL"                 value=""/>
+         </if>
+         <else>
+             <set name="CCYL"                 expr="STRCAT('and A.CCY=\'',CCY,'\'')"/>
+         </else>
+         <if condition="ISNULL(gl_code)">
+             <set name="GL_CODEL"             value=""/>
+         </if>
+         <else>
+             <set name="GL_CODEL"             expr="STRCAT('and A.GL_CODE=\'',GL_CODE,'\'')"/>
+         </else>
+         <if condition="ISNULL(ac_date)">
+             <set name="AC_DATEL"             value=""/>
+         </if>
+         <else>
+             <set name="AC_DATE"              expr="FMTDATE(AC_DATE,4,0)"/>
+             <set name="AC_DATEL"             expr="STRCAT('and A.AC_DATE = \'',AC_DATE,'\'')"/>
+             <set name="AC_DATE"              expr="FMTDATE(AC_DATE,0,4)"/>
+         </else>
+         <!--获取按钮权限-->
+         <do func="GetOwnButton"/>
+         <!-- 商户银行信息 -->
+         <do func="PagedQuery" error="ignore">
+             <para name="PageNum"             expr="PageNum"/>
+             <para name="NumPerPag"           expr="NumPerPag"/>
+             <para name="Sql" sql="balance"/>
+         </do>
+         <if condition="#RetCod==2">
+             <set name="RspCod"               value="02001"/>
+             <set name="RspMsg"               value="没有余额信息"/>
+             <set name="DWZ_STATUS_CODE"      value="300"/>
+             <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+             <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+             <set name="RspCod"               value="09999"/>
+             <set name="RspMsg"               value="系统错误"/>
+             <set name="DWZ_STATUS_CODE"      value="300"/>
+             <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+             <return/>
+         </elseif>
+         <set name="RspCod"                   value="00000"/>
+         <set name="RspMsg"                   value="交易成功"/>
+     </process>
+  </transaction>
+    
+  <transaction code="411099" desc="总账明细查询">
+      <sql name="detail">         
+   	      SELECT TO_CHAR(to_number(PREV_DR_BAL)/100,'FM9999,999,999,990.00') PREV_DR_BAL,TO_CHAR(to_number(PREV_CR_BAL)/100,'FM9999,999,999,990.00') PREV_CR_BAL 
+   	      FROM   (
+          SELECT A.PREV_DR_BAL,A.PREV_CR_BAL,A.AC_DATE
+          FROM   ARP_GENERAL_LEDGER_HIS A 
+          WHERE  1=1   ${AC_DATELL} 
+                 ）
+          WHERE  rownum &lt;2 order by AC_DATE desc             
+      </sql>
+      <sql name="detailz">     
+          SELECT TO_CHAR(to_number(SUM(A.CR_AMT))/100,'FM9999,999,999,990.00') AS CRAMT,SUM(A.CR_COUNT) AS CRCOUNT,SUM(A.DR_COUNT) AS DRCOUNT,TO_CHAR(to_number(SUM(A.DR_AMT))/100,'FM9999,999,999,990.00') AS DRAMT
+          FROM   ARP_GENERAL_LEDGER_HIS A ,FCS_ACC_SUBJECT B
+          WHERE  A.GL_CODE=B.GL_CODE ${BR_NOL} ${CCYL}  ${GL_CODEL}  ${AC_DATEL}    
+   
+      </sql>
+      <sql name="details"> 
+          SELECT A.BR_NO,A.CCY,A.GL_CODE,TO_CHAR(to_date(substr(A.AC_DATE,1,6),'yyyymm'),'yyyy-mm') AC_DATE,B.GL_NAME,TO_CHAR(to_date(A.AC_DATE,'yyyymmdd'),'yyyy-mm-dd') AS AC_DATEE,TO_CHAR(to_number(A.CURR_DR_BAL)/100,'FM9999,999,999,990.00') CURR_DR_BAL ,TO_CHAR(to_number(A.CURR_CR_BAL)/100,'FM9999,999,999,990.00') CURR_CR_BAL,A.PREV_DR_BAL,A.PREV_CR_BAL,A.DR_COUNT,TO_CHAR(to_number(A.DR_AMT)/100,'FM9999,999,999,990.00') AS DR_AMT,A.CR_COUNT,TO_CHAR(to_number(A.CR_AMT)/100,'FM9999,999,999,990.00') AS CR_AMT
+          FROM   ARP_GENERAL_LEDGER_HIS A ,FCS_ACC_SUBJECT B
+          WHERE  A.GL_CODE=B.GL_CODE ${BR_NOL} ${CCYL}  ${GL_CODEL}  ${AC_DATEL}    ORDER BY AC_DATE DESC     
+      </sql>
+      <process>
+          
+          <do func="GetOwnButton"/>
+          <if condition="ISNULL(PageNum)">
+              <set name="PageNum"              value="1"/>
+          </if>
+          <if condition="IS_EQUAL_STRING(TT,'0010')">
+              <set name="_REQUESTATTR.FORWARDURL"                      value="/WEB-INF/html/ledger/detail.jsp"/>
+              <return/>
+          </if>
+          <!--检查用户登录平台是否正确-->
+          <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+              <set name="RspCod"               value="01001"/>
+              <set name="RspMsg"               value="用户登录平台不正确"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <return/>
+          </if>
+          <if condition="ISNULL(BR_NO)">
+              <set name="BR_NOL"               value=""/>
+          </if>
+          <else>
+              <set name="BR_NOL"               expr="STRCAT('and A.BR_NO=\'',BR_NO,'\'')"/>
+          </else>
+          <if condition="ISNULL(CCY)">
+              <set name="CCYL"                 expr="STRCAT('and A.CCY=\'','CNY','\'')"/>
+          </if>
+          <else>
+              <set name="CCYL"                 expr="STRCAT('and A.CCY=\'',CCY,'\'')"/>
+          </else>
+          <set name="GL_CODE" expr="DELBOTHSPACE(GL_CODE)"/>
+          <if condition="ISNULL(GL_CODE)">
+          		
+              <!-- 银行编号 -->
+              <set name="RspCod"               value="02003"/>
+              <set name="RspMsg"               value="科目和年月都不能为空！"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <return/>
+          </if>
+          <else>
+              <set name="GL_CODEL"             expr="STRCAT('and A.GL_CODE=\'',GL_CODE,'\'')"/>
+          </else>
+          <if condition="ISNULL(ac_date)">
+              <!-- 银行名称 -->
+              <set name="RspCod"               value="02003"/>
+              <set name="RspMsg"               value="科目和年月都不能为空！"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <!--set name="_REQUESTATTR.FORWARDURL"                      value="/WEB-INF/html/ledger/detail.jsp"/-->
+              <return/>
+          </if>
+          <else>
+              <set name="AC_DATEL"             expr="STRCAT('and A.AC_DATE like \'',AC_DATE,'%\'')"/>
+              <set name="AC_DATELL"            expr="STRCAT('and A.AC_DATE like \'',SUB(AC_DATE,1),'%\'')"/>
+          </else>
+
+          <do func="ReadRecord" error="IGNORE">
+              <para name="SqlCmd" sql="detail" />
+          </do>
+          <if condition="#RetCod==2">
+              <set name="PREV_DR_BAL"          value="0"/>
+              <set name="PREV_CR_BAL"          value="0"/>
+          </if>
+          <if condition="#RetCod==-1">
+              <set name="MsgTyp"               value="E"/>
+              <set name="RspCod"               value="09999"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <return/>
+          </if>
+          <!--取累加值-->
+          <do func="ReadRecord" error="IGNORE">
+              <para name="SqlCmd" sql="detailz" />
+          </do>
+          <if condition="#RetCod==2">
+              <set name="MsgTyp"               value="E"/>
+              <set name="RspCod"               value="02001"/>
+              <set name="RspMsg"               value="查询记录不存在"/>
+              <set name="_REQUESTATTR.FORWARDURL"                      value="/WEB-INF/html/ledger/detail.jsp"/>
+              <return/>
+          </if>
+          <elseif condition="#RetCod!=0">
+              <set name="MsgTyp"               value="E"/>
+              <set name="RspCod"               value="09999"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <return/>
+          </elseif>
+          <!-- 商户银行信息 -->
+          <do func="PagedQuery" error="ignore">
+              <para name="PageNum"             expr="PageNum"/>
+              <para name="NumPerPag"           expr="NumPerPag"/>
+              <para name="Sql" sql="details"/>
+          </do>
+          <if condition="#RetCod==2">
+              <set name="RspCod"               value="02002"/>
+              <set name="RspMsg"               value="查询记录不存在"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <set name="_REQUESTATTR.FORWARDURL"                      value="/WEB-INF/html/ledger/detail.jsp"/>
+              <return/>
+          </if>
+          <elseif condition="#RetCod==-1">
+              <set name="RspCod"               value="09999"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <return/>
+          </elseif>
+          <set name="RspCod"                   value="00000"/>
+          <set name="RspMsg"                   value="交易成功"/>
+          <set name="DWZ_STATUS_CODE"          value="200"/>
+          <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/ledger/detail.jsp"/>
+      </process>
+  </transaction>
+  
+   <!-- 合作银行费用复核查询 700017 -->
+   <transaction code="700017" desc="合作银行费用复核查询">
+         <sql name="fcsaccentry">
+                select seq_no, bank_code, rout_flg, take_eff_date,
+                lose_eff_date, pri_flg, fee_code, remark,
+                To_Char(to_date(cre_date,'yyyymmdd'),'yyyy-mm-dd') as cre_date,
+                To_Char(to_date(cre_time,'hh24miss'),'hh24:mi:ss') as cre_time
+                 from bankfeerel WHERE seq_no=#{seq_no}
+     </sql>
+         <process>
+      <set name="AUDIT_SEQ_NO"        expr="SEQ_NO"/>
+                 <do func="DataEntry"         error="ignore">
+                        <para name="TableName"    value="MDL_AUDIT"/>
+                        <para name="Method"       value="Select"/>
+                  <para name="Columns"      value="*"/>
+                        <para name="Keys"         value="AUDIT_SEQ_NO"/>
+                 </do>
+        <foreach name="GROUP"  iterator="#tmp">
+           <set name="NAME"                        expr="#tmp.NAME"/>
+           <set name="AUDIT_FUN_NO"                expr="#tmp.AUDIT_FUN_NO"/>
+           <set name="IS_REALNAME"                 expr="#tmp.IS_REALNAME"/>
+           <set name="AUDIT_POWER"                 expr="#tmp.AUDIT_POWER"/>
+           <set name="AUDIT_APPLY_DATE"            expr="#tmp.AUDIT_APPLY_DATE"/>
+           <set name="AUDIT_LEVEL"                 expr="#tmp.AUDIT_LEVEL"/>
+           <set name="AUDIT_SEQ_NO"                expr="#tmp.AUDIT_SEQ_NO"/>
+           <set name="IS_ACTIVE"                   expr="#tmp.IS_ACTIVE"/>
+           <set name="SEQ_NO"                      expr="#tmp.SEQ_NO"/>
+           <set name="UPT_DATE"                    expr="#tmp.UPT_DATE"/>
+           <set name="CRE_DATE"                    expr="#tmp.CRE_DATE"/>
+           <set name="CRE_OPER_ID"                 expr="#tmp.CRE_OPER_ID"/>
+           <set name="AUDIT_OPERATE_METHOD"        expr="#tmp.AUDIT_OPERATE_METHOD"/>
+           <set name="AUDIT_APPLICANT"             expr="#tmp.AUDIT_APPLICANT"/>
+           <set name="AUDIT_OPERATER"              expr="#tmp.AUDIT_OPERATER"/>
+           <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+           <set name="BELONG_GROUP"                expr="#tmp.BELONG_GROUP"/>
+           <set name="RELATE_TABLE_INDEX"          expr="#tmp.RELATE_TABLE_INDEX"/>
+           <set name="TRAN_CODE_AUDIT"             expr="#tmp.TRAN_CODE_AUDIT"/>
+           <set name="TRAN_INF_AUDIT"              expr="#tmp.TRAN_INF_AUDIT"/>
+           <set name="AUDIT_RESULT"                expr="#tmp.AUDIT_RESULT"/>
+           <set name="CODE"                        expr="#tmp.CODE"/>
+           <set name="RELATE_TABLE_NAME"           expr="#tmp.RELATE_TABLE_NAME"/>
+           <set name="AUDIT_COMMENTS"              expr="#tmp.AUDIT_COMMENTS"/>
+
+           <set name="bank_code"                expr="#tmp.BANK_CODE"/>
+           <set name="rout_flg"                 expr="#tmp.ROUT_FLG"/>
+           <set name="take_eff_date"            expr="#tmp.TAKE_EFF_DATE"/>
+           <set name="lose_eff_date"            expr="#tmp.LOSE_EFF_DATE"/>
+           <set name="pri_flg"                  expr="#tmp.PRI_FLG"/>
+           <set name="fee_code"                 expr="#tmp.FEE_CODE"/>
+           <set name="rout_flg"                 expr="#tmp.ROUT_FLG"/>
+           <set name="remark"                   expr="#tmp.REMARK"/>
+           <set name="AUDIT_RESULT"                expr="#tmp.AUDIT_RESULT"/>
+           <set name="CODE"                        expr="#tmp.CODE"/>
+           <set name="RELATE_TABLE_NAME"           expr="#tmp.RELATE_TABLE_NAME"/>
+           <set name="AUDIT_COMMENTS"              expr="#tmp.AUDIT_COMMENTS"/>
+
+           <set name="bank_code"                expr="#tmp.BANK_CODE"/>
+           <set name="rout_flg"                 expr="#tmp.ROUT_FLG"/>
+           <set name="take_eff_date"            expr="#tmp.TAKE_EFF_DATE"/>
+           <set name="lose_eff_date"            expr="#tmp.LOSE_EFF_DATE"/>
+           <set name="pri_flg"                  expr="#tmp.PRI_FLG"/>
+           <set name="fee_code"                 expr="#tmp.FEE_CODE"/>
+           <set name="rout_flg"                 expr="#tmp.ROUT_FLG"/>
+           <set name="remark"                   expr="#tmp.REMARK"/>
+           <set name="cre_date"                                 expr="#tmp.CRE_DATE"/>
+           <set name="cre_time"                 expr="#tmp.CRE_TIME"/>
+        </foreach>
+
+        <!-- 明细 -->
+        <do func="ReadRecord"           error="IGNORE">
+            <para name="SqlCmd"         sql="fcsaccentry" />
+        </do>
+        <foreach name="CHILDGROUP"   iterator="#child">
+           <set name="tableName"     expr="#child.RELATE_TABLE_NAME" />
+        </foreach>
+
+        <set name="_REQUESTATTR.FORWARDURL"  value="WEB-INF/html/audit/selCptBnkAudit.jsp"/>
+     </process>
+  </transaction>
+  
+  <transaction code="700018" desc="合作银行费用审核通过">
+    <process>
+      <set name="AUDIT_OPERATE_METHOD" value="UPDATE" />
+      <set name="AUDIT_SEQ_NO" expr="SEQNO" />
+      <set name="AUDIT_RESULT" expr="result" />
+      <set name="AUDIT_COMMENTS" expr="remark" />
+      <set name="OperaterId" expr="SESSIONS.UID" />
+      <!-- DataEntry使用 -->
+      <do func="DataEntry" error="ignore">
+        <para name="TableName" value="MDL_AUDIT" />
+        <para name="Method" value="UPDATE" />
+        <para name="Columns" value="*" />
+        <para name="Keys" value="AUDIT_SEQ_NO" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="01003" />
+        <set name="RspMsg" value="无符合条件记录" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+        <return />
+      </if>
+      <elseif condition="#RetCod==-1">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="系统错误" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+        <return />
+      </elseif>
+      <elseif condition="#RetCod==-2">
+        <set name="RspCod" value="09999" />
+        <set name="RspMsg" value="审核人和提交人不能相同" />
+        <set name="DWZ_STATUS_CODE" value="300" />
+        <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+        <return />
+      </elseif>
+      <elseif condition="#RetCod==0">
+        <set name="RspCod" value="00000" />
+        <set name="RspMsg" value="复核成功" />
+        <set name="DWZ_STATUS_CODE" value="200" />
+        <set name="DWZ_RSP_MSG" expr="RSPMSG" />
+        <return />
+      </elseif>
+    </process>
+  </transaction>
+  
+  <transaction code="700019" desc="手工记账复核查询">
+    <process>
+      <set name="AUDIT_SEQ_NO" expr="SEQ_NO" />
+      <do func="DataEntry" error="ignore">
+        <para name="TableName" value="MDL_AUDIT" />
+        <para name="Method" value="Select" />
+        <para name="Columns" value="*" />
+        <para name="Keys" value="AUDIT_SEQ_NO" />
+      </do>
+      <foreach name="GROUP" iterator="#tmp">
+        <set name="NAME" expr="#tmp.NAME" />
+        <set name="AUDIT_FUN_NO" expr="#tmp.AUDIT_FUN_NO" />
+        <set name="IS_REALNAME" expr="#tmp.IS_REALNAME" />
+        <set name="AUDIT_POWER" expr="#tmp.AUDIT_POWER" />
+        <set name="AUDIT_APPLY_DATE" expr="#tmp.AUDIT_APPLY_DATE" />
+        <set name="AUDIT_LEVEL" expr="#tmp.AUDIT_LEVEL" />
+        <set name="AUDIT_SEQ_NO" expr="#tmp.AUDIT_SEQ_NO" />
+        <set name="IS_ACTIVE" expr="#tmp.IS_ACTIVE" />
+        <set name="SEQ_NO" expr="#tmp.SEQ_NO" />
+        <set name="UPT_DATE" expr="#tmp.UPT_DATE" />
+        <set name="CRE_DATE" expr="#tmp.CRE_DATE" />
+        <set name="CRE_OPER_ID" expr="#tmp.CRE_OPER_ID" />
+        <set name="AUDIT_OPERATE_METHOD" expr="#tmp.AUDIT_OPERATE_METHOD" />
+        <set name="AUDIT_APPLICANT" expr="#tmp.AUDIT_APPLICANT" />
+        <set name="TRAN_INF_AUDIT" expr="#tmp.TRAN_INF_AUDIT" />
+        <set name="BELONG_GROUP" expr="#tmp.BELONG_GROUP" />
+        <set name="RELATE_TABLE_INDEX" expr="#tmp.RELATE_TABLE_INDEX" />
+        <set name="TRAN_CODE_AUDIT" expr="#tmp.TRAN_CODE_AUDIT" />
+        <set name="TRAN_INF_AUDIT" expr="#tmp.TRAN_INF_AUDIT" />
+        <set name="AUDIT_RESULT" expr="#tmp.AUDIT_RESULT" />
+        <set name="CODE" expr="#tmp.CODE" />
+        <set name="RELATE_TABLE_NAME" expr="#tmp.RELATE_TABLE_NAME" />
+      </foreach>
+      <set name="RSPCOD" value="00000" />
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/audit/selInputAudit.jsp" />
+      <do func="DumpEtf" />
+    </process>
+  </transaction>
+</application>

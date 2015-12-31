@@ -1,0 +1,172 @@
+import  com.tangdi.risk.^rule.*
+import  com.tangdi.risk.common.*
+import  com.tangdi.risk.common.Tools
+import  com.tangdi.risk.common.CalcData2
+import  com.tangdi.risk.common.RcsDefault
+import  java.math.*
+import  java.util.*
+import tangdi.engine.context.Log
+
+global String sParamDate //该变量名称不能修改  在方法中有引用
+
+def ExceptTran setExceTranAttr(ExceptTran exTran,Mer mer){ 
+	exTran.setRULE_CODE(ruleID)
+	exTran.setTRAN_SOURCE(RcsDefault::TRAN_SOURCE_01)
+	exTran.setUSER_CODE(mer.COMP_CODE)  //liulin 20150422   
+	exTran.setREGDT_DAY(sParamDate.replaceAll("-", "").replaceAll("/", ""))
+	exTran.setENTITY_TYPE(RcsDefault::ENTITY_TYPE_1)
+  exTran.setEXCEPT_TRAN_FLAG(RcsDefault::EXCEPT_TRAN_FLAG_0)
+  return exTran
+}
+
+
+rule "Rule1008" "单笔交易金额>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1009(mer,null,null,X, ruleID)
+	 if(null!=exTran){
+     exTran = setExceTranAttr(exTran,mer)
+     insert(exTran)
+    }
+end
+
+
+
+
+rule "Rule1009" "当日累计交易金额>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1010(mer,null,null,X,ruleID)
+	 if(null!=exTran){
+    exTran = setExceTranAttr(exTran,mer)
+    insert(exTran)
+   }
+end
+
+
+
+
+rule "Rule1010" "当日累计交易笔数>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1011(mer,null,null,X,ruleID)
+	 if(null!=exTran){
+    exTran = setExceTranAttr(exTran,mer)
+    insert(exTran)
+   }
+end
+
+
+
+
+rule "Rule1011" "上周累计交易金额>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1012(mer,null,null,"week",X, ruleID)
+	 if(null!=exTran){
+     exTran = setExceTranAttr(exTran,mer)
+     insert(exTran)
+   }
+end
+
+rule "Rule1012" "上周累计交易笔数>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1013(mer,null,null,"week",X, ruleID)
+	 if(null!=exTran){
+  exTran = setExceTranAttr(exTran,mer)
+  insert(exTran)
+}
+end
+
+
+rule "Rule1013" "上月累计交易金额>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1012(mer,null,null,"month",X,ruleID)
+	 if(null!=exTran){
+  exTran = setExceTranAttr(exTran,mer)
+  insert(exTran)
+}
+end
+
+
+rule "Rule1014" "上月累计交易笔数>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1013(mer,null,null,"month",X, ruleID)
+	 if(null!=exTran){
+  exTran = setExceTranAttr(exTran,mer)
+  insert(exTran)
+}
+end
+
+
+
+rule "Rule1015" "上周累计退款金额>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1014(mer,null,null,"week",null,X,ruleID)
+	 if(null!=exTran){
+  exTran = setExceTranAttr(exTran,mer)
+  insert(exTran)
+}
+end
+
+
+
+
+rule "Rule1016" "上周累计退款笔数>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1015(mer,null,null,"week",null,X, ruleID)
+	 if(null!=exTran){
+  exTran = setExceTranAttr(exTran,mer)
+  insert(exTran)
+}
+end
+
+
+
+rule "Rule1017" "上月累计退款笔数>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1014(mer,null,null,"month",null,X,ruleID)
+	 if(null!=exTran){
+  exTran = setExceTranAttr(exTran,mer)
+  insert(exTran)
+}
+end
+
+
+rule "Rule1018" "上月累计退款金额>={X}"
+    param String X
+when
+     mer:Mer()
+ then
+	 var exTran = getRule1014(mer,null,null,"month",null,X,ruleID)
+	 if(null!=exTran){
+  exTran = setExceTranAttr(exTran,mer)
+  insert(exTran)
+}
+end

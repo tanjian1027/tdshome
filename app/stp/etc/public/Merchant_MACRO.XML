@@ -1,0 +1,987 @@
+﻿<?xml version="1.0" encoding="UTF-8"?> 
+<!--该文件为merchant下公共宏文件，MER2,MER3,STP5不统计 -->
+<publicmacro name="PUBMACRO">
+   <!--*************************audit下的OFRTSTP5_CTL.XML***************--> 
+   <!-- 商户开户 -->
+   <macro name="openMer">
+        
+        <!-- 开户操作员 -->
+        <set name="OPN_OPER_ID"   expr="admin"/>
+        <!-- 开户日期 -->
+        <set name="OPN_TX_DATE"   expr="nowDate"/>
+        <!-- 开户时间 -->
+        <set name="OPN_TX_TIME"   expr="nowTime"/>
+        <do func="InsertRecord" error="IGNORE">
+            <para name="TblNam"  value="ARP_AC_CUST_REL" />
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="MRspCod"    value="09999"/>
+            <set name="MRspMsg"    value="系统错误"/>
+            <do func="RollBackWork"/>
+            <return/>
+        </if>
+        <!-- 登记账户主档案表 -->
+        <set name="BR_NO"             value="000001"/>
+        <!-- 账户状态 0-正常；2-冻结； -->
+        <set name="AC_STATUS"         value="0"/>
+        <!-- 账户种类 01-内部账户；02-外部账户；03-专用账户 -->
+        <set name="AC_KIND"           value="02"/>
+        <set name="CCY"               value="CNY"/>
+        <set name="AC_STATUS"         value="0"/>
+        <set name="LIST_STS_FLG"      value="0"/>
+        <set name="CASH_AC_BAL"       value="0"/>
+        <set name="MIN_STL_BALANCE"   value="0"/>
+        <set name="FROZ_BALANCE"      value="0"/>
+        <do func="InsertRecord" error="IGNORE">
+            <para name="TblNam"  value="ARP_AC_PROFILE" />
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="MRspCod"    value="09999"/>
+            <set name="MRspMsg"    value="系统错误"/>
+            <do func="RollBackWork"/>
+            <return/>
+        </if>
+        
+   </macro>
+   <!-- 商户修改 -->
+   <macro name="updMer">
+       
+   </macro>
+   
+   <macro name="meruploadingveify">
+        
+        <set name="MER_BUSREGNUM"         expr="GETREQUESTATTR('MER_BUSREGNUM')" />
+        <if condition="IS_EQUAL_STRING(MER_BUSREGNUM,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="营业执照注册号不能为空"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="ORGANIZATION_NO"         expr="GETREQUESTATTR('ORGANIZATION_NO')" />
+        <if condition="IS_EQUAL_STRING(ORGANIZATION_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="组织机构代码不能为空"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="TAX_REGISTRATION_NO"         expr="GETREQUESTATTR('TAX_REGISTRATION_NO')" />
+        <if condition="IS_EQUAL_STRING(TAX_REGISTRATION_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="税务登记证号不能为空"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="MER_LAW_PERSON"         expr="GETREQUESTATTR('MER_LAW_PERSON')" />
+        <if condition="IS_EQUAL_STRING(MER_LAW_PERSON,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="法人姓名不能为空"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="LAW_PERSON_CRET_NO"         expr="GETREQUESTATTR('LAW_PERSON_CRET_NO')" />
+        <if condition="IS_EQUAL_STRING(LAW_PERSON_CRET_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="法人证件号码不能为空"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="COMPAY_TEL_NO"         expr="GETREQUESTATTR('COMPAY_TEL_NO')" />
+        <if condition="IS_EQUAL_STRING(COMPAY_TEL_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="公司电话不能为空"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="CUST_STL_BANK_AC_NO"         expr="GETREQUESTATTR('CUST_STL_BANK_AC_NO')" />
+        <if condition="IS_EQUAL_STRING(CUST_STL_BANK_AC_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="结算银行账号为空！"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="CUST_BANK_DEPOSIT_NAME"         expr="GETREQUESTATTR('CUST_BANK_DEPOSIT_NAME')" />
+        <if condition="IS_EQUAL_STRING(CUST_BANK_DEPOSIT_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="结算银行户名为空！"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="DEPOSIT_BANK_BRCH_NAME"         expr="GETREQUESTATTR('DEPOSIT_BANK_BRCH_NAME')" />
+        <if condition="IS_EQUAL_STRING(DEPOSIT_BANK_BRCH_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="开户银行网点名称为空！"/>
+           <set name="UPLOADMESSAGE" value="A"/>  
+           <return/>
+        </if>
+        
+        <set name="BANK_NAME"            expr="GETREQUESTATTR('BANK_NAME')" />
+        <!-- 结算开户行信息 -->
+        <set name="BANK_NAME"            expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        <set name="bankname"             expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        
+        <set name="BANK_PRO_ID"          expr="GETREQUESTATTR('BANK_PRO_ID')" />
+        <set name="BANK_PRO_ID"          expr="GETWORDDELIMITER(BANK_PRO_ID,',',1)"/>
+        <set name="bankproNam"           expr="GETWORDDELIMITER(BANK_PRO_ID,',',2)"/>
+        
+        <set name="BANK_CITY_ID"         expr="GETREQUESTATTR('BANK_CITY_ID')" />
+        <set name="BANK_CITY_ID"         expr="GETWORDDELIMITER(BANK_CITY_ID,',',1)"/>
+        <set name="bankcityNam"          expr="GETWORDDELIMITER(BANK_CITY_ID,',',2)"/> 
+        
+        <!-- 开户行网点名称 和联行号-->
+        <set name="BANK_REL_NO"            expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',1)"/>
+        <set name="DEPOSIT_BANK_BRCH_NAME" expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',2)"/>
+        
+   </macro>
+   <!-- 商户实名认证修改 -->
+   <macro name="MerVeifyupd">
+        
+        <if condition="IS_EQUAL_STRING(MER_BUSREGNUM,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="营业执照注册号不能为空"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(ORGANIZATION_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="组织机构代码不能为空"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(TAX_REGISTRATION_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="税务登记证号不能为空"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(MER_LAW_PERSON,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="法人姓名不能为空"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(LAW_PERSON_CRET_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="法人证件号码不能为空"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(COMPAY_TEL_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="公司电话不能为空"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(CUST_STL_BANK_AC_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="结算银行账号为空！"/>
+           <return/>
+        </if>
+        <if condition="IS_EQUAL_STRING(CUST_BANK_DEPOSIT_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="结算银行户名为空！"/>
+           <return/>
+        </if>
+        <if condition="IS_EQUAL_STRING(DEPOSIT_BANK_BRCH_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="RspMsg"       value="开户银行网点名称为空！"/>
+           <return/>
+        </if>
+        
+        <!-- 结算开户行信息 -->
+        <set name="BANK_NAME"            expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        <set name="bankname"             expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        
+        <set name="BANK_PRO_ID"          expr="GETWORDDELIMITER(BANK_PRO_ID,',',1)"/>
+        <set name="bankproNam"           expr="GETWORDDELIMITER(BANK_PRO_ID,',',2)"/>
+        
+        <set name="BANK_CITY_ID"         expr="GETWORDDELIMITER(BANK_CITY_ID,',',1)"/>
+        <set name="bankcityNam"          expr="GETWORDDELIMITER(BANK_CITY_ID,',',2)"/> 
+        
+        <!-- 开户行网点名称 和联行号-->
+        <set name="BANK_REL_NO"            expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',1)"/>
+        <set name="DEPOSIT_BANK_BRCH_NAME" expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',2)"/>
+        
+   </macro>
+
+   <!-- 商户费率设置 -->
+   <macro name="feeMer">
+      <foreach name="GROUP"  iterator="#tmp">
+         <set name="AUDIT_FUN_NO"                   expr="#tmp.AUDIT_FUN_NO"/>
+         <set name="AUDIT_POWER"                    expr="#tmp.AUDIT_POWER"/>
+         <set name="AUDIT_APPLY_DATE"               expr="SUBSTR(#tmp.AUDIT_APPLY_DATE,1,SUB(STRLEN(#tmp.AUDIT_APPLY_DATE),2))"/>
+         <set name="AUDIT_DATE"                     expr="#tmp.AUDIT_DATE"/>
+         <set name="AUDIT_LEVEL"                    expr="#tmp.AUDIT_LEVEL"/>
+         <set name="AUDIT_SEQ_NO"                   expr="#tmp.AUDIT_SEQ_NO"/>
+         <set name="AUDIT_OPERATER"                 expr="#tmp.AUDIT_OPERATER"/>
+         <set name="PAY_AC_NO"                      expr="#tmp.PAY_AC_NO"/>
+         <set name="AUDIT_OPERATE_METHOD"           expr="#tmp.AUDIT_OPERATE_METHOD"/>
+         <set name="CUST_ID"                        expr="#tmp.CUST_ID"/>
+         <set name="AUDIT_APPLICANT"                expr="#tmp.AUDIT_APPLICANT"/>
+         <set name="RELATE_TABLE_INDEX"             expr="#tmp.RELATE_TABLE_INDEX"/>
+         <set name="AUDIT_DATE"                     expr="#tmp.AUDIT_DATE"/>
+         <set name="TRAN_INF_AUDIT"                 expr="#tmp.TRAN_INF_AUDIT"/>
+         <set name="TRAN_CODE_AUDIT"                expr="#tmp.TRAN_CODE_AUDIT"/>
+         <set name="AUDIT_RESULT"                   expr="#tmp.AUDIT_RESULT"/>
+         <set name="RELATE_TABLE_NAME"              expr="#tmp.RELATE_TABLE_NAME"/>
+         <set name="NAME"                           expr="#tmp.NAME"/>
+         <set name="IS_REALNAME"                    expr="#tmp.IS_REALNAME"/>
+         <set name="IS_ACTIVE"                      expr="#tmp.IS_ACTIVE"/>
+         <set name="SEQ_NO"                         expr="#tmp.SEQ_NO"/>
+         <set name="UPT_DATE"                       expr="#tmp.UPT_DATE"/>
+         <set name="CRE_DATE"                       expr="#tmp.CRE_DATE"/>
+         <set name="CRE_OPER_ID"                    expr="#tmp.CRE_OPER_ID"/>
+         <set name="BELONG_GROUP"                   expr="#tmp.BELONG_GROUP"/>
+         <set name="CODE"                           expr="#tmp.CODE"/>
+         <set name="AUDIT_COMMENTS"                 expr="#tmp.AUDIT_COMMENTS"/> 
+      </foreach>
+
+      <foreach name="CHILDGROUP"                        iterator="#child">
+         <set name="tableName"                          expr="#child.RELATE_TABLE_NAME" />
+         <set name="bizTypTmp"                          expr="#child.BIZ_TYPE"/>
+         <set name="METHOD"                             expr="#child.AUDIT_OPERATE_METHOD"/>
+         <if condition="IS_EQUAL_STRING(METHOD,'DELETE')">
+            <continue/>   
+         </if>
+         <if condition="AND(IS_EQUAL_STRING(tableName,'ARP_CUST_FEE'),IS_EQUAL_STRING(bizTypTmp,'05'))">
+            <set name="urgStlFeeC"                      expr="#child.URG_STL_COMM_FEE_RATE_CODE"/>
+            <set name="payacno"                         expr="#child.PAY_AC_NO"/>
+            <!-- 检查用户是否存在 -->
+            <do func="ReadRecord"                       error="IGNORE">
+              <para name="SqlCmd"                       sql="selStl" />
+            </do>
+            <if condition="#RetCod!=0">
+              <set name="RspMsg"                        value="结算信息不存在"/>
+            </if>
+
+            <if condition="IS_EQUAL_STRING(cust_stl_type,'00')">
+              <set name="SETTLEFEECODE"                 expr="#child.FEE_CODE"/>
+            </if>
+            <elseif condition="IS_EQUAL_STRING(cust_stl_type,'01')">
+              <set name="WITHDRAWFEECODE"               expr="#child.FEE_CODE"/>
+            </elseif>
+            <else>
+              <set name="SETTLEFEECODE"                 expr="#child.FEE_CODE"/>
+              <set name="WITHDRAWFEECODE"               expr="#child.FEE_CODE"/>
+            </else>
+         </if>
+      </foreach>
+   </macro>
+   
+   <!--*************************OFRTSTP2***************--> 
+   <!--读取XML配置-->
+   <macro name="ReadXmlCfg">
+     <!-- 读取XML配置文件中的数据，添加到ETF树上 -->
+     <!--0 成功; -1参数错误;2 取XML配置父节点失败 -->
+     <do func="ReadXmlConfig" error="IGNORE">
+       <para name="FILNAM"     value="etc/public/STP_CONFIG.XML"/>
+       <para name="NAME"       expr="ConfigName"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"    value="08020"></set>
+       <set name="RspMsg"    value="参数错误"></set>
+       <return/>
+     </if>
+     <elseif condition="#RetCod==2">
+       <set name="RspCod"    value="08021"></set>
+       <set name="RspMsg"    value="取XML配置父节点失败"></set>
+       <return/>
+     </elseif>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09998"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <return/>
+     </elseif>
+   </macro>
+   
+   <!--费率计算-->
+   <macro name="FeeCount">
+      <do func="FeeCount" error="IGNORE">
+         <para name="FeeCode" expr="FEE_CODE"/>
+         <para name="Money"   expr="txnAmt_fee"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="07016"/>
+         <set name="RspMsg"    value="该费率不存在"/> 
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+      </if> 
+      <elseif condition="#RetCod==3">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="07016"/>
+         <set name="RspMsg"    value="分档费率不存在"/> 
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+      </elseif> 
+      <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09994"/>
+         <set name="RspMsg"    value="异常"/> 
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+      </elseif> 
+      <!--四舍五入-->
+      <do func="TdGetInt45" error="IGNORE">
+         <para name="Number" expr="FeeResult"/>
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="07016"/>
+         <set name="RspMsg"    value="计算手续费失败"/> 
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+      </if>
+      <set name="fee"    expr="Number"/>    <!--手续费-->
+   </macro>
+   
+   <!--*********************OFRTMER1**********************-->
+   <macro name="rcsMaro"> 
+     <do func="CallThirdOther"     error="IGNORE">
+        <para name="channel"       value="STHDRCSU" />
+        <para name="code"          value="540505"/>
+     </do>
+     <if condition="#RetCod!=0">
+        <set name="MsgTyp"         value="E"/>
+        <set name="RspCod"         value="09997"/>
+        <set name="RspMsg"         value="通讯错误"/>
+        <return/>
+     </if>
+     
+     <if condition="IS_NOEQUAL_STRING(pass_orNo,'1')">
+        
+     </if>
+   </macro>
+   
+   <!-- 获取公共信息 -->
+   <macro name="getPublicInfo">
+      <!-- 获取公共信息  -->
+      <!-- 操作员  -->
+      <set name="admin"   expr="SESSIONS.UID"/>
+      
+      <if condition="IS_EQUAL_STRING(admin,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="请重新登录"/>
+         <return/>
+      </if>
+      
+      <!-- 当前日期  -->
+      <set name="nowDate"   expr="GETDATETIME('YYYYMMDD')"/>
+      <!-- 当前时间  -->
+      <set name="nowTime"   expr="GETDATETIME('HHMISS')"/> 
+   </macro>
+   
+   <!-- 商户结算设置输入项检测 -->
+   <macro name="checkStl"> 
+      <if condition="IS_EQUAL_STRING(payacno,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"        value="商户支付账号不能为空"/>
+         <return/> 
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(custid,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="商户编号不能为空"/>
+         <return/>
+      </if> 
+      
+      <if condition="IS_EQUAL_STRING(CUSTBANKDEPOSITNAME,'')">  
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="商户银行开户名称不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>          
+      </if>
+    
+      <if condition="IS_EQUAL_STRING(DEPOSITBANKCODE,'')">      
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="商户开户银行不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>          
+      </if>
+  
+      <if condition="IS_EQUAL_STRING(DEPOSITBANKBRCHNAME,'')">  
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="商户开户银行网点不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>          
+      </if>
+    
+      <if condition="IS_EQUAL_STRING(CUSTSTLBANKACNO,'')">      
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="商户结算银行账号不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>          
+      </if>
+    
+      <if condition="IS_EQUAL_STRING(CUSTSTLTYPE,'')">          
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="商户结算方式不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>          
+      </if>
+  
+      <if condition="AND(IS_EQUAL_STRING(CUSTSETPERIOD,''),IS_EQUAL_STRING(CUSTSTLTYPE,'00'))">        
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="商户结算周期不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>          
+      </if>
+  
+      <if condition="AND(IS_EQUAL_STRING(CUSTSETPERIOD,'D'),IS_EQUAL_STRING(CUSTSETFREY,''))">          
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="商户结算频率不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>          
+      </if>
+  
+      <if condition="IS_EQUAL_STRING(CUSTSETDAY,'')">           
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="风险预存期不能为空"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>                
+      </if> 
+      
+      <if condition="IS_EQUAL_STRING(minStlBalance,'')">
+         <set name="RspCod"     value="10010"/>
+         <set name="RspMsg"    value="最低可结算金额不能为空！"/>         
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>                
+      </if> 
+      <set name="minStlBalance"   expr="AMTPOWER(DELCHAR(minStlBalance,44),2)"    />
+      
+      <set name="timSetTmp"  value=""/>
+      <if condition="IS_EQUAL_STRING(custSetPeriod,'M')"> 
+        <foreach name="custStlMounthSet"  iterator="#tmp"> 
+           <set name="timSetTmp"  expr="STRCAT(timSetTmp,'|',#tmp)"/>
+        </foreach>
+      </if>
+      <elseif condition="IS_EQUAL_STRING(custSetPeriod,'R')">
+        <foreach name="custStlTimehSet"  iterator="#tmp"> 
+           <set name="timSetTmp"  expr="STRCAT(timSetTmp,'|',#tmp)"/>
+        </foreach>
+      </elseif>
+      <elseif condition="IS_EQUAL_STRING(custSetPeriod,'W')">
+        <foreach name="custStlWeekSet"  iterator="#tmp"> 
+           <set name="timSetTmp"  expr="STRCAT(timSetTmp,'|',#tmp)"/>
+        </foreach>
+      </elseif>  
+      
+      <set name="timSetTmp"  expr="SUBSTR(timSetTmp,2,SUB(STRLEN(timSetTmp),1))"/>
+      
+      <set name="CUST_BANK_DEPOSIT_NAME"              expr="CUSTBANKDEPOSITNAME"/>  <!-- 客户银行开户名称  -->
+      <set name="DEPOSIT_BANK_CODE"                   expr="DEPOSITBANKCODE"/>      <!-- 开户银行代号      -->
+      <set name="DEPOSIT_BANK_BRCH_NAME"              expr="DEPOSITBANKBRCHNAME"/>  <!-- 开户银行网点名称  -->
+      <set name="CUST_STL_BANK_AC_NO"                 expr="CUSTSTLBANKACNO"/>      <!-- 客户结算银行账号  -->
+      <set name="CUST_STL_TYPE"                       expr="CUSTSTLTYPE"/>          <!-- 客户结算类型      -->
+      <set name="CUST_SET_PERIOD"                     expr="CUSTSETPERIOD"/>        <!-- 客户结算周期      -->
+      <set name="CUST_SET_FREY"                       expr="CUSTSETFREY"/>          <!-- 客户结算频率      -->
+      <set name="CUST_SET_DAY"                        expr="CUSTSETDAY"/>           <!-- 客户风险预存期    -->
+      <set name="CUST_STL_TIME_SET"                   expr="timSetTmp"/>       <!-- 客户结算时间点    -->
+      <set name="min_Stl_Balance"                   expr="minStlBalance"/>       <!-- 客户结算时间点    -->
+   </macro>
+   
+   <!-- 商户费率设置输入项检测 -->
+   <macro name="checkFee">  
+       
+      <if condition="IS_EQUAL_STRING(custid,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="商户编号不能为空"/>
+         <return/>
+      </if> 
+      
+      <if condition="IS_EQUAL_STRING(PAYACNO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"      value="支付账号不能为空"/>
+         <return/>
+      </if>
+ 
+      <if condition="IS_EQUAL_STRING(urgentfeeCode,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"      value="紧急结算佣金费率代码不能为空"/>
+         <return/>
+      </if>
+ 
+      <if condition="IS_EQUAL_STRING(BIZTYPE,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"      value="业务类型不能为空"/>
+         <return/>
+      </if>
+ 
+      <if condition="IS_EQUAL_STRING(PAYTYPE,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"      value="支付方式不能为空"/>
+         <return/>
+      </if>
+ 
+      <if condition="IS_EQUAL_STRING(FEECODE,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"      value="交易费率代码不能为空"/>
+         <return/>
+      </if>  
+      
+      <set name="PAY_AC_NO"                   expr="PAYACNO"/>              <!--  支付账号             -->   
+      <set name="CUST_ID"                     expr="custid"/>               <!--  客户编号             -->   
+   </macro>
+   
+   <!-- 商户开户web端与数据库端转换 -->
+   <macro name="merchantOpenWebToOracle">
+      <set name="COMPANY_BRIEF"         expr="COMPANY_BRIEF" />
+      <if condition="IS_EQUAL_STRING(COMPANY_BRIEF,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="商户公司名称不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="MER_TYPE"         expr="MER_TYPE" />
+      <if condition="IS_EQUAL_STRING(MER_TYPE,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="商户类型不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="MER_BUSREGNUM"         expr="MER_BUSREGNUM" />
+      <if condition="IS_EQUAL_STRING(MER_BUSREGNUM,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="营业执照注册号不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="ORGANIZATION_NO"         expr="ORGANIZATION_NO" />
+      <if condition="IS_EQUAL_STRING(ORGANIZATION_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="组织机构代码不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="TAX_REGISTRATION_NO"         expr="TAX_REGISTRATION_NO" />
+      <if condition="IS_EQUAL_STRING(TAX_REGISTRATION_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="税务登记证号不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="COMPAY_EMAIL"         expr="COMPAY_EMAIL" />
+      <if condition="IS_EQUAL_STRING(COMPAY_EMAIL,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="公司邮箱不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="COMPAY_TEL_NO"         expr="COMPAY_TEL_NO" />
+      <if condition="IS_EQUAL_STRING(COMPAY_TEL_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="公司电话不能为空"/>
+         <return/>
+      </if>
+      
+      
+      <set name="MER_LAW_PERSON"         expr="MER_LAW_PERSON" />
+      <if condition="IS_EQUAL_STRING(MER_LAW_PERSON,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="法人姓名不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="LAW_PERSON_CRET_TYPE"         expr="LAW_PERSON_CRET_TYPE" />
+      <if condition="IS_EQUAL_STRING(LAW_PERSON_CRET_TYPE,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="法人证件类型不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="LAW_PERSON_CRET_NO"         expr="LAW_PERSON_CRET_NO" />
+      <if condition="IS_EQUAL_STRING(LAW_PERSON_CRET_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="法人证件号码不能为空"/>
+         <return/>
+      </if>
+      
+      <set name="CUST_STL_BANK_AC_NO"         expr="CUST_STL_BANK_AC_NO" />
+        <if condition="IS_EQUAL_STRING(CUST_STL_BANK_AC_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="结算银行账号为空！"/>
+           <return/>
+        </if>
+        
+      <set name="CUST_BANK_DEPOSIT_NAME"         expr="CUST_BANK_DEPOSIT_NAME" />
+        <if condition="IS_EQUAL_STRING(CUST_BANK_DEPOSIT_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="结算银行户名为空！"/>
+           <return/>
+        </if>
+        
+      <set name="DEPOSIT_BANK_BRCH_NAME"         expr="DEPOSIT_BANK_BRCH_NAME" />
+        <if condition="IS_EQUAL_STRING(DEPOSIT_BANK_BRCH_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="开户银行网点名称为空！"/>
+           <return/>
+        </if>
+        
+        <set name="BANK_NAME"         expr="BANK_NAME" />
+        <set name="BANK_PRO_ID"         expr="BANK_PRO_ID" />
+        <set name="BANK_CITY_ID"         expr="BANK_CITY_ID" />
+        <set name="DEPOSIT_BANK_BRCH_NAME"         expr="DEPOSIT_BANK_BRCH_NAME" />
+        <set name="PRO"         expr="PRO" />
+        <set name="CTY"         expr="CTY" />
+        
+        <!-- 结算开户行信息 -->
+        <set name="BANK_NAME"            expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        <set name="bankname"             expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        
+        <set name="BANK_PRO_ID"          expr="GETWORDDELIMITER(BANK_PRO_ID,',',1)"/>
+        <set name="bankproNam"           expr="GETWORDDELIMITER(BANK_PRO_ID,',',2)"/>
+        
+        <set name="BANK_CITY_ID"         expr="GETWORDDELIMITER(BANK_CITY_ID,',',1)"/>
+        <set name="bankcityNam"          expr="GETWORDDELIMITER(BANK_CITY_ID,',',2)"/> 
+        
+        <!-- 开户行网点名称 和联行号-->
+        <set name="BANK_REL_NO"            expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',1)"/>
+        <set name="DEPOSIT_BANK_BRCH_NAME" expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',2)"/>
+        <!-- 省市 -->
+        <set name="PRO"            expr="PRO"/>
+        <set name="CTY"            expr="CTY"/>
+        <set name="city"           expr="STRCAT(PRO,':',CTY)"/>
+        
+        <set name="credBeginDate"            expr="credBeginDate" />
+        <set name="credEndDate"              expr="credEndDate" />
+        <set name="ORGANIZATIONBEGINDATE"    expr="ORGANIZATIONBEGINDATE" />
+        <set name="ORGANIZATIONENDDATE"      expr="ORGANIZATIONENDDATE" />
+        <set name="CERTBEGINDATE"            expr="CERTBEGINDATE" />
+        <set name="CERTENDDATE"              expr="CERTENDDATE" />
+        <set name="CONTRACT_BEGIN_DATE"              expr="CONTRACT_BEGIN_DATE" />
+        <set name="CONTRACT_END_DATE"              expr="CONTRACT_END_DATE" />
+        
+        <!-- 开始日期和结束日期 -->
+        <set name="CRED_BEGIN_DATE"          expr="credBeginDate"/>
+        <set name="CRED_END_DATE"            expr="credEndDate"/>
+        <set name="ORGANIZATION_BEGIN_DATE"  expr="ORGANIZATIONBEGINDATE"/>
+        <set name="ORGANIZATION_END_DATE"    expr="ORGANIZATIONENDDATE"/>
+        <set name="CERT_BEGIN_DATE"          expr="CERTBEGINDATE"/>
+        <set name="CERT_END_DATE"            expr="CERTENDDATE"/>
+          
+        <if condition="INTCMP(CERT_END_DATE,1,CERT_BEGIN_DATE)">
+           <set name="RSPCOD" value="02038"/>
+           <set name="RSPMSG" value="证件失效日期小于生效日期"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+        </if>
+        <if condition="INTCMP(ORGANIZATION_END_DATE,1,ORGANIZATION_BEGIN_DATE)">
+           <set name="RSPCOD" value="02038"/>
+           <set name="RSPMSG" value="组织机构代码失效日期小于生效日期"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+        </if>
+        <if condition="INTCMP(CRED_END_DATE,1,CRED_BEGIN_DATE)">
+           <set name="RSPCOD" value="02038"/>
+           <set name="RSPMSG" value="注册号失效日期小于生效日期"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+        </if>
+        
+   </macro>
+   
+   <!-- 商户web端与数据库端转换 -->
+   <macro name="merchantWebToOracle">
+      
+      <if condition="IS_EQUAL_STRING(COMPANY_BRIEF,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="商户公司名称不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(MER_TYPE,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="商户类型不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(MER_BUSREGNUM,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="营业执照注册号不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(ORGANIZATION_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="组织机构代码不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(TAX_REGISTRATION_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="税务登记证号不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(COMPAY_EMAIL,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="公司邮箱不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(COMPAY_TEL_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="公司电话不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(MER_LAW_PERSON,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="法人姓名不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(LAW_PERSON_CRET_TYPE,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="法人证件类型不能为空"/>
+         <return/>
+      </if>
+      
+      <if condition="IS_EQUAL_STRING(LAW_PERSON_CRET_NO,'')">
+         <set name="RspCod"             value="10001"/>
+         <set name="DWZ_STATUS_CODE"    value="300"/>
+         <set name="DWZ_RSP_MSG"       value="法人证件号码不能为空"/>
+         <return/>
+      </if>
+      
+        <if condition="IS_EQUAL_STRING(CUST_STL_BANK_AC_NO,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="结算银行账号为空！"/>
+           <return/>
+        </if>
+        <if condition="IS_EQUAL_STRING(CUST_BANK_DEPOSIT_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="结算银行户名为空！"/>
+           <return/>
+        </if>
+        <if condition="IS_EQUAL_STRING(DEPOSIT_BANK_BRCH_NAME,'')">
+           <set name="RspCod"             value="10001"/>
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"       value="开户银行网点名称为空！"/>
+           <return/>
+        </if>
+        
+        <!-- 结算开户行信息 -->
+        <set name="BANK_NAME"            expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        <set name="bankname"             expr="GETWORDDELIMITER(BANK_NAME,',',1)"/>
+        
+        <set name="BANK_PRO_ID"          expr="GETWORDDELIMITER(BANK_PRO_ID,',',1)"/>
+        <set name="bankproNam"           expr="GETWORDDELIMITER(BANK_PRO_ID,',',2)"/>
+        
+        <set name="BANK_CITY_ID"         expr="GETWORDDELIMITER(BANK_CITY_ID,',',1)"/>
+        <set name="bankcityNam"          expr="GETWORDDELIMITER(BANK_CITY_ID,',',2)"/> 
+        
+        <!-- 开户行网点名称 和联行号-->
+        <set name="BANK_REL_NO"            expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',1)"/>
+        <set name="DEPOSIT_BANK_BRCH_NAME" expr="GETWORDDELIMITER(DEPOSIT_BANK_BRCH_NAME,',',2)"/>
+        <!-- 省市 -->
+        <set name="PRO"            expr="PRO"/>
+        <set name="CTY"            expr="CTY"/>
+        <set name="city"           expr="STRCAT(PRO,':',CTY)"/>
+        <!-- 开始日期和结束日期 -->
+        <set name="CRED_BEGIN_DATE"          expr="credBeginDate"/>
+        <set name="CRED_END_DATE"            expr="credEndDate"/>
+        <set name="ORGANIZATION_BEGIN_DATE"  expr="ORGANIZATIONBEGINDATE"/>
+        <set name="ORGANIZATION_END_DATE"    expr="ORGANIZATIONENDDATE"/>
+        <set name="CERT_BEGIN_DATE"          expr="CERTBEGINDATE"/>
+        <set name="CERT_END_DATE"            expr="CERTENDDATE"/>
+          
+        <if condition="INTCMP(CERT_END_DATE,1,CERT_BEGIN_DATE)">
+           <set name="RSPCOD" value="02038"/>
+           <set name="RSPMSG" value="证件失效日期小于生效日期"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+        </if>
+        <if condition="INTCMP(ORGANIZATION_END_DATE,1,ORGANIZATION_BEGIN_DATE)">
+           <set name="RSPCOD" value="02038"/>
+           <set name="RSPMSG" value="组织机构代码失效日期小于生效日期"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+        </if>
+        <if condition="INTCMP(CRED_END_DATE,1,CRED_BEGIN_DATE)">
+           <set name="RSPCOD" value="02038"/>
+           <set name="RSPMSG" value="注册号失效日期小于生效日期"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+        </if>
+        
+   </macro>
+   
+   <!--商户登录密码转加密-->
+   <macro name="MerPwdAesToDes">
+      <do func="TdPwdAesToDes"    error="IGNORE">
+         <para name="AesKey"      expr="SESSIONS.MCRYPT_KEY"/> 
+         <para name="AesPwd"      expr="paypwd"/> 
+         <para name="Mark"        value="0"/> 
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"         value="08032"/>
+         <set name="RspMsg"         value="密码转加密失败"/>
+         <return/>
+      </if> 
+   </macro>
+   
+   <!--商户登录密码转加密-->
+   <macro name="MerPwdToDes">
+      <do func="TdPwdToDes"     error="IGNORE">
+         <para name="pwd"      expr="NewPwd"/>
+         <para name="Mark"     value="0"/>
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"         value="08032"/>
+         <set name="RspMsg"         value="密码加密失败"/>
+         <return/>
+      </if>
+   </macro>
+   
+   <!--商户开户、验证发送邮件-->
+   <macro name="MerSendEmail">
+       <do func="TdMailSendNew" error="IGNORE">
+           <para name="EmTo"             expr="Email" />
+           <para name="EmTitle"          expr="EmTitle" />
+           <para name="EmText"           expr="EmText" />
+           <para name="EmResAddr"        expr="EmResAddr" />
+           <para name="EmerchantOper"    expr="EmerchantOper" />
+           <para name="EmerchantId"      expr="EmerchantId" />
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="发送邮件失败"/>
+         <return/>
+       </if>
+   </macro>
+   
+   <!--商户状态查询-->
+   <macro name="merCusChk">
+      <!-- 商户信息查询-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="QryMerCusInf" />
+      </do>
+      <if condition="#RetCod==2">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="该账户不存在"/>
+         <return/>
+      </if>
+      <elseif condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="客户信息不存在"/>
+         <return/>
+      </elseif>
+      <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+         <set name="RspCod"    value="08040"/>
+         <set name="RspMsg"    value="客户状态不正常"/>
+         <return/>
+      </if>
+      
+   </macro>
+   
+   <!-- 客户账户状态查询-->
+   <macro name="merChkAcc">
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="SelMerAccInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="客户账户信息不存在"/>
+         <return/>
+      </if>
+      <if condition="IS_NOEQUAL_STRING(AC_STATUS,'0')">
+         <set name="RspCod"    value="08040"/>
+         <set name="RspMsg"    value="客户账户状态不正常"/>
+         <return/>
+      </if> 
+   </macro>
+   
+   <!-- 验证码验证 -->   
+   <macro name="MerRAChek">
+      <set name="RA"  expr="SESSIONS.SRA"/>
+      <set name="RAND" expr="TOUPPER(RAND)"/>
+      <if condition="IS_NOEQUAL_STRING(RA,RAND)">
+        <set name="RspCod"        value="02006"/>
+        <set name="RspMsg"        value="验证码输入错误"/>
+        <return/>
+      </if> 
+   </macro>
+   
+   <!--更新用户登录状态-->
+   <macro name="UpLoginInfo">
+      <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="UptUsrLogFailInfo"/>
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RSPCOD" value="02040"/>
+         <set name="RSPMSG" value="更新登录信息失败!"/> 
+         <return/>
+      </if>
+   </macro>
+   
+</publicmacro>

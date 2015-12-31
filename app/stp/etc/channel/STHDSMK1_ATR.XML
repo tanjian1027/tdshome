@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="STHDSMK1" log_level="INFO" minThreads="50" maxThreads="300">
+  <connector name="connector" class="tangdi.http.connector.HkHttpPostConnector">
+    <para name="contentType" value="application/x-www-form-urlencoded"/>
+    <para name="charSet"     value="utf-8"/>
+    <para name="priKeyPath"  value="/app/stp/key/macaupasstest.pfx"/>
+    <para name="passWord"    value="12345678"/>
+  </connector>
+  
+  <process>
+    <do expr="@tangdi.engine.context.Xml@begin()"/>
+    <do func="pack">
+      <para name="ITF" value="etc/channel/STHDSMK1_ITF.XML"></para>
+    </do>
+    <callconnector connector="connector"/>
+    <do func="unpack">
+      <para name="ITF" value="etc/channel/STHDSMK1_ITF.XML"></para>
+    </do>
+  </process>
+</channel>

@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<interceptors>
+   <!--交易日志记录配置-->
+   <interceptor class='tangdi.engine.handler.TdTxntrcInterceptor'>
+      <para name="fmtFile" value="etc/TXNTRC_FMT.XML" /><!-- 交易格式文件名 以平台根目录为根目录 取相对路径 -->
+      <para name="trcFile" value="TXNTRC.TRC" />        <!-- 交易日誌文件名 放到应用交易日志当日交易目录下-->
+   </interceptor>
+</interceptors>

@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="DEBUG">
+    <!--交易日志记录配置-->
+    <include file="etc/public/STPCTL_TRC.XML"/>
+    <before>
+    	  <set name="MsgTyp"                       value="N"/>
+        <set name="RspCod"                       value="00000"/>
+        <do func="GetOwnButton"/>
+        <!--打印ETF树-->
+        <do func="DumpEtf"/>
+        <!--取公共参数配置-->
+        <set name="ConfigName"                   value="BeforeCfg"/>
+        <quote name="ReadXmlCfg"/>
+        <set name="NumPerPag"                    value="19"/>
+        <do expr="@tangdi.engine.context.Msg@dump()"/>
+    </before>
+    <after>
+    	  <do expr="@tangdi.engine.context.Msg@dump()"/>
+        <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+            <set name="MsgTyp"                   value="N"/>
+        </if>
+        <else>
+            <set name="MsgTyp"                   value="E"/>
+        </else>
+        <do func="DumpEtf"/>
+    </after>
+    
+    <!-- 读取XML配置 -->
+    <macro name="ReadXmlCfg">
+        <!-- 读取XML配置文件中的数据，添加到ETF树上 -->
+        <!-- 0 成功; -1参数错误;2 取XML配置父节点失败 -->
+        <do func="ReadXmlConfig" error="IGNORE">
+            <para name="FILNAM"                  value="etc/public/STP_CONFIG.XML"/>
+            <para name="NAME"                    expr="ConfigName"/>
+        </do>
+        <if condition="#RetCod==-1">
+            <set name="RspCod"                   value="08020"/>
+            <set name="RspMsg"                   value="参数错误"/>
+            <return/>
+        </if>
+        <elseif condition="#RetCod==2">
+            <set name="RspCod"                   value="08021"/>
+            <set name="RspMsg"                   value="取XML配置父节点失败"/>
+            <return/>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+            <set name="RspCod"                   value="09998"/>
+            <set name="RspMsg"                   value="系统错误"/>
+            <return/>
+        </elseif>
+    </macro>
+    
+    <macro name="rcsMaro">
+        <do func="CallThirdOther" error="IGNORE">
+            <para name="channel"                 value="STHDRCSU" />
+            <para name="code"                    expr="sthCode"/>
+        </do>
+        <if condition="#RetCod!=0">
+        	  <do func="RollBackWork"/>
+            <set name="MsgTyp"                   value="E"/>
+            <set name="RspCod"                   value="09997"/>
+            <set name="RspMsg"                   value="通讯错误"/>
+            <return/>
+        </if>
+        <if condition="IS_NOEQUAL_STRING(pass_orNo,'1')">
+        </if>
+    </macro>
+    
+    <transaction code="41204001" desc="查询版本号">
+        <sql name="selPACT_NO">
+   		    select nvl(max(pact_vers_no)+1,'001') as pact_vers_no from ContractInfo where pact_type = #{TYPE}
+        </sql>
+        <process>
+            <do func="ReadRecord" error="IGONRE">
+                <para name="SqlCmd" sql="selPACT_NO"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"               value="99999"/>
+                <set name="RspMsg"               value="数据库错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+            </if>
+            <else>
+                <set name="RspCod"               value="00000"/>
+                <set name="RspMsg"               value="查询成功"/>
+                <set name="DWZ_STATUS_CODE"      value="200"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <set name="pact_vers_no"         expr="STRCAT('00',pact_vers_no)"/>
+                <set name="PACT_VERS_NO"         expr="pact_vers_no"/>
+            </else>
+        </process>
+    </transaction>
+
+    <transaction code="412055" desc="获取版本号">
+        <sql name="maxVerNo">
+           select to_char(max(pact_vers_no)+1,'000') as pVerNo  from CONTRACTINFO t where pact_type=#{pact_type}
+        </sql>
+        <process>
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="maxVerNo"/>
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"               value="01004"/>
+                <set name="RspMsg"               value="无信息"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <return/>
+            </elseif>
+            <if condition="IS_EQUAL_STRING(pVerNo,'')">
+                <set name="pVerNo"               value="001"/>
+            </if>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="交易成功"/>
+        </process>
+    </transaction>
+    
+</application>

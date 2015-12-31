@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="stp" desc="第三方支付系统" log_level="INFO" natures="base,default,channel,timer,javaengine,remote,redo,batch,dslengine">
+    <module>tangdi.engine.tags.xml.TdXMLModule</module>
+    
+    <!--用户敏感信息加密保存-->
+    <expr>com.tangdi.des.DES</expr>
+    <!--建行MD5加密-->
+    <expr>tangdi.expr.Md5.CCBMd5</expr> 
+    <expr>tangdi.expr.Md5.MD5Util</expr> 
+    
+    <!--建行代付数据转发 2015/9/9 16:07:20-->
+    <atc name="pub" package="com.pay.ccb">
+        <class>HttpReq</class>
+    </atc>
+    <!--CFCA加签验签-->
+    <atc name="pub" package="com.tangdi.ca">
+        <class>CFCAMethod</class>
+    </atc>
+    <!--中信银行  2014/10/28 11:41:51-->
+    <atc name="pub" package="com.tangdi.CITIC">
+        <class>CiticData</class>
+    </atc>
+    <!--解析xls-->
+    <atc name="pub" package="com.tangdi.paser">
+        <class>PaserXLS</class>
+    </atc>
+    <!--统一导出-->
+    <atc name="pub" package="tangdi.daochu">
+        <class>ReportExport</class>
+    </atc>
+    <!--商户接入证书验签-->
+    <atc name="pub" package="com.tangdi.raa">
+        <class>TdRaAndCaUtil</class>
+    </atc>
+    <!--证书管理-->
+    <atc name="pub" package="com.tangdi.ra.ws">
+        <class>TdRaAndCaWsUtil</class>
+    </atc>
+    <!--证书历史存储过程-->
+    <atc name="pub" package="com.td.certificate">
+        <class>CACertificate</class>
+    </atc>
+    <!--数据取整-->
+    <atc name="pub" package="tangdi.number">
+        <class>GetInt</class>
+    </atc>  
+    <!--信使平台 短信发送 date:2013/5/8 17:44:22-->
+    <atc name="pub" package="com.tangdi.ApiControllerwsdl">
+        <class>DidWsClient</class>
+    </atc>
+    <!--按钮控制的方法-->
+    <atc name="pub" package="com.tangdi.util">
+        <class>GetOwnButton</class>
+    </atc> 
+    <!--邮件发送-->
+    <atc name="pub" package="tangdi.sms">
+        <class>TdMailSendNew</class>
+    </atc>
+    <atc name="pub" package="com.tangdi">
+        <class>TdSms</class>
+    </atc>
+    <!--银行卡bin信息验证-->
+    <atc name="pub" package="tangdi.util.pos">
+        <class>TdGetCrdInf</class>
+    </atc>
+    <atc name="pub" package="tangdi.chinabank">
+        <class>ChinaBank</class>
+    </atc>
+    <atc name="pub" package="tangdi.bocrefund">
+        <class>BOCRefund</class>
+    </atc>
+    <atc name="pub" package="tangdi.bcm">
+        <class>HKBCM</class>
+    </atc>
+    <atc name="pub" package="com.icardpay.web.b2c.abc">
+        <class>abcData</class>
+    </atc>
+    <atc name="pub" package="tangdi.pay.module">
+        <class>DataEntry</class>
+    </atc> 
+    <atc name="pub" package="tangdi.pay.module.business.accounting">
+        <class>Accounting</class>
+    </atc>
+    <atc name="pub" package="tangdi.pay.module.business.freeze">
+        <class>Freeze</class>
+    </atc>
+    <atc name="pub" package="tangdi.pay.module.app.fee">
+        <class>FeeCount</class>
+    </atc>
+    <atc name="pub" package="com.tangdi">
+        <class>ImageAndBytes</class>
+    </atc>
+    <!-- 短信导出-->
+    <atc name="pub" package="com.tangdi">
+        <class>OrderReportkk</class>
+    </atc>
+    <!--密文解密-->
+    <atc name="pub" package="tangdi.act.safety">
+        <class>KeyDecrypt</class>
+    </atc>
+    <!--银联网关支付 -->
+    <atc name="pub" package="com.unionpay.acp.demo">
+        <class>getOrderInfo</class>
+    </atc>
+    <atc name="pub" package="tangdi.aes"> <!--密码控件转DES加密-->
+        <class>TdAES</class>
+    </atc>
+    <!--获取按钮权限-->
+    <atc name="pub" package="tangdi.menu.button">
+        <class>GetButtonRule</class>
+    </atc> 
+    <atc name="pub" package="com.tangdi">
+        <class>OrderReportPact</class>
+    </atc> 
+    <!--公共查询-->
+    <atc name="pub" package="com.tangdi">
+        <class>pubSel</class>
+    </atc> 
+    <!--去中行查询订单信息-->
+    <atc name="pub" package="tangdi.atc.https"> 
+        <class>CBQueryOrder</class>
+    </atc>
+    <!--时间的加减-->
+    <atc name="pub" package="tangdi.date">
+        <class>TdCalcMin</class>
+    </atc>
+    <atc name="pub" package="com.tangdi">
+        <class>OrderExport</class>
+    </atc> 
+    <atc name="pub" package="service.profit">
+        <class>InSameWeek</class>
+    </atc> 
+    <!--交行网银-->
+    <atc name="pub" package="tangdi.bcm">
+        <class>HKBCM</class>
+    </atc>
+    <!--交行网银-->   
+    <!--招商银行  后台自动生成对账文件--> 
+    <atc name="pub" package="com.tangdi.CMB">
+        <class>CreateCMBRec</class>
+    </atc> 
+    <!--招商银行  查询银行单条对账文件--> 
+    <atc name="pub" package="com.tangdi.CMB">
+        <class>CMBQuerySingle</class>
+    </atc> 
+    <!--招商银行  检验数字证书--> 
+    <atc name="pub" package="com.tangdi.CMB">
+        <class>CMBAttestation</class>
+    </atc>
+    <!--沃支付   检验数字证书--> 
+    <atc name="pub" package="tangdi.aes">
+        <class>TDsign</class>
+    </atc>
+    <atc name="pub" package="tangdi.ord">
+        <class>Tdorderquery</class>
+    </atc>
+    <atc name="pub" package="tangdi.atc">
+        <class>TdEtfFilter</class>
+    </atc>
+    <atc name="pub" package="com.tangdi">
+        <class>FileCharConvert</class>
+    </atc>
+    <atc name="pub" package="com.tangdi.attachment.func">
+        <class>OperAttachment</class>
+    </atc>
+    <!--身份证号码验证-->  
+    <atc name="pub" package="cn.linan.idcard.client">
+      <class>IdCardValidClient</class>
+     </atc>
+
+    <!--141106最新短信发送-->
+    <atc name="pub" package="sendmes.sendMesSwt">
+       <class>sendMesSwt</class>
+    </atc>  
+    
+    <!-- 物流系统对接 -->
+    <atc name="pub" package="com.utilitybill.query">
+      <class>QueryUtilityBill</class>
+    </atc>
+    
+    <!-- 银联B2b支付 -->
+    <atc name="pub" package="com.unionpay.acp.demo02">
+      <class>B2bPay</class>
+    </atc>
+		
+		<!-- 银联代收 -->
+    <atc name="pub" package="com.unionpay.acp.daishou">
+      <class>AgentForPaying</class>
+    </atc>
+    
+    <atc name="pub" package="com.unionpay.acp.tangdi">
+      <class>WuTZPay</class>
+    </atc>
+    <timers>
+        <file>etc/public/TIMCON_STP.XML</file>
+    </timers>
+  
+    <transactions>
+        <file>etc/merchant/Merchantservices_CTL.XML</file>
+        <file>etc/parameters/ParameterManagement_CTL.XML</file> 
+        <file>etc/order/OrderManagement_CTL.XML</file> 
+        <file>etc/checkaccount/MerSettlement_CTL.XML</file>
+        <file>etc/checkaccount/CheckAccICBC_CTL.XML</file>
+        <file>etc/checkaccount/CheckAccUPOP_CTL.XML</file>
+        <file>etc/checkaccount/CheckAccUPOPB2B_CTL.XML</file>
+        <!--file>etc/checkaccount/CheckAccABC_CTL.XML</file>
+        <file>etc/checkaccount/CheckAccWO_CTL.XML</file-->
+        <file>etc/checkaccount/Reconciliation_CTL.XML</file>
+        <file>etc/bank/BankManage_CTL.XML</file> 
+        <file>etc/bank/BankFee_CTL.XML</file>  
+        <file>etc/product/ProductManagement_CTL.XML</file>
+        <file>etc/pact/PactManagement_CTL.XML</file>
+        <file>etc/customer/UserManagement_CTL.XML</file>
+        <file>etc/customer/MerchantManagement_CTL.XML</file>
+        <file>etc/customer/PublicAccount_CTL.XML</file>    
+        <file>etc/user/UserRegistration_CTL.XML</file>
+        <file>etc/user/SecurityQuestion_CTL.XML</file>     
+        <file>etc/user/UserChange_CTL.XML</file>
+        <file>etc/user/UserSystem_CTL.XML</file>
+        <file>etc/gateway/Gateway_CTL.XML</file>
+        <file>etc/user/UserInvest_CTL.XML</file>
+        <file>etc/user/DigitalCertificate_CTL.XML</file> <!--数字证书-->
+        <file>etc/user/UserFFInvest_CTL.XML</file> <!--定期理财计算-->
+        <file>etc/message/ShortMessage_CTL.XML</file>
+        <file>etc/audit/AuditManage_CTL.XML</file>
+        <file>etc/settlement/Settlement_CTL.XML</file>  
+        <file>etc/report/FinancialReport_CTL.XML</file>
+        <file>etc/system/BatchManage_CTL.XML</file>
+        <file>etc/system/SchedManage_CTL.XML</file>
+        <file>etc/accmanage/AccManage_CTL.XML</file>
+        <file>etc/batchquery/BatchQuery_CTL.XML</file>
+        <file>etc/notice/NoticeManage_CTL.XML</file>
+        <file>etc/utilitybill/UtilityBill_CTL.XML</file>      <!-- 单渠道物业缴费业务逻辑 -->
+        <file>etc/property/PropertyManagement_CTL.XML</file>      <!-- 物业渠道信息管理 -->
+        <file>etc/property/PropertyPayment_CTL.XML</file>      <!-- 多渠道物业缴费业务逻辑 -->
+       	<file>etc/merchantdock/MerchantDock_CTL.XML</file><!-- 特殊商户对接 -->
+        
+        <class>com.tangdi.CMB.CMBBankRec</class>    <!-- 招商银行 银行自动生成对账文件--> 
+        <class>com.reportable.MerTranbyDay</class>  <!-- 报表导出 --> 
+        <class>com.reportable.MerTranbyMon</class>  
+        <class>com.reportable.UsrTranbyDay</class>  
+        <class>com.reportable.UsrTranbyMon</class>  
+        <class>com.reportable.OrgTranbyDay</class>  
+        <class>com.reportable.OrgTranbyMon</class> 
+        <class>com.reportable.MerSeltbyMon</class>  
+        <class>com.reportable.PayDataStat</class>  
+	<class>com.reportable.GuestProv</class> 
+        <class>com.reportable.ReportFileUtil.ReportFile</class>  <!-- 反洗钱报表 -->
+        <class>com.swtpay.stp.frovisiontxtexport.Provision</class>  <!--建行备付金-->
+        <class>com.tangdi.attachment.tran.AttachmentManager</class><!--附件上传组件交易-->
+        <class>com.tangdi.accountTrade.accountTransfer</class><!--商户代发交易-->
+    </transactions>
+    <channels>
+        <channel name="CTHDSMK1" file="etc/channel/CTHDSMK1_ATR.XML"/>
+        <channel name="CTHDRMPU" file="etc/channel/CTHDRMPU_ATR.XML"/>
+        <channel name="STHDSMK1" file="etc/channel/STHDSMK1_ATR.XML"/> 
+        <channel name="STHDRCSU" file="etc/channel/STHDRCSU_ATR.XML"/>  
+        <channel name="STHDLIM1" file="etc/channel/STHDLIM1_ATR.XML"/>
+        <channel name="STHDCCB1" file="etc/channel/STHDCCB1_ATR.XML"/>
+    </channels> 
+</application>

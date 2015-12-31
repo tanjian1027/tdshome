@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<parafile  name="STP" desc="检查">
+	
+   <transaction code="CHK" desc="公安部检查证件">
+     <arg name="ChkType" value="1"/><!--检查方式 1:去公安部检查 0:不检查--> 
+   </transaction>
+
+</parafile>

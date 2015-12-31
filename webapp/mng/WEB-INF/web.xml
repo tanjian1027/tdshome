@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<web-app version="2.4" 
+	xmlns="http://java.sun.com/xml/ns/j2ee" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+	xsi:schemaLocation="http://java.sun.com/xml/ns/j2ee 
+	http://java.sun.com/xml/ns/j2ee/web-app_2_4.xsd">
+	
+  <servlet>
+    <servlet-name>TdsSysMngServlet</servlet-name>
+    <servlet-class>tangdi.engine.TdsSysMngServlet</servlet-class>
+    <load-on-startup>0</load-on-startup>
+  </servlet>
+
+  <servlet-mapping>
+    <servlet-name>TdsSysMngServlet</servlet-name>
+    <url-pattern>/tdsys/*</url-pattern>
+  </servlet-mapping>
+
+	<!--
+	<filter>
+		<filter-name>ServiceDispather</filter-name>
+		<filter-class>tangdi.web.TdServiceDispatherFilter</filter-class>
+	</filter>
+	<filter-mapping>
+		<filter-name>ServiceDispather</filter-name>
+		<url-pattern>/*</url-pattern>
+	</filter-mapping>
+	-->
+	<filter>
+		<filter-name>CharacterEncoding</filter-name>
+		<filter-class>tangdi.web.TdEncodingFilter</filter-class>
+		<init-param>
+			<param-name>encoding</param-name>
+			<param-value>UTF-8</param-value>
+		</init-param>
+		<init-param>
+			<param-name>ignore</param-name>
+			<param-value>true</param-value>
+		</init-param>
+	</filter>
+	<filter-mapping>
+		<filter-name>CharacterEncoding</filter-name>
+		<url-pattern>/*</url-pattern>
+	</filter-mapping>
+
+  <welcome-file-list>
+    <welcome-file>index.jsp</welcome-file>
+  </welcome-file-list>
+
+    <session-config>
+       <session-timeout>120</session-timeout>
+    </session-config>
+
+</web-app>

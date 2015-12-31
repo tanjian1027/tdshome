@@ -1,0 +1,27 @@
+﻿<root>
+	   <!--修改登录密码 提交-->
+     <tran code="568201"><response>RSPCOD|RSPMSG|MsgTyp</response></tran>
+     <!--商户系统登陆调用权限系统接口-->
+     <tran code="568211"><response>URL|RETURNURL|SESSIONS|RSPCOD|RSPMSG</response></tran>
+     <!--商户系统退出调用权限系统接口-->
+     <tran code="568212"><response>_REQUESTATTR|RSPCOD|RSPMSG</response></tran>
+     <!--添加操作员提交-->
+     <tran code="568203"><response>RSPCOD|RSPMSG|_REQUESTATTR</response></tran>
+     <!--操作员设置-->
+     <tran code="568204"><response>_REQUESTATTR|RSPCOD|GRP|RSPMSG|PAGECOUNT|PAGENUM|TOLCNT</response></tran>
+     <!--操作员设置修改页面-->
+     <tran code="568205"><response>USER_ID|TUSERID|USER_NAM|STATE|_REQUESTATTR|SESSIONS|TEL|EMAIL|CREA_SIGN|ROLE_ACCOUNT|ROLE_ID|USERQX_LST</response></tran>
+     <!--添加操作员修改-->
+     <tran code="568206"><response>RSPCOD|RSPMSG|_REQUESTATTR</response></tran>
+     <!--账户资料查询-->
+     <tran code="568207"><response>_REQUESTATTR|USER_LST|GRP|CREA_SIGN|STATE</response></tran>
+     <!--删除操作员-->
+     <tran code="568208"><response>_REQUESTATTR|RSPCOD|RSPMSG</response></tran>
+     <!--关闭操作员-->
+     <tran code="568209"><response>_REQUESTATTR|RSPCOD|RSPMSG</response></tran>
+     <!--添加操作员判断操作员是否存在-->
+     <tran code="568290"><response>RSPCOD|RSPMSG|USERCOUNT</response></tran>
+
+    <tran code="568210"><response>RspMsg|RspCod|MsgTyp|_REQUESTATTR</response></tran>
+    
+</root>

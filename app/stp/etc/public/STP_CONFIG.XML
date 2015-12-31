@@ -1,0 +1,478 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+   <!--系统公共参数配置-->
+   <config name="BeforeCfg">
+      <!--密码有效期天数--> 
+      <USER_EXPIRED_TIME>60</USER_EXPIRED_TIME>
+      <!--订单失效天数--> 
+      <LOSEDATE>5</LOSEDATE>
+   </config>
+   
+   <!-- 检测密码次数 -->
+   <config name="G_CheckPwd">
+        <!-- 错误次数 -->
+        <G_ERRORCOUNT>5</G_ERRORCOUNT>
+        <!-- 锁定分钟数 -->
+        <G_LOCK_MIN>60</G_LOCK_MIN>
+   </config>
+   
+   <!-- 重发失败次数   -->
+   <config name="ReSendCfg">
+      <ReNotifyNo>20</ReNotifyNo>
+   </config>
+   <!-- 支付公司公钥证书  -->
+   <config name="CFCACertCfg">
+      <selfPublicKeyPath>/key/linanwl20151110.pfx</selfPublicKeyPath>
+      <selfPublicKeyPwd>swt123</selfPublicKeyPwd>
+   </config>
+   
+   <!-- 支付收银台页面参数 -->
+   <config name="PayCfg">
+      <payUrl>http://59.41.60.154:8090/user/html/zh-CN/cashier/expense/cashier.jsp</payUrl><!--支付收银台页面-->
+      <onlinepayUrl>http://59.41.60.154:8090/user/html/zh-CN/cashier/online/onlinecashier.jsp</onlinepayUrl><!--无账户支付收银台页面-->
+   </config>
+   
+   <!--后台运营报表下载路径-->
+   <config name="ExportUrl">
+      <ExportUrl>/home/tdpay/tdshome/app/stp/dat/</ExportUrl>
+      <ReturnUrl>http://59.41.60.154:8090/pay/dat/download/</ReturnUrl>
+   </config> 
+    
+   <!--中信银行配置参数-->
+   <config name="CiticCfg">
+      <CiticB2CCERTNO>500415</CiticB2CCERTNO> <!-- 直连银行商户编号 -->
+      <!--设置签名证书、私钥和私钥密码，实际开发时建议从数据库中读取-->
+      <signercrt>xxxxxxxxxxxxxxxxxxxxxxxx</signercrt><!--验签的crt-->
+      <signerkey>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</signerkey><!--验签的key-->
+      <signerpwd>xxxxxxx</signerpwd><!--验签的pwd-->
+      <trustedcrt>xxxxxxxxxxxxxxxxxxxxxxxxxx</trustedcrt><!--信任的crt-->
+      <!--设置签名证书、私钥和私钥密码，实际开发时建议从数据库中读取-->
+      <CiticPOSTURL>https://ec.test.bank.ecitic.com/pec/b2cplaceorder.do</CiticPOSTURL><!-- 测试环境支付地址 -->
+      <!--CiticPOSTURL>https://b2c.bank.ecitic.com/pec/b2cplaceorder.do</CiticPOSTURL--><!-- 生产环境支付地址 -->
+      <CiticQryURL>https://ec.test.bank.ecitic.com/WebDLink/b2cqryorderbyno.do</CiticQryURL><!-- 测试环境查询地址 -->
+      <!--CiticQryURL>https://b2c.bank.ecitic.com/WebDLink/b2cqryorderbyno.do</CiticQryURL--><!-- 生产环境查询地址 -->
+      <CiticNOTIFYURL>http://59.41.60.154:8090/user/565102.tran</CiticNOTIFYURL> <!-- 商户通知 -->
+      <CiticORDERMODE>01</CiticORDERMODE> <!-- 订单支付模式 -->
+      <CiticCURRID>01</CiticCURRID> <!-- 订单支付币种 -->
+      <CiticMEMO>shopping</CiticMEMO> <!-- 摘要 -->
+      <CiticNOTIFYMODE>01</CiticNOTIFYMODE> <!-- 通知模式 -->
+      <CiticRISKLEVEL>00</CiticRISKLEVEL> <!-- 风险级别 -->
+      <CiticSUPPTCARDTYPE>01</CiticSUPPTCARDTYPE> <!-- 支持卡种 -->
+      <CiticTTL>5</CiticTTL> <!-- 订单有效期 -->
+      <CiticMEMBERID>bbgzhifupay</CiticMEMBERID> <!-- 订单人 -->
+      <CiticNOTIFYSCOPE>02</CiticNOTIFYSCOPE> <!-- 支付结果通知范围 -->
+      <CiticISSAFEINF>N</CiticISSAFEINF> <!-- 是否进行防钓鱼控制 -->
+      <CiticREFERER></CiticREFERER> <!-- 商户信任域名列表 若进行防钓鱼控制（ISSAFEINF字段值为Y），则为必输项；否则，可以为空。 -->
+      
+   </config>
+   
+   <!--工行配置参数-->
+   <config name="IcbcCfg">
+      <!--工行网银版本号 1.0.0.11-->
+      <IcbcPostUrl>https://b2c.icbc.com.cn/servlet/ICBCINBSEBusinessServlet</IcbcPostUrl> <!--工行网银支付url-->
+      <IcbcMerNo>XXXXXXXX</IcbcMerNo> <!--工行商户代码-->
+      <IcbcActNo>XXXXXXXX</IcbcActNo> <!--工行商城账号-->
+      <IcbcReUrl>http://59.41.60.154:8090/user/565102.icbc</IcbcReUrl> <!--工行网银支付结果回调页面-->
+      <keyFile>/key/icbc/xxxx.key</keyFile> <!--商户私钥-->
+      <keyPwd>xxxxxx</keyPwd> <!--商户私钥密码-->
+      <crtFile>/key/icbc/xxxxx.crt</crtFile> <!--商户公钥-->
+      <PubCrtFile>/key/icbc/ebb2cpublic.crt</PubCrtFile> <!--工行公钥 支付结果回调验签时使用-->
+      <!--以下参数为订单查询时使用 查询版本6.0-->
+      <IcbcQryUrl>https://corporbank.icbc.com.cn:446/servlet/ICBCINBSEBusinessServlet</IcbcQryUrl> <!--工行网银订单查询url-->
+      <IcbcPfxFile>/key/icbc/xxxx.pfx</IcbcPfxFile> <!--商户pfx证书-->
+      <IcbcPfxPwd>xxxxxx</IcbcPfxPwd> <!--商户pfx证书密码-->
+      <icbcret>http://59.41.60.154:8090/user/cashier/html/result/icbcret.jsp</icbcret>
+   </config>
+   
+   <!--招行配置参数-->
+   <config name="CmbCfg">
+      <!--CmbPostUrl>https://netpay.cmbchina.com/netpayment/BaseHttp.dll?TestPrePayC2</CmbPostUrl--> <!--招行网银支付url测试环境-->
+      <CmbPostUrl>http://59.41.60.154:8090/user/html/zh-CN/cashier/simulate/cmbpay.jsp</CmbPostUrl> <!--模拟测试支付URL-->
+      <cmbBranchID>0010</cmbBranchID> <!--商户开户分行号-->
+      <cmbMerchantName>上海棠棣科技股份有限公司</cmbMerchantName> <!--商户开户名称-->
+      <CoNo>XXXXXXXX</CoNo> <!--商户号-->
+      <MERPARA>CMB</MERPARA> <!--商户参数-->
+      <CmbReUrl>http://59.41.60.154:8090/user/565102.tran</CmbReUrl> <!--招行网银支付结果回调页面-->
+   </config>
+   
+   <!--农行配置参数-->
+   <config name="AbcCfg">
+      <ABCMERNO>XXXXXXXX</ABCMERNO>    <!--农行商户号-->
+      <ABCORDERURL>http://59.41.60.154:8090/user/565109.tran</ABCORDERURL><!--农行网银回调页面-->
+      <PaymentLinkType>1</PaymentLinkType>    <!--农行支付接入方式-->
+      <MerchantRemarks>BeiJing</MerchantRemarks>  <!-- 商户备注信息  -->
+   </config>
+  
+   <!--联通沃支付公共参数-->
+   <config name="Ltpay">
+      <interfaceVersion>1.0.0.0</interfaceVersion> <!--消息版本号-->
+      <tranType>20102</tranType><!--接口类型    直连B2C网银【20102】、联通沃【20101】-->
+      <payProducts>B2CWY</payProducts><!--支付工具类型    接口类型为”20101时有用  “YE|B2CWY|JJKKJ” 联通账户支付，B2C网银支付，联通快捷支付-->
+      <LTmerNo>XXXXXXXX</LTmerNo><!--生产商户号 -->
+      <charSet>UTF-8</charSet><!--字符集 -->
+      <tradeMode>0001</tradeMode><!--交易方式   固定值为  0001：立即支付-->
+      <ltrespMode>1</ltrespMode><!--应答机制    固定值 1 -->
+      <callbackUrl>http://127.0.0.1:8091/user/565102.tran</callbackUrl><!--页面重定向回调URL-->
+      <serverCallUrl>http://127.0.0.1:8091:8093/stp/565102.tran</serverCallUrl><!--服务器异步通知地址-->
+      <signType>MD5</signType><!--签名方式 -->
+      <merchantSignKey>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</merchantSignKey><!--生产商户签名 -->
+      <orderpayurl>https://epay.10010.com/pay/servlet/MerOrderPayReqServlte.htm</orderpayurl><!--生产支付提交url-->
+      <singleOrderQueryUrl>https://epay.10010.com/pay/query/order.htm</singleOrderQueryUrl><!--生产订单查询url-->
+      <Ltrefundurl>https://epay.10010.com/pay/trade/singleRefund.htm</Ltrefundurl><!--生产退款url-->
+      <LTpayurl>/cashier/html/payment/cashier.jsp</LTpayurl>
+      <TdPayUrl>/cashier/html/payment/cashier.jsp</TdPayUrl> 
+      <MerReturnUrl>/cashier/html/result/bnkret.jsp</MerReturnUrl> 
+   </config>   
+   
+   <!--建行代付接口参数-->
+   <config name="CcbPayCfg">
+      <!--G_HTTP_URL>http://59.41.60.154:8090/prvweb/ccbpay/</G_HTTP_URL-->  <!--备付金系统地址-->
+      <G_HTTP_URL>http://192.168.10.14:8090/prvweb/ccbpay/</G_HTTP_URL>
+      <Pyr_DpBkNm>中国建设银行股份有限公司广州花都支行</Pyr_DpBkNm>    <!--付款方开户行名称-->
+      <!--Pyr_DepBnk_No>xxxx</Pyr_DepBnk_No--> <!--付款方开户行号-->
+      <Pyr_BnkCD>105581019019</Pyr_BnkCD>    <!--付款方联行号-->
+      <Pyr_BkCgyCd>01</Pyr_BkCgyCd> <!--付款方行别代码 01-本行 02-国内他行 03-国外他行-->
+      <Pyr_Cst_AccNo>44001490505053005113</Pyr_Cst_AccNo> <!--付款方客户账号-->
+      <Pyr_AccNm>公司一九</Pyr_AccNm> <!--付款方账户名称-->
+      <Pyr_Acc_CgyCd>02</Pyr_Acc_CgyCd><!--付款方账户类别代码 01：对私；02：对公；03：银行内部户-->
+      <bank_name>中国建设银行</bank_name>
+   </config>                                
+
+   
+   <!-- 用户系统-图片上传至Pay 配置信息  -->
+   <config name="FtpGetToPay">
+      <ObjDir>dat/upload/</ObjDir>
+      <LclDir>pay/dat/upload/</LclDir>
+      <WebPath>/home/payment/apache-tomcat-7.0.64/webapps/</WebPath>
+   </config>
+   
+   <!--商户系统-上传配置信息-->
+   <config name="FtpGetToResinMerchant">
+      <ObjDir>/home/payment/apache-tomcat-7.0.64/webapps/merchant/dat/download/</ObjDir>
+      <LclDir>/home/payment/tdshome/app/stp/dat/download/</LclDir>
+   </config>
+   
+   <!--后台管理系统-报表导出上传配置信息-->
+   <config name="FtpPutPay">
+      <ObjDir>/home/payment/apache-tomcat-7.0.64/webapps/pay/dat/download/</ObjDir>
+      <LclDir>/home/payment/tdshome/app/stp/dat/download/</LclDir>
+   </config>
+   
+   <!--招行对账文件存放服务器配置-->  
+   <config name="CMBFtpCfg">
+      <IpAdr>127.0.0.1</IpAdr>
+      <Port>21</Port>
+      <UsrNam>hkrtftp</UsrNam>
+      <UsrPwd>!Zh1fut0n9&gt;987</UsrPwd>
+      <ObjDir>/BankCheckFile</ObjDir>
+      <LclDir>dat/chk/CMB</LclDir>
+   </config>
+  
+   <!--银行对账文件存放服务器配置--> 
+   <config name="bnkFilCfg">
+      <ObjDir>/home/payment/apache-tomcat-7.0.64/webapps/pay/dat/download/</ObjDir>
+      <LclDir>/home/payment/tdshome/app/stp/dat/chk/</LclDir>
+   </config>
+  
+   <config name="CheckEmail">
+      <!-- 发件人地址 --> 
+      <EmFrom>InternetPayment@163.com</EmFrom>
+      <!-- 发件人密码 -->
+      <EmPwd>guoyanlei</EmPwd> 
+      <!--发件人smtp -->
+      <EmSmtp>smtp.163.com</EmSmtp>
+      <!-- 邮件标题 -->
+      <EmTitle>棠棣-邮箱验证</EmTitle>
+      <!-- 邮件验证地址 --> 
+      <EmailIp>//59.41.60.154:8090/user/</EmailIp>
+      <!--邮件资源配置--> 
+      <EmResAddr>//59.41.60.154:8090/tdpay/</EmResAddr>
+   </config>
+   
+   <config name="CheckEmailNew">
+      <G_EMFROM>zf@0256.cn</G_EMFROM>
+      <G_EMUSER>zf@0256.cn</G_EMUSER>
+      <G_EMPWD>linan@2015</G_EMPWD> 
+      <G_VALURL>http://59.41.60.154:8090/user/</G_VALURL>
+      <G_VALURLMER>http://59.41.60.154:8090/merchant/</G_VALURLMER>
+      <G_EMSMTP>smtp.0256.cn</G_EMSMTP>
+      <EmTitle>商物通-邮箱验证</EmTitle>
+      <G_EMUSERNAME>商物通</G_EMUSERNAME>
+      <G_EMCOMPNAME>商物通</G_EMCOMPNAME>
+      <G_EMCOMPPAYNAME>商物通</G_EMCOMPPAYNAME>
+      <G_EMCOMPHTTP>https://www.56zhifu.com/</G_EMCOMPHTTP>
+   </config>
+       
+   <!--信使平台短信发送配置-->
+   <config name="SendSms">
+      <!-- 请求地址 --> 
+      <Endpoint></Endpoint>
+      <!-- 登录帐号 -->
+      <Account></Account> 
+      <!--登录密码 -->
+      <Pwd></Pwd>
+   </config>
+   
+   <!--重置密码配置-->
+   <config name="passwdper">
+      <merpasswd>td888888</merpasswd>
+   </config>
+   <!-- 双因素开关 -->
+   <config name="DFactors">
+      <DFactors>flase</DFactors>
+   </config>
+
+   <!--银行回调通知信息配置-->
+   <config name="SecCfg">
+      <seconds>5</seconds>                                                <!--传统登录、平台支付 页面通知商户时间-->
+      <reqErrPage>html/zh-CN/cashier/message/timeout.jsp</reqErrPage>     <!--付款通知程序错误跳转地址-->
+      <RegSucPage>html/zh-CN/cashier/message/regsuc.jsp</RegSucPage>      <!--充值成功跳转页面-->
+      <RegErrPage>html/zh-CN/cashier/message/regerr.jsp</RegErrPage>      <!--充值失败跳转页面-->
+      <PaySucPage>html/zh-CN/cashier/message/paysuc.jsp</PaySucPage>      <!--用户付款成功跳转页面-->
+      <PayErrPage>html/zh-CN/cashier/message/payerr.jsp</PayErrPage>      <!--用户付款失败跳转页面-->
+      <payResult>html/zh-CN/cashier/message/payResult.jsp</payResult>     <!--用户付款结果页面-->
+      <onlinePaySucPage>html/zh-CN/cashier/message/onlinepaysuc.jsp</onlinePaySucPage><!--无账户付款成功跳转页面-->
+      <onlineRegSucPage>html/zh-CN/cashier/message/onlineregsuc.jsp</onlineRegSucPage><!--无账户充值成功跳转页面-->
+   </config>
+   
+   <!-- 快捷支付配置信息 -->
+   <config name="QuickPay">
+      <QuickPayUrl01>/user/html/zh-CN/cashier/public/bankcardPay.jsp</QuickPayUrl01>      <!-- 新卡 -->
+      <QuickPayUrl02>/user/html/zh-CN/cashier/public/verifyCodeInput.jsp</QuickPayUrl02>  <!-- 已绑定卡 -->
+      <QuickResultUrl></QuickResultUrl>
+   </config>
+   
+   <!--备付金相关参数-->
+   <config name="ProvisionCfg">
+      <!--备付金需要导出的交易类型（默认全部） 1.充值 2.消费 3.转账（付款） 4.转账（收款）5.提现 6.退款 7.调账 8.结算 -->
+      <NEED_EXPORT_TRAN_TYPE>1,2,3,4,5,6,7,8</NEED_EXPORT_TRAN_TYPE>
+      <!--导出文件本地存放目录(相对于 $tdshome/app/stp/)-->
+      <LOCAL_DIR>dat/export/provision</LOCAL_DIR>
+      <!--出金交易(默认通道银行编码)-->
+      <A_BANK_CODE>UPOP</A_BANK_CODE>
+      <!--是否需要FTP上传 0:不上传 1：需要上传-->
+      <UP_OFF>1</UP_OFF>
+      <!--目标服务器IP-->
+      <IpAdr>127.0.0.1</IpAdr>
+      <Port>21</Port>
+      <UsrNam>swtftp</UsrNam>
+      <UsrPwd>123qwe</UsrPwd>
+      <ObjDir>/BankCheckFile</ObjDir>
+   </config>
+   
+   <!--银联参数配置支付-消费-->
+   <config name="UPOPCfgPrd">
+      <upopversion>5.0.0</upopversion>
+      <upopencoding>UTF-8</upopencoding>
+      <UPOPSIGNMETHOD>01</UPOPSIGNMETHOD>
+      <upopMerNo>777290058119311</upopMerNo>  <!--银联b2c支付对账商户号码-->
+      <upopfrontUrl>http://59.41.60.154:8090/user/565102.tran</upopfrontUrl>  <!--前台通知地址-->
+      <upopbackUrl>http://59.41.60.154:8090/user/565102.tran</upopbackUrl>    <!--后台通知地址-->
+   </config>
+   
+   <!--银联参数配置支付-充值-->
+   <config name="UPOPCfgRecharge">
+      <upopversion>5.0.0</upopversion>
+      <upopencoding>UTF-8</upopencoding>
+      <UPOPSIGNMETHOD>01</UPOPSIGNMETHOD>
+      <upopMerNo>777290058119311</upopMerNo>  <!--银联b2c支付对账商户号码-->
+      <upopfrontUrl>http://59.41.60.154:8090/user/565102.tran</upopfrontUrl>  <!--前台通知地址-->
+      <upopbackUrl>http://59.41.60.154:8090/user/565102.tran</upopbackUrl>    <!--后台通知地址-->
+   </config>
+   
+   <!--银联参数配置支付-退货-->
+   <config name="UPOPCfgRef">
+      <upopversion>5.0.0</upopversion>
+      <upopencoding>UTF-8</upopencoding>
+      <UPOPSIGNMETHOD>01</UPOPSIGNMETHOD>
+      <upopMerNo>777290058119311</upopMerNo>  <!--银联b2c支付对账商户号码,生产需修改 -->
+      <upopfrontUrl>http://59.41.60.154:8090/user/565103.tran</upopfrontUrl>  <!--前台通知地址-->
+      <upopbackUrl>http://59.41.60.154:8090/user/565103.tran</upopbackUrl>    <!--后台通知地址-->
+   </config>
+   
+    <config name="UpopCfgFile">
+          <upopversion>5.0.0</upopversion>
+          <upopencoding>UTF-8</upopencoding>
+          <upopSignMethod>01</upopSignMethod> <!--签名方法-->
+          <upopBizType>000000</upopBizType>   <!--业务类型-->
+          <upopFileType>00</upopFileType>     <!--文件类型-->
+          <upopAccessType>0</upopAccessType>  <!--接入类型，商户接入填0 0- 商户 ， 1： 收单， 2：平台商户-->
+          <txnType>76</txnType>               <!--交易类型-->
+          <txnSubType>01</txnSubType>         <!--交易子类-->
+          <upopFileZip>/home/payment/tdshome/app/stp/dat/chk/UPOP/fileZip</upopFileZip>    <!-- 对账文件压缩包地址 -->
+          <upopFileName>/home/payment/tdshome/app/stp/dat/chk/UPOP/</upopFileName>  <!-- 解压后子文件地址 -->
+          <upopmerno>777290058119311</upopmerno>    <!--银联商户号-->
+   </config>
+   
+   <!--银联对账文件商户号码获取-->
+ 	 <config name="UpopCfgMerIdB2C"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--银联b2c支付对账商户号码-->
+ 	 </config>
+ 	 <config name="UpopCfgMerIdB2B"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--银联b2b支付对账商户号码-->
+ 	 </config>
+ 	 <config name="UpopCfgMerIdWap"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--手机wap支付对账商户号码-->
+ 	 </config>
+ 	 <config name="UpopCfgMerIdDf"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--代付付对账商户号码-->
+ 	 </config>
+	 <config name="UpopCfgMerIdB2CTopUP"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--B2C充值商户号码-->
+ 	 </config>
+	 <config name="UpopCfgMerIdWapTopUP"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--WAP充值商户号码-->
+ 	 </config>
+   
+   <config name="TOMCATCURAPPHOME">
+      <!--TOMCAT目录--> 
+      <TOMCATPATH>/home/payment/apache-tomcat-7.0.64/webapps/</TOMCATPATH>
+   </config>
+
+   <!--银联代付参数配置-->
+ 	 <config name="UPDFCfg"> 
+		<updfmerno>777290058119311</updfmerno>    <!--银联商户号 新注册测试商户-->
+		<updffrontUrl>http://59.41.60.154:8090/user/565102.tran</updffrontUrl><!--前台通知地址-->
+		<updfbackUrl>http://59.41.60.154:8090/user/565102.tran</updfbackUrl>    <!--后台通知地址-->
+		<version>5.0.0</version>
+		<encoding>UTF-8</encoding>	
+       		<signMethod>01</signMethod><!--签名方式-->
+		<txnType>12</txnType><!--交易类型 代付支付-->
+		<txnSubType>00</txnSubType><!--交易子类型 默认00-->
+		<bizType>000401</bizType><!--产品类型 代付-->
+		<channelType>07</channelType><!--渠道类型 07 互联网-->
+		<accessType>0</accessType><!--产品类型 代付-->
+		<currencyCode>156</currencyCode><!--产品类型 代付-->  
+		<paidAmt>1</paidAmt><!--此参数在绑定银行卡时通过代付一分钱方式用-->
+   </config>
+
+   <!--建行银企直连代付参数配置-->
+   <config name="StpBnkPayCfg">
+      <!--银行客户号-->
+      <BNK_CUST_ID>GDP567937849#001</BNK_CUST_ID>
+      <!--银行操作员-->
+      <USER_ID>WLPT01</USER_ID>
+      <!--操作员密码-->
+      <PASSWORD>123456</PASSWORD>
+      
+      <!--本方企业账户 付款账户-->
+      <ACC_NO1>D345473CC8152A32E1D45EF0D025B07B5CE6885E4F587BAC</ACC_NO1>
+      <!--行内转账收款账户户名校验 1:校验 0：不校验-->
+      <CHK_RECVNAME>1</CHK_RECVNAME>
+      <!--用途编号-->
+      <USEOF>用户转出到余额</USEOF>
+      <USEOF1>商户结算</USEOF1>
+      <!--币种-->
+      <CUR_TYPE>01</CUR_TYPE>
+      <!--交易类型 0-建行转他行,预留标志位，以后可扩展-->
+      <TRAN_TYPE>0</TRAN_TYPE>
+   </config>
+   
+   <!--物业系统通讯参数配置-->
+   <config name="UtilityBillUrl">
+      <BillUrl>http://192.168.0.93/wyweb/getdata.aspx</BillUrl>  <!-- 物业系统访问地址  测试地址 -->
+   </config>
+   
+   <!--物业系统通讯参数配置-->
+   <config name="UtilityBillUrlRet">
+      <BillUrl>http://192.168.0.3/wyweb/savedata.aspx</BillUrl>  <!-- 物业系统访问地址  回写地址 -->
+   </config>
+
+   <!--物业系统缴费参数配置-->
+   <config name="OrderCfg">
+   	  <versionId>3</versionId>
+   	  <merchantId>00000000000363</merchantId>             <!--测试商户-->
+   	  <signature></signature>
+   	  <inMsg>物业缴费</inMsg>
+   	  <notifyUrl>http://59.41.60.154:8090/user/594103.tran</notifyUrl>
+   	  <retUrl>http://59.41.60.154:8090/user/594103.tran</retUrl>
+   	  <prdName>物业缴费</prdName>
+   	  <bizType>01</bizType>
+   	  <prdDesc>物业缴费</prdDesc>
+   	  <PRODCODE>CP00000003</PRODCODE>                       <!-- 产品编码 商户签约产品产生 默认值 -->
+   </config>   
+   
+   <!--银联B2B产品_消费请求配置-->
+   <config name="UPOPB2bPay">
+      <B2b_version>5.0.0</B2b_version>                       <!-- 版本号 -->
+      <B2b_encoding>UTF-8</B2b_encoding>                     <!-- 编码集 -->
+      <B2b_signMethod>01</B2b_signMethod>                    <!-- 加密方法 -->
+      <B2b_txnType>01</B2b_txnType>                          <!-- 交易类型 -->
+      <B2b_txnSubType>01</B2b_txnSubType>                    <!-- 交易子类 -->
+      <B2b_frontUrl>http://59.41.60.154:8090/user/565202.tran</B2b_frontUrl>                          <!-- 前台通知地址 -->
+      <B2b_backUrl>http://59.41.60.154:8090/user/565202.tran</B2b_backUrl>                            <!-- 后台通知地址 -->
+      <B2b_merId>777290058119311</B2b_merId>                 <!-- 商户号 -->
+   </config>
+   
+    <!--银联B2B产品_对账文件请求配置-->
+   <config name="UPOPB2bFileTran">
+      <B2bFile_version>5.0.0</B2bFile_version>                          <!--版本号-->
+			<B2bFile_encoding>UTF-8</B2bFile_encoding>                        <!--编码方式-->
+			<B2bFile_signMethod>01</B2bFile_signMethod>                       <!--签名方法01-->
+			<B2bFile_txnType>76</B2bFile_txnType>                             <!--交易类型76-->
+			<B2bFile_txnSubType>01</B2bFile_txnSubType>                       <!--交易子类01-->
+			<B2bFile_bizType>000000</B2bFile_bizType>                         <!--产品类型000000-->
+			<B2bFile_accessType>0</B2bFile_accessType>                        <!--接入类型0-->
+			<B2bFile_merId>700000000000001</B2bFile_merId>                    <!--商户代码-->
+			<B2bFile_fileType>00</B2bFile_fileType>                           <!--文件类型00-->
+			<B2bFile_reqReserved></B2bFile_reqReserved>                       <!--商户自定义保留域-->
+			<B2bFile_revFilePath>/home/payment/tdshome/app/stp/dat/chk/UPOPB2B/</B2bFile_revFilePath>       <!--接收压缩文件的路径-->
+			<B2bFile_saveFilePath>/home/payment/tdshome/app/stp/dat/chk/UPOPB2B/</B2bFile_saveFilePath>     <!--保存解压文件的路径-->
+   </config>
+   
+   <!--银联B2B产品_交易状态查询交易请求配置-->
+   <config name="UPOPB2bQueryOrdStatus">
+      <B2bQuery_version>5.0.0</B2bQuery_version>                          <!--版本号-->
+			<B2bQuery_encoding>UTF-8</B2bQuery_encoding>                        <!--编码方式-->
+			<B2bQuery_signMethod>01</B2bQuery_signMethod>                       <!--签名方法01-->
+			<B2bQuery_txnType>00</B2bQuery_txnType>                             <!--交易类型00-->
+			<B2bQuery_txnSubType>00</B2bQuery_txnSubType>                       <!--交易子类00-->
+			<B2bQuery_bizType>000202</B2bQuery_bizType>                         <!--产品类型000202-->
+			<B2bQuery_accessType>0</B2bQuery_accessType>                        <!--接入类型0-->
+			<B2bQuery_merId>777290058119311</B2bQuery_merId>                    <!--商户代码-->
+			<B2bQuery_reqReserved></B2bQuery_reqReserved>                       <!--商户自定义保留域-->
+   </config>
+   
+   <!--物业商户号-->
+   <config name="PropertyMerId">
+   		<ProMerId>00000000000363</ProMerId>                          <!--物业商户号-->
+   </config>
+   
+   <!--银联B2C产品_交易状态查询交易请求配置-->
+   <config name="UPOPB2cQueryOrdStatus">
+      <B2cQuery_version>5.0.0</B2cQuery_version>                          <!--版本号-->
+			<B2cQuery_encoding>UTF-8</B2cQuery_encoding>                        <!--编码方式-->
+			<B2cQuery_signMethod>01</B2cQuery_signMethod>                       <!--签名方法01-->
+			<B2cQuery_txnType>00</B2cQuery_txnType>                             <!--交易类型00-->
+			<B2cQuery_txnSubType>00</B2cQuery_txnSubType>                       <!--交易子类00-->
+			<B2cQuery_bizType>000201</B2cQuery_bizType>                         <!--产品类型000201-->
+			<B2cQuery_accessType>0</B2cQuery_accessType>                        <!--接入类型0-->
+			<B2cQuery_merId>700000000000001</B2cQuery_merId>                    <!--商户代码-->
+   </config>
+    <!--银联无跳转支付基本参数配置配置-->
+   <config name="NJPaymentInfo">
+			<merId>777290058119311</merId>                    <!--商户代码-->
+			<bankcod>01010200</bankcod>                           <!--支付渠道  -->
+   </config>
+   
+   <!-- 无账户登陆接入商户号配置(充值，提现) -->
+   <config name="NoCusPayConfig">
+   		<ConMerId1>00000000000363</ConMerId1>
+   </config>
+   
+   <!-- 无账户登陆是否启用标志 -->
+   <config name="NoCusPayOpenConfig">
+   		<NoCusOpenFlg>O</NoCusOpenFlg>
+   </config>
+   
+   <!-- 银联代收（充值）配置信息 -->
+   <config name="DaiShouRe">
+      <DaiShouUrlNew>/user/html/zh-CN/cashier/recharge/daishouRecharge.jsp</DaiShouUrlNew>      <!-- 新卡 -->
+      <DaiShouUrl>/user/html/zh-CN/cashier/recharge/daishouRechargeConfirm.jsp</DaiShouUrl>  <!-- 已绑定卡 -->
+   </config>
+   <!-- 银联代收基本配置信息 -->
+   <config name="DaiShouBaseInf">
+      <DaiShouMerId>777290058110097</DaiShouMerId>      <!-- 银联商户号 -->
+      <DaiShouBackUrl>http://59.41.60.154:8090/user/daishouBackRcvResp.tran</DaiShouBackUrl>  <!-- 银联后台通知地址 -->
+   </config>       
+</root>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="STHDRCSU" log_level="INFO">
+    <!--调用风控系统接口-->
+    <connector name="connector1" class="tangdi.comm.tcp.TdSystemChannelConnector">
+        <para name="host" value="127.0.0.1"   />
+        <para name="port" value="60004"       />
+        <para name="timeOut" value="60" />
+    </connector>
+    
+    <process>
+        <callconnector connector="connector1" />
+    </process>
+    
+    <process name="connector1">
+        <do func="pack">
+            <para name="ITF" value="etc/channel/STHDRCS_ITF.XML"></para>
+        </do>
+
+        <do func="SendTcpMsg"/>
+
+        <do func="unpack">
+            <para name="ITF" value="etc/channel/STHDRCS_ITF.XML"></para>
+        </do>
+    </process>
+    
+</channel>

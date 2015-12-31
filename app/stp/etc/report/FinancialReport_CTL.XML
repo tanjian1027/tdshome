@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="DEBUG">
+    <!--交易日志记录配置-->
+    <include file="etc/public/STPCTL_TRC.XML"/>
+    <before>
+        <!--打印ETF树-->
+        <do func="DumpEtf"/>
+    </before>
+    <after>
+    <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+      <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+         <set name="DWZ_STATUS_CODE"       value="200"/>
+      </if>
+      <else>
+         <set name="DWZ_STATUS_CODE"       value="300"/>
+      </else>
+        <do func="DumpEtf"/>
+    </after>
+    
+
+</application>

@@ -1,0 +1,1487 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="rmp" code="102" log_level="DEBUG">
+   <!-- 公共宏文件引入-->
+   <include file="etc/PUBMACRO_RMP.XML"/>
+   
+    <before>
+        <do expr="@tangdi.engine.context.Msg@dump()"/>
+        <set name="ConfigName"   value="G_VARIABLE"/>
+        <quote name="ReadXmlCfg"/>
+        <if condition="IS_EQUAL_STRING(TELLERID,'')">
+            <set name="TellerID"      value="00000000000000000000"/>
+        </if>
+        <!--取当前日期设置会计日期-->
+        <set name="ActDat"        expr="GETDATE()"  />
+        <set name="TXN_ORG_NO"    value="000001"    /><!--机构号-->
+        <!--获取终端号-->
+        <set name="TermCode"  expr="DELBOTHSPACE(TermCode)"/>
+        <if condition="ISNULL(TermCode)">
+            <do func="GetIP2"/>
+            <set name="TermCode"   expr="Ip"/>
+        </if>
+    </before>
+    
+    <after>
+        <set name="_REQUESTATTR.FORWARDURL" value="/page/success2.jsp"/>
+        
+        <do expr="@tangdi.engine.context.Msg@dump()"/>
+        <quote name="returnMsgMacro"/>
+    </after>
+    
+    <transaction code="8000140"  desc="用户充值">
+        <sql name="UpdPay"> <!-- 更新支付订单表 -->
+            payOrdNo=#{payOrdNo}
+        </sql>
+        <sql name="UpdReg"> <!-- 更新充值订单表 -->
+            prdordno=#{PrdOrdNo} and prdOrdType='1'
+        </sql> 
+        <sql name="QryRegInf"> <!-- 查询充值订单 -->
+            select prdOrdNo from StpPrdInf where prdordno=#{prdordno} and prdOrdType='1'
+        </sql>
+        <sql name="QryCusInf"><!-- 查询客户信息-->
+            SELECT CUST_STATUS FROM StpCusInf WHERE CUST_ID=#{USERID}
+        </sql>
+        <sql name="SelAccInf"><!-- 查询客户账户信息-->
+            SELECT a.AC_STATUS,a.PAY_AC_NO as payacno FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b WHERE b.CUST_ID=#{USERID} AND a.AC_TYPE='1' AND a.PAY_AC_NO=b.PAY_AC_NO
+        </sql>
+        <sql name="QryUsrInf"><!-- 查询客户信息-->
+            SELECT CUST_LOGIN,CUST_ID AS USRID  FROM StpUsrInf WHERE CUST_LOGIN=#{USRMP}
+        </sql>
+        <sql name="QryPassInf"><!-- 查询客户支付密码信息-->
+            SELECT PASSWORD FROM ARP_AC_CUST_REL WHERE PAY_AC_NO=#{PAYACNO}
+        </sql>
+        <sql name="QryRegInf1"> <!--查询客户充值信息 -->
+            SELECT distinct #{seqno2} ACC_SEQ,'' ACC_SUBJECT,b.PAY_AC_NO PAY_AC_NO, #{netRecAmt} TXN_AMT,'' OPP_ACC_NO,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM StpPayInf a,ARP_AC_CUST_REL b,ARP_AC_PROFILE c WHERE a.payordno=#{payordno} and trim(b.CUST_ID)=trim(a.CUST_ID)  and trim(b.PAY_AC_NO)=trim(c.PAY_AC_NO) and c.ac_type='1'
+            union
+            SELECT #{seqno1} ACC_SEQ,#{ACC_SUBJECT} ACC_SUBJECT,'' PAY_AC_NO, a.txAmt TXN_AMT,'' OPP_ACC_NO,'CNY' CCY,'D' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM StpPayInf a WHERE a.payordno=#{payordno} 
+            union
+            SELECT #{seqno3} ACC_SEQ,'' ACC_SUBJECT,'' PAY_AC_NO, #{fee} TXN_AMT,'' OPP_ACC_NO,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM dual a WHERE 1=${flag}
+        </sql>
+        <sql name="SelAccBal"><!-- 查询客户账户余额信息-->
+            SELECT CASH_AC_BAL,FROZ_BALANCE FROM ARP_AC_PROFILE WHERE PAY_AC_NO=#{PAYACNO}
+        </sql>
+        <sql name="QryBnkSubject"> <!--查询银行科目表-->
+            SELECT gl_code FROM FCS_ACC_SUBJECT WHERE gl_name LIKE '%应收银行%${glname}%'
+        </sql>
+        <sql name="QryBnkBankCode"> <!--查询银行缩写-->
+            select BANKCODE from crdbininf where BINCTT like substr(#{BANKCARDNO},0,6)
+        </sql>
+        <process>
+            <set name="returnNames"     value="PAYORDNO,FLOR_TIME,TXAMT,OF_TITL,OF_CONT,Filed"    />
+            
+            <set name="PRDORDTYPE"   value="1"          />
+            <set name="TXCHANNEL"    value="3"          />
+            <set name="PAYPWD"       value="未知"       />
+            <set name="BANKCARDNO"   expr="BANKCARDNO"  />
+            <set name="TXAMT"        expr="TXAMT"       />
+            <set name="USRMP"        expr="USRMP"       />
+            
+            <if condition="IS_EQUAL_STRING(UsrMp,'')">
+                <set name="RspCod"       value="02035"      />
+                <set name="RspMsg"       value="手机号为空" />
+                <return/>
+            </if>
+            
+            <!-- 检查支付密码是否冻结 -->
+            <set name="RCS_PWD_TYPE"        value="3"           />
+            <set name="RCS_USER_CODE"       expr="USRMP"        />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"     />
+            <set name="RCS_PRD_NO"          value=""            />
+            <set name="RCS_TCODE"           value="5"           />
+            <set name="RCS_STATUS"          value="0"           />
+            <quote name="tranPwdLock"/>
+            
+            <if condition="IS_EQUAL_STRING(BANKCARDNO,'')">
+                <set name="RspCod"       value="02035"          />
+                <set name="RspMsg"       value="银行卡号为空"   />
+                <return/>
+            </if>
+            
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryBnkBankCode" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="bankcode"  value=""/>
+            </if>
+            
+            <if condition="OR(IS_EQUAL_STRING(TXCHANNEL,''),IS_EQUAL_STRING(BANKCARDNO,''),IS_EQUAL_STRING(PAYPWD,''),IS_EQUAL_STRING(TXAMT,''),IS_EQUAL_STRING(bankcode,''))">
+                <set name="RspCod"      value="02036"      />
+                <set name="RspMsg"      value="传送参数不完整" />
+                <return/>
+            </if>
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryUsrInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"    value="09992"/>
+                <set name="RspMsg"    value="用户信息不存在"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          value=""                />
+                <set name="RCS_TCODE"           value="用户信息不存在"  />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          value=""                />
+                <set name="RCS_TCODE"           value="数据库操作"      />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            <set name="userId"     expr="USRID"/>
+            <quote name="usrChk"/>
+            <quote name="chkAcc"/>
+            
+            <set name="txnDat"     expr="TACCDT"/>
+            <set name="orderNo"    value=""/>
+            <set name="txnAmt"     expr="txAmt"/>
+            <!--校验支付密码-->
+            <!--set name="paypwd"     expr="paypwd"/>
+            <quote name="chkPayPwd"/-->
+            
+            <!--限额检查 start--> 
+            <set name="TXCHANNEL"     expr="TXCHANNEL"/>
+            <set name="payType"       expr="TXCHANNEL"/>
+            <set name="CredNo"        expr="BANKCARDNO"/>
+            <set name="Filed1"        expr="FILED"/>
+            <set name="PAY_TYPE"      value="05"/>    <!--  限额检查接口，05为快捷支付-->
+            <set name="txAmt"         expr="AMTPOWER(TXAMT,2)"/>    <!--交易金额-->
+            <set name="Amt"           expr="txAmt"/>
+            <set name="User_code"     expr="USRID"/>
+            <set name="comp_code"     value=""/>
+            <set name="cust_type"     value="1"/>  
+            <set name="Time"          expr="GETDATETIME()"/>
+            <set name="DATE"          expr="GETDATE()"/>
+            <set name="TRAN_TYPE"     value="1"/>
+            <set name="ServiceCode"   value="680518"/>
+            <!--quote name="chkLimAmt"/-->
+            <!--限额检查   end-->
+            
+            <!--  首次充值，要建立充值订单  -->
+            <set name="ordstatus"    value="00"/>                 <!--  默认状态为待付款  -->
+            <set name="custRptAcNo"  expr="PAYACNO"/>    <!--充值账号-->
+            <set name="ordCcy"       value="CNY"/>
+            <set name="ordAmt"       expr="txAmt"/>
+            <set name="orderTime"    expr="GETDATETIME()"/>
+            <set name="PrdOrdType"   value="1"/>                  <!--商品订单类型 1 充值-->
+            <set name="bizType"      value="01"/>                 <!--业务类型 01 充值-->
+            <set name="BANKCOD"      expr="BANKCODE"/> 
+            <set name="CUST_ID"      expr="USERID"/> 
+            <!-- 获取序号 -->
+            <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpPrdInf','SeqNo')"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+            </if>
+            <set name="SeqNo"        expr="STRCAT(SUBSTR(ActDat,2,7),KeyVal)"/>   <!--商品订单表序号-->
+            
+            <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpPrdInf','PrdOrdNo')"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+            </if>
+            <set name="prdordno"    expr="STRCAT(ActDat,KeyVal)"/>    <!--商品订单号-->
+            <set name="MERNO" value=" "/>    <!--商品订单商户号为空-->
+            <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam"  value="StpPrdInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          expr="prdordno"         />
+                <set name="RCS_TCODE"           value="数据库操作"      />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if> 
+                    
+            <!--获取序号 -->
+            <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpPayInf','PayOrdNo',GETDATE())"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+            </if>
+            <set name="payOrdNo"    expr="STRCAT('P',SUBSTR(ActDat,2,7),KeyVal)"/>
+            
+            <set name="txAmt"       expr="txAmt"/>  
+            <set name="txCcy"       value="CNY"/> 
+            <set name="ordstatus"   value="00"/>
+            <set name="bankCod"     expr="BANKCODE"/> 
+            <set name="PrdOrdNo"    expr="PrdOrdNo"/> <!-- 充值，支付订单中的商品订单号即为充值订单号  -->  
+            <set name="ActDat"      expr="GETDATETIME()"/>
+            
+            <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam"  value="StpPayInf"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                <return/>
+            </if>
+            <!--begain 快捷支付送银行  测试-支付成功 -->
+            <set name="PayRet"       value="00"/>
+            <!--end    快捷支付送银行  测试-支付成功 -->
+            <if condition="IS_NOEQUAL_STRING(PayRet,'00')">
+                <quote name="UpdPay"/>
+                <quote name="UpdReg"/>               <!--  更新充值订单  -->
+                <set name="_REQUESTATTR.FORWARDURL"  expr="errorPage"/> 
+                <set name="acDate"  expr="GETDATE()"/>              <!--清算日期-->
+                <set name="acTime"  expr="GETDATETIME('HHMISS')"/>  <!--清算时间-->  
+                <return/>
+            </if>
+            <set name="ORDSTATUS"      value="01"/>
+            <set name="payacno"        expr="PAYACNO"/> 
+            <!--查询银行相应科目-->
+            <quote name="BankCod2Nam"/>
+            <quote name="selBnkSubject"/>
+            <set name="seqno1"      value="001"/>  
+            <set name="seqno2"      value="002"/>  
+            <set name="seqno3"      value="003"/>  
+            <set name="seqno4"      value="004"/>
+            <set name="seqno5"      value="005"/>
+            <!--查询账户余额-->
+            <quote name="selAccBal"/> 
+            <set name="feeFlag" value="0"/>      <!--？？充值手续费收取标识   1 收取   0 不收   test ？？？  -->
+            <if condition="IS_EQUAL_STRING(feeFlag,'1')">
+                <set name="txnAmt_fee"    expr="txAmt"/>
+                <!--计算银行手续费-->
+                <!--quote name="SelBnkFee"/-->
+                
+                <if condition="#RetCod==0">
+                    <!--quote name="FeeCount"/--> 
+                    <set name="fee"            expr="DIV(AMTPOWER(FDIV(AMTPOWER(fee,2),'100','1'),1),10)"/>
+                    <set name="flag"           value="1"/>                           <!--收取手续费标识  1 收取  0 不收取-->
+                    <set name="TXN_SUB_COD"    value="002"/>                         <!--交易子码 有手续费-->   
+                </if>
+                <elseif condition="#RetCod==2">
+                    <set name="fee"            value="0"/>
+                    <set name="flag"           value="0"/> 
+                    <set name="TXN_SUB_COD"    value="001"/>                         <!--交易子码 无手续费-->   
+                </elseif>
+            </if>
+            <else>
+                <set name="flag"           value="0"/> 
+                <set name="fee"            value="0"/>   
+                <set name="TXN_SUB_COD"    value="001"/>                         <!--交易子码 无手续费--> 
+            </else>
+            <set name="netRecAmt"      expr="SUB(txAmt,fee)"/>                  <!--净额-->  
+            
+            <!--记账处理-->  
+            <set name="ACC_SUBJECT" expr="gl_code"/>   <!--科目-->  
+            <do func="QueryInGroup" error="IGNORE">
+                <para name="SqlCmd"      sql="QryRegInf1" />
+                <para name="RecordName"  value="ACC_GROUP" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="07001"/>
+                <set name="RspMsg"    value="该充值订单信息不存在"/>
+                <return/>
+            </if>     
+            
+            <set name="TXN_COD"          value="880201"/>           <!--交易码 用户充值-->
+            <set name="NOTENUM"          expr="RECNUM"/>            <!--传票数-->
+            <set name="TXN_TLR"          expr="CUST_ID"/>           <!--柜员号-->
+            <quote name="accProcess_old"/>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="07005"/>
+                <set name="RspMsg"    value="充值失败"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          expr="prdordno"         />
+                <set name="RCS_TCODE"           value="充值失败"        />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            
+            <set name="TRANTYPE"       value="1"/>                  <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+            <set name="TRANWAY"        value="01"/>                 <!--交易方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付--> 
+            <set name="TXCCY"          value="CNY"/>
+            <set name="payType"        value="03"/>
+            <set name="merNo"          value=" "/>
+            
+            <set name="acDate"         expr="GETDATE()"/>              <!--清算日期 zhxiugai -->
+            <set name="acTime"         expr="GETDATETIME('HHMISS')"/>  <!--清算时间 zhxiugai -->  
+            
+            <quote name="UpdReg"/>               <!--  更新充值订单  --> 
+            <quote name="UpdPay"/>               <!--  更新支付订单  --> 
+            
+            <set name="NXTPAG"         expr="succePage"/>     
+            <set name="merRemark"      value="棠棣支付"/> <!-- 商户信息 -->
+            <set name="_REQUESTATTR.FORWARDURL"       expr="NXTPAG"/>    <!--异步通知页面-->
+            
+            <!--通知风控系统登记订单信息-->
+            <set name="ServiceCode" value="680517"/>
+            <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+            <set name="TCODE"       expr="payOrdNo"/>           <!--平台流水号 支付订单号-->
+            <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+            <set name="CLIENTCODE"  expr="USRID"/>     <!--客户编号-->
+            <set name="CLIENTNAME"  expr="USRNAME"/>
+            <set name="MOBILEPHONE" expr="USRMP"/>
+            <set name="TAMT"        expr="txAmt"/>
+            <set name="REGDTTIME"   expr="STRCAT(acDate,acTime)"/>
+            <set name="Time"        expr="acDate"/>
+            <quote name="noticRcs"/>
+            
+            <!--登记银行收款结算表-->
+            <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('ARP_BANK_REC_STL','SEQ_NO')"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="6"/>
+                <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+            </if>
+            <set name="SEQ_NO"           expr="STRCAT(SUBSTR(ActDat,1,4),KeyVal)"/>  
+            <set name="BANK_CODE"        expr="bankcode"/>  
+            <set name="BANK_AC_DATE"     expr="bankStlDate"/>  
+            <set name="BANK_JRN_NO"      expr="bankJrnNo"/>  
+            <set name="TX_CCY"           value="CNY"/>  
+            <set name="TX_AMT"           expr="txAmt"/>  
+            <set name="FEE"              expr="fee"/>      <!--计算手续费  ？？-->
+            <set name="NET_REC_AMT"      expr="netRecAmt"/> 
+            <set name="MER_NO"           expr="merNo"/> 
+            <set name="PRD_ORD_NO"       expr="prdOrdNo"/> 
+            <set name="PAY_CHANNEL"      expr="payType"/>  
+            <set name="PAY_ORD_NO"       expr="payOrdNo"/> 
+            <set name="PAY_ORD_DATE"     expr="GETDATE()"/> 
+            <set name="PAY_BIZ_TYPE"     value="01"/>     <!--01 支付   02 充值-->
+            <set name="REC_STL_STATUS"   value="0"/>      <!--0 正常记账   1 补记账-->
+            <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam"  value="ARP_BANK_REC_STL" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                <set name="DWZ_STATUS_CODE"   value="300"/>
+                <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+                <return/>
+            </if>
+            
+            <set name="TXAMT"     expr="AMTADDDOT(TXAMT)"/>
+            <set name="ACTDAT"    expr="FMTDATE(ActDat,0,4)"/>
+            <set name="FLOR_TIME" expr="GETDATETIME()"/>
+            <set name="OF_TITL"   expr="充值"/>
+            <set name="OF_CONT"   expr="虚拟账户充值"/>
+            <set name="MsgTyp"    value="N"/>
+            <set name="RspCod"    value="000000"/>
+            <set name="RspMsg"    value="交易成功"/>
+            
+            <set name="RCS_USER_CODE"       expr="USRMP"            />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+            <set name="RCS_PRD_NO"          expr="prdordno"         />
+            <set name="RCS_TCODE"           value=""                />
+            <set name="RCS_STATUS"          value="1"               />
+            <quote name="tranByRightTime"/>
+        </process>
+    </transaction>
+    
+    <transaction code="8000150" desc="用户提现">
+        <sql name="QryCusInf"><!-- 查询客户信息-->
+            SELECT CUST_STATUS FROM StpCusInf WHERE CUST_ID=#{USERID}
+        </sql>
+        <sql name="QryCusInf2"><!-- 查询客户信息-->
+            SELECT CUST_NAME as bankPayUserNm FROM StpUsrInf a,stpcusinf b WHERE a.CUST_ID = b.CUST_ID AND a.CUST_LOGIN = #{USRMP}
+        </sql>
+        <sql name="SelAccInf"><!-- 查询客户账户信息-->
+            SELECT a.AC_STATUS,a.PAY_AC_NO as payacno FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b WHERE b.CUST_ID=#{USERID} AND a.PAY_AC_NO=b.PAY_AC_NO and a.ac_type='1'
+        </sql>
+        <sql name="QryPassInf"><!-- 查询客户支付密码信息-->
+            SELECT PASSWORD FROM ARP_AC_CUST_REL WHERE PAY_AC_NO=#{PAYACNO}
+        </sql>
+        <sql name="QryBnkSubject"> <!--查询银行科目表-->
+            SELECT gl_code FROM FCS_ACC_SUBJECT WHERE gl_name LIKE '%应付银行%${glname}%'
+        </sql> 
+        <sql name="QryPayInf"> <!--查询客户支付信息 -->
+            SELECT distinct #{seqno1} ACC_SEQ,#{payacno} PAY_AC_NO,'' ACC_SUBJECT, a.txAmt TXN_AMT,'CNY' CCY,'D' DR_CR_FLAG,'I' OPP_ACC_SIGN,'' OPP_ACC_NO FROM StpCasInf a,ARP_AC_CUST_REL b,ARP_AC_PROFILE c WHERE a.casOrdNo=#{casOrdNo} and trim(b.CUST_ID)=trim(a.CUST_ID)and trim(b.PAY_AC_NO)=trim(c.PAY_AC_NO) and c.ac_type='1'
+            union
+            SELECT #{seqno2} ACC_SEQ,'' PAY_AC_NO,#{ACC_SUBJECT} ACC_SUBJECT, a.txAmt TXN_AMT,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN,#{payacno} OPP_ACC_NO FROM StpCasInf a WHERE a.casOrdNo=#{casOrdNo}
+        </sql>
+        <sql name="UpdFrezInf"><!-- 更新冻结信息-->
+            UPDATE ARP_AC_FORZZ_DETAILS SET STATUS='00',END_DATE=#{CRE_DATE}  WHERE FROZ_NO=#{FROZ_NO}
+        </sql>
+        <sql name="QryUsrInf"><!-- 查询客户信息-->
+            SELECT cust_login,cust_ID AS USRID FROM StpUsrInf WHERE cust_login=#{USRMP}
+        </sql>
+        <sql name="QryBnkBankCode"> <!--查询银行缩写-->
+            select BANKCODE as GetBankCode from crdbininf where BINCTT like substr(#{bankPayAcNo},0,6)
+        </sql>
+        <process>
+            <set name="returnNames"     value="payOrdNo,FLOR_TIME,txAmt,OF_TITL,OF_CONT,Filed"    />
+            
+            <set name="PrdOrdType"      value="3"           />
+            <set name="PAY_PW"          value="未知"        />
+            <set name="UsrMP"           expr="UsrMP"        />
+            <set name="bankPayUserNm"   expr="bankPayUserNm"/>
+            <set name="GetBankCode"     expr="GetBankCode"  />
+            <set name="bankPayAcNo"     expr="bankPayAcNo"  />
+            <set name="txAmt"           expr="txAmt"        />
+            
+            <if condition="IS_EQUAL_STRING(UsrMp,'')">
+                <set name="RspCod"       value="02035"      />
+                <set name="RspMsg"       value="手机号为空" />
+                <return/>
+            </if>
+            
+            <!-- 检查支付密码是否冻结 -->
+            <set name="RCS_PWD_TYPE"        value="3"           />
+            <set name="RCS_USER_CODE"       expr="USRMP"        />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"     />
+            <set name="RCS_PRD_NO"          value=""            />
+            <set name="RCS_TCODE"           value="5"           />
+            <set name="RCS_STATUS"          value="0"           />
+            <!--quote name="tranPwdLock"/-->
+            
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryCusInf2" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="bankPayUserNm"    value="ANYTHING"/>
+            </if>
+            
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryBnkBankCode" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="GetBankCode"    value="ANYTHING"/>
+            </if>
+            
+            <if condition="OR(IS_EQUAL_STRING(PAY_PW,''),IS_EQUAL_STRING(bankPayUserNm,''),IS_EQUAL_STRING(GetBankCode,''),IS_EQUAL_STRING(bankPayAcNo,''),IS_EQUAL_STRING(txAmt,''))">
+                <set name="RspCod"       value="02036"          />
+                <set name="RspMsg"       value="传送参数不完整" />
+                <return/>
+            </if>
+              
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryUsrInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"    value="09992"/>
+                <set name="RspMsg"    value="用户信息不存在"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          value=""                />
+                <set name="RCS_TCODE"           value="用户不存在"      />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          value=""                />
+                <set name="RCS_TCODE"           value="数据库错误"      />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            <set name="paypwd"      expr="PAY_PW"/> 
+            <set name="userID"      expr="USRID"/>
+            <quote name="usrChk"/>
+            <quote name="chkAcc"/>
+            <set name="payAcNo"    expr="payAcNo"   /> 
+            <set name="txnDat"     expr="TACCDT"    />
+            <set name="orderNo"    value=""         />
+            <set name="txnAmt"     expr="txAmt"     />
+            
+            <!--校验支付密码-->
+            <!--quote name="chkPayPwd"/-->
+            
+            <if condition="NOT(ISNULL(txAmt))">
+                <set name="txAmt" expr="AMTPOWER(txAmt,2)"/>
+            </if>
+            
+            <set name="amount"      expr="AMTADDDOT(txAmt)"/>
+            <set name="payAcNo"     expr="payAcNo"/>
+            <set name="bankAcNo"    expr="bankPayAcNo"/><!-- 需要提现的银行卡账号-->
+            <set name="password"    expr="paypwd"/> 
+            
+            <!--限额检查 start--> 
+            <set name="TXCHANNEL"     expr="TXCHANNEL"/>
+            <set name="payType"       expr="TXCHANNEL"/>
+            <set name="CredNo"        expr="BANKCARDNO"/>
+            <set name="Filed1"        expr="FILED"/>
+            <set name="PAY_TYPE"      value="05"/>    <!--  限额检查接口，05为快捷支付-->
+            <set name="txAmt"         expr="txAmt"/>    <!--交易金额-->
+            <set name="Amt"           expr="txAmt"/>
+            <set name="User_code"     expr="USRID"/>
+            <set name="comp_code"     value=""/>
+            <set name="cust_type"     value="1"/>  
+            <set name="Time"          expr="GETDATETIME()"/>
+            <set name="DATE"          expr="GETDATE()"/>
+            <set name="TRAN_TYPE"     value="7"/>
+            <set name="ServiceCode"   value="680518"/>
+            <!--quote name="chkLimAmt"/-->
+            <!--限额检查   end--> 
+            
+            <!--获取序号 -->
+            <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpCasInf','CasOrdNo')"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+            </if>
+            <set name="bankCode"   expr="GetBankCode"/>
+            <set name="bankCode"   expr="bankCode"/>
+            <set name="CasOrdNo"   expr="STRCAT('C',SUBSTR(ActDat,2,7),KeyVal)"/> 
+            <set name="ActDat"     expr="GETDATETIME()"/> 
+            <set name="CUST_ID"    expr="USRID"/>
+            <set name="bankPayUserNm" expr="bankPayUserNm"/>
+            <set name="OrdStatus"  value="00"/> 
+            
+            <!--登记提现订单信息-->  
+            <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam"  value="StpCasInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          expr="CasOrdNo"         />
+                <set name="RCS_TCODE"           value="数据库错误"      />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            
+            <!--查询银行相应科目-->
+            <quote name="BankCod2Nam"/>
+            <quote name="selBnkSubject"/>
+            
+            <!--冻结用户提现金额 -->  
+            <do func="Freeze" error="IGNORE">
+                <para name="PAY_AC_NO"  expr="PAYACNO" />
+                <para name="Money"      expr="txAmt" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="07001"/>
+                <set name="RspMsg"    value="提现失败"/>
+                <return/>
+            </if> 
+            
+            <!--账务处理 借用户备付金 贷应付银行款项--> 
+            <set name="seqno1"      value="001"     />
+            <set name="seqno2"      value="002"     />
+            <set name="payacno"     expr="PAYACNO"  />
+            <set name="ACC_SUBJECT" expr="gl_code"  />
+            <do func="QueryInGroup" error="IGNORE">
+                <para name="SqlCmd"      sql="QryPayInf"    />
+                <para name="RecordName"  value="ACC_GROUP"  />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="07002"             />
+                <set name="RspMsg"    value="提现订单信息不存在"/>
+                <return/>
+            </if>
+            
+            <!--记账处理-->
+            <set name="TXN_COD"          value="880301" /><!--交易码 用户转账-->
+            <set name="TXN_SUB_COD"      value="001"    /><!--交易子码-->
+            <set name="NOTENUM"          expr="RECNUM"  /><!--传票数-->
+            <set name="TXN_TLR"          expr="USRID"   /><!--柜员号-->
+            <quote name="accProcess_old"/>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="07001"/>
+                <set name="RspMsg"    value="提现失败"/>
+                <return/>
+            </if> 
+            
+            <set name="payOrdNo"    expr="CasOrdNo"/>
+            <set name="FLOR_TIME"   expr="GETDATETIME()"/>
+            <set name="txAmt"       expr="AMTFMT(txAmt)"/>
+            <set name="Filed"       expr="PAYACNO"/>
+            <set name="OF_TITL"   expr="提现"/>
+            <set name="OF_CONT"   expr="虚拟账户提现"/>
+            <set name="MsgTyp"    value="N"/>
+            <set name="RspCod"    value="000000"/>
+            <set name="RspMsg"    value="交易成功"/>
+            
+            <set name="RCS_USER_CODE"       expr="USRMP"            />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+            <set name="RCS_PRD_NO"          expr="CasOrdNo"         />
+            <set name="RCS_TCODE"           value=""                />
+            <set name="RCS_STATUS"          value="1"               />
+            <quote name="tranByRightTime"/>
+        </process>
+    </transaction>
+    
+    <transaction code="8000160" desc="用户转账">
+        <sql name="QryCusInf"><!-- 查询客户信息-->
+            SELECT cus.CUST_STATUS,cus.CUST_ID as USERID,usr.USR_STATUS as USRSTATUS FROM STPUSRINF usr,STPCUSINF cus WHERE usr.CUST_ID = cus.CUST_ID AND usr.CUST_LOGIN = #{USRMP}
+        </sql>
+        <sql name="SelAccInf"><!-- 查询客户账户信息:状态和余额-->
+            select a.PAY_AC_NO as PAY_AC_NO,a.CASH_AC_BAL,a.AC_STATUS from ARP_AC_PROFILE a,STPUSRINF b where b.CUST_ID=#{USERID} and (b.CUST_ID =substr(a.PAY_AC_NO,0,14))
+        </sql>
+        <sql name="QryRecvInf"> <!--查询转入方信息trim(c.CUST_LOGIN)=trim(a.TGetAccNo) -->
+            SELECT distinct #{seqno1} ACC_SEQ,#{payacno} PAY_AC_NO, a.TotAmt TXN_AMT,'' OPP_ACC_NO,'CNY' CCY,'D' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM StpTraInf a,ARP_AC_CUST_REL b,STPUSRINF c WHERE a.batNo=#{ZZNO} and  trim(c.CUST_ID)=trim(a.CUST_ID) and trim(b.CUST_ID)=trim(c.CUST_ID) 
+            union
+            SELECT #{seqno2} ACC_SEQ,a.TGETACCNO PAY_AC_NO, a.txAmt TXN_AMT,#{payacno} OPP_ACC_NO,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM StpTraInf a,ARP_AC_CUST_REL b,STPUSRINF c WHERE  a.batNo=#{ZZNO} and  trim(c.CUST_ID)=trim(a.CUST_ID) and trim(b.CUST_ID)=trim(c.CUST_ID)
+        </sql>
+        <sql name="UpdSts"> <!-- 更新转账订单表 -->
+            update StpTraInf set OrdStatus='01' where traOrdNo=#{ORDNO}
+        </sql>
+        <sql name="QryPassInf"><!-- 查询客户支付密码信息-->
+            SELECT PASSWORD FROM ARP_AC_CUST_REL WHERE PAY_AC_NO=#{PAYNO}
+        </sql>
+        <sql name="QryGetAccNo"><!-- 查询客户账户信息:帐号-->
+            select a.PAY_AC_NO as TGetAccNo from ARP_AC_PROFILE a,STPUSRINF b where b.CUST_LOGIN=#{TGetAccNo} and (b.CUST_ID =substr(a.PAY_AC_NO,0,14))
+        </sql>
+        <process>
+            <set name="PrdOrdType"  value="4"       />
+            <set name="usrMP"       expr="usrMP"    />
+            <set name="paypwd"      expr="paypwd"   />
+            <set name="TGetAccNo"   expr="TGetAccNo"/>
+            <set name="txAmt"       expr="txAmt"    />
+            
+            <!-- 同账户不能转账 -->
+            <if condition="IS_EQUAL_STRING(USRMP,TGETACCNO)">
+                <set name="RspCod"    value="009992"            />
+                <set name="RspMsg"    value="同账户不能转账！"  />
+                <return/>
+            </if>
+            
+            <set name="returnNames"     value="payOrdNo,payCustNo,getCustNo,FLOR_TIME,txAmt,Filed" />
+            
+            <!-- 检查支付密码是否冻结 -->
+            <set name="RCS_PWD_TYPE"        value="3"           />
+            <set name="RCS_USER_CODE"       expr="USRMP"        />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"     />
+            <set name="RCS_PRD_NO"          value=""            />
+            <set name="RCS_TCODE"           value="5"           />
+            <set name="RCS_STATUS"          value="0"           />
+            <!--quote name="tranPwdLock"/-->
+            
+            <set name="getCustNo"   expr="TGETACCNO"/>
+            
+            <quote name="usrChk"/>
+            <quote name="chkAcc"/>
+            <quote name="getPublicInfo"/>
+            <!--验证用户认证状态-->
+            <if condition="IS_NOEQUAL_STRING(USRSTATUS,'2')">
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="您目前未进行身份认证,请提交认证资料通过后再进行转账！"/>
+                <return/>
+            </if>
+            
+            <set name="TXAMT"           expr="TXAMT"        />
+            <set name="CASH_AC_BAL"     expr="CASH_AC_BAL"  />
+            
+            <!--验证可转金额是否大于转账金额-->
+            <if condition="DOUBLECMP(AMTPOWER(TXAMT,2),6,CASH_AC_BAL)">
+                <set name="RspCod"    value="20014"/>
+                <set name="RspMsg"    value="转账金额大于账户余额！"/>
+                <return/>
+            </if>
+            
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryGetAccNo" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"    value="009992"            />
+                <set name="RspMsg"    value="用户帐号信息不存在"/>
+                <return/>
+            </if>
+            
+            <!--建立转账订单表-->
+            <!--获取序号 -->
+            <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpTraInf','TraOrdNo')"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+            </if>
+            <set name="ZZNO"        expr="STRCAT('T',SUBSTR(nowDate,2,7),KeyVal)"/>
+            <set name="traOrdNo"    expr="ZZNO"/>
+            <set name="batNo"       expr="ZZNO"/><!--批次号-->
+            <set name="CUST_ID"     expr="USERID"/><!--Cust_id-->
+            <set name="txAmt"       expr="AMTPOWER(TXAMT,2)"/><!--转账金额-->
+            <set name="TOTAMT"      expr="TXAMT"/>   
+            <set name="traTime"     expr="GETDATETIME()"/>
+            <set name="CLEARDAT"    expr="nowDate"/>
+            <set name="ordCcy"      value="CNY"/>
+            <set name="txCcy"       expr="ordCcy"/>
+            <set name="OrdStatus"   value="00"/>    <!--待付款-->
+            <set name="filed1"      expr="REMARK"/> <!--备注-->
+            <set name="TGETACCNO"   expr="TGETACCNO"/><!--收款账号-->
+            <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam"  value="StpTraInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          expr="traOrdNo"         />
+                <set name="RCS_TCODE"           value=""                />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+            
+            <!--校验支付密码-->
+            <set name="PAYNO"      expr="PAY_AC_NO"/>
+            <set name="paypwd"     expr="PAYPWD"/>
+            <!--quote name="chkPayPwd"/-->
+            
+            <!--转账-->
+            <set name="payacno"     expr="PAY_AC_NO"/><!--转出账号-->
+            <set name="seqno1"      value="001"/> 
+            <set name="seqno2"      value="002"/> 
+            <do func="QueryInGroup" error="IGNORE">
+                <para name="SqlCmd"      sql="QryRecvInf" />
+                <para name="RecordName"  value="ACC_GROUP" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="07001"/>
+                <set name="RspMsg"    value="该转账订单信息不存在"/>
+                <return/>
+            </if>     
+            
+            <!--记账处理-->
+            <set name="TXN_COD"          value="880401"/>           <!--交易码 用户转账-->
+            <set name="TXN_SUB_COD"      value="001"/>              <!--交易子码-->
+            <set name="NOTENUM"          expr="RECNUM"/>            <!--传票数-->
+            <set name="TXN_TLR"          expr="USERID"/>            <!--柜员号-->
+            <quote name="accProcess_old"/>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="08060"/>
+               <set name="RspMsg"    value="转账失败"/>
+               <return/>
+            </if>
+            
+            <!--更新订单状态-->
+            <set name="ORDNO"    expr="traOrdNo"/>
+            <do func="ExecSql" error="IGNORE">
+               <para name="SqlCmd" sql="UpdSts"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="数据库操作错误"/>
+               <return/>
+            </if>
+            
+            <!--通知风控系统登记订单信息-->
+            <set name="ServiceCode" value="680517"/>
+            <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+            <set name="TCODE"       expr="traOrdNo"/>           <!--平台流水号 转账订单号-->
+            <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+            <set name="CLIENTCODE"  expr="USERID"/>     <!--客户编号-->
+            <set name="CLIENTNAME"  expr="USERID"/>
+            <set name="MOBILEPHONE" expr="USRMP"/>
+            <set name="TRANTYPE"    value="6"/>                 <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+            <set name="TAMT"        expr="TXAMT"/>
+            <set name="REGDTTIME"   expr="GETDATETIME()"/>
+            <set name="Time"        expr="SUBSTR(REGDTTIME,1,8)"/>
+            <quote name="noticRcs"/>
+
+            <set name="payOrdNo"    expr="zzno"/>
+            <set name="payCustNo"   expr="USRMP"/>
+            <set name="FLOR_TIME"   expr="GETDATETIME()"/>
+            <set name="txAmt"       expr="AMTFMT(txAmt)"/>
+            <set name="Filed"       expr="FIELD"/> 
+            
+            <set name="RspCod"    value="000000"/>
+            <set name="RspMsg"    value="交易成功"/>
+            
+            <set name="RCS_USER_CODE"       expr="USRMP"            />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+            <set name="RCS_PRD_NO"          expr="traOrdNo"         />
+            <set name="RCS_TCODE"           value=""                />
+            <set name="RCS_STATUS"          value="1"               />
+            <quote name="tranByRightTime"/>
+        </process>
+    </transaction>
+    
+    <transaction code="8000170"  desc="用户订单浏览">
+        <sql name="queryAllInf"> <!--  查询用户收款交易记录  -->
+        select * from(
+            select  p.TRAORDNO as prdOrdNo1,p.TRAORDNO as prdOrdNo,To_Char(to_date(p.traTime,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss')     as orderDate ,'' as Transort,
+            '转出' as TransortName,TO_CHAR(to_number(p.TXAMT)/100,'FM9999,999,999,990.00')    as ORDAMT,  ordstatus,decode(trim(ordstatus),'00','待付款','01','付款成功
+','02','付款失败','12','预付费','99','付款超时') as ordstatusName,1 as pageflags
+            from vw_StpTraInf p , stpusrinf a
+            where  p.cust_id=a.cust_id ${USERID1}
+             ${prdOrdNo1} ${orderDate1}
+            union
+            select  p.PRDORDNO as prdOrdNo1,p.PRDORDNO as prdOrdNo,
+            To_Char(to_date(p.orderTime,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss')  as orderDate
+            ,p.transort as transort,decode(p.prdordtype,'1','充值','消费') as TransortName,
+            TO_CHAR(to_number(p.ORDAMT)/100,'FM9999,999,999,990.00') as ORDAMT,
+             p.ordstatus as ordstatus,ordstatusName,decode(p.prdordtype,'1',4,2) as pageflags
+            from vw_StpPrdInf p, stpusrinf a
+            where  p.cust_id=a.cust_id ${USERID2}
+                  ${prdOrdNo2} ${orderDate2}
+
+            union
+            select  p.casOrdNo as prdOrdNo1,p.casOrdNo as prdOrdNo,To_Char(to_date(p.actDat,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss')  as orderDate    ,'' as Transort,'提现' as TransortName,TO_CHAR(to_number(p.txAmt)/100,'FM9999,999,999,990.00')     as ORDAMT,    ordstatus,ordstatusName ,3 as pageflags
+            from vw_StpCasInf p, stpusrinf a
+            where  p.cust_id=a.cust_id ${USERID3}
+                  ${prdOrdNo3} ${orderDate3}
+
+            union
+            select  p.TRAORDNO as prdOrdNo1,p.TRAORDNO as prdOrdNo,To_Char(to_date(p.traTime,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as orderDate ,'' as Transort,'收款' as TransortName,   TO_CHAR(to_number(p.TXAMT)/100,'FM9999,999,999,990.00')    as ORDAMT,  OrdStatus    ,decode(trim(ordstatus),'00','待付款','01','收款成功','02','收款失败','99','付款超时') as ordstatusName,5 as pageflags
+            from vw_StpTraInf p,stpusrinf a ,ARP_AC_CUST_REL r
+            where  p.TGetAccNo=r.pay_ac_no and a.cust_id=r.cust_id ${USERID5}
+                   ${prdOrdNo5} ${orderDate5}
+            ) zz order by zz.orderDate desc
+        </sql>
+        <process>
+            <set name="returnNames"     value="GRP,ALLPAGENUM"        />
+            
+            <set name="UsrMp"       expr="UsrMp"/>
+            
+            <if condition="ISNULL(PageNum)">
+              <set name="PageNum"       value="1"/>
+            </if>
+            <if condition="ISNULL(G_NumPerPag)">
+              <set name="G_NumPerPag"     value="10"/>
+            </if>
+            
+            <set name="Condition"      value=""/>
+            <set name="Fh"             value="'"/>
+            
+            <!-- 检测输入项 -->
+            <if condition="IS_EQUAL_STRING(STARTDATE,'')">            <!--  如果没输入，就传送空值    -->
+                <set name="startDate"      expr="CALCDATE(GETDATE(),'-','d',31)"/>
+            </if>
+            <else>
+                <if condition="INTCMP(STRLEN(STARTDATE),4,8)">
+                    <set name="startDate"     expr="FMTDATE(STARTDATE,4,0)" />         <!-- 开始时间 -->
+                </if>
+            </else>
+            
+            <if condition="IS_EQUAL_STRING(ENDDATE,'')">            <!--  如果没输入，就传送空值    -->
+                <set name="endDate"        expr="GETDATETIME('YYYYMMDD')"/>
+            </if>
+            <else>
+                <if condition="INTCMP(STRLEN(ENDDATE),4,8)">
+                    <set name="endDate"     expr="FMTDATE(ENDDATE,4,0)" />         <!-- 结束时间 -->
+                </if>
+            </else>
+            
+            <set name="orderDate1"      expr="STRCAT(' and TRATIME      &gt;= ',Fh, STRCAT(STARTDATE,'000000'),Fh,' and  TRATIME      &lt;=',Fh,STRCAT(endDate,'235959'),Fh)"/>
+            <set name="orderDate2"      expr="STRCAT(' and orderTime    &gt;= ',Fh, STRCAT(STARTDATE,'000000'),Fh,' and  orderTime   &lt;=',Fh,STRCAT(endDate,'235959'),Fh)"/>
+            <set name="orderDate3"      expr="STRCAT(' and actDat       &gt;= ',Fh, STRCAT(STARTDATE,'000000'),Fh,' and  actDat      &lt;=',Fh,STRCAT(endDate,'235959'),Fh)"/>
+            <set name="orderDate4"      expr="STRCAT(' and orderDate    &gt;= ',Fh, STARTDATE,Fh,' and  orderDate   &lt;=',Fh,endDate,Fh)"/>
+            <set name="orderDate5"      expr="STRCAT(' and TRATIME      &gt;= ',Fh, STRCAT(STARTDATE,'000000'),Fh,' and  TRATIME      &lt;=',Fh,STRCAT(endDate,'235959'),Fh)"/>
+            <set name="orderDate6"      expr="STRCAT(' and ORDERDATE    &gt;= ',Fh, STARTDATE,Fh,' and  ORDERDATE   &lt;=',Fh,endDate,Fh)"/>
+            <if condition="INTCMP(STRLEN(STARTDATE),3,8)">
+                <set name="startDate"     expr="FMTDATE(STARTDATE,0,4)" />
+            </if>
+            <if condition="INTCMP(STRLEN(ENDDATE),3,8)">
+                <set name="ENDDATE"       expr="FMTDATE(ENDDATE,0,4)" /> 
+            </if>
+            
+            <if condition="IS_NOEQUAL_STRING(prdOrdNo,'')">            
+                <set name="prdOrdNo1"      expr="STRCAT(' and TRAORDNO  like ',Fh,'%',prdOrdNo,'%',Fh)"/>
+                <set name="prdOrdNo2"      expr="STRCAT(' and PRDORDNO  like ',Fh,'%',prdOrdNo,'%',Fh)"/>  
+                <set name="prdOrdNo3"      expr="STRCAT(' and casOrdNo  like ',Fh,'%',prdOrdNo,'%',Fh)"/>  
+                <set name="prdOrdNo4"      expr="STRCAT(' and regOrdNo  like ',Fh,'%',prdOrdNo,'%',Fh)"/>
+                <set name="prdOrdNo5"      expr="STRCAT(' and TRAORDNO  like ',Fh,'%',prdOrdNo,'%',Fh)"/>  
+                <set name="prdOrdNo6"      expr="STRCAT(' and lodOrdNo  like ',Fh,'%',prdOrdNo,'%',Fh)"/>     
+            </if>
+            <else>
+                <set name="prdOrdNo1"      value=""/>
+                <set name="prdOrdNo2"      value=""/>  
+                <set name="prdOrdNo3"      value=""/>  
+                <set name="prdOrdNo4"      value=""/>
+                <set name="prdOrdNo5"      value=""/>
+                <set name="prdOrdNo6"      value=""/>  
+            </else>
+            
+            <set name="USERID1"         value=" and cust_login = ' '" /> 
+            <set name="USERID2"         value=" and cust_login = ' '" /> 
+            <set name="USERID3"         value=" and cust_login = ' '" /> 
+            <set name="USERID4"         value=" and cust_login = ' '" /> 
+            <set name="USERID5"         value=" and cust_login = ' '"  /> 
+            <set name="USERID6"         value=" and cust_login = ' '" /> 
+            <if condition="ISNULL(BUSITYPE)">
+                <set name="traType"   value=""/>
+            </if>
+            <else>
+                <switch expr="BUSITYPE">
+                    <case value="1">
+                    	<set name="traType"   value="5"/>
+                      <break/>
+                    </case>
+                    <case value="2">
+                    	<set name="traType"   value="2"/>
+                      <break/>
+                    </case>
+                    <case value="3">
+                    	<set name="traType"   value="3"/>
+                      <break/>
+                    </case>
+                    <case value="4">
+                    	<set name="traType"   value="4"/>
+                      <break/>
+                    </case>
+                    <case value="5">
+                    	<set name="traType"   value="6"/>
+                      <break/>
+                    </case>
+                    <default>
+                    	<set name="traType"   value="1"/>
+                    </default>
+                </switch>
+            </else>
+            <switch expr="traType">
+                <case value="1">
+                    <set name="USERID1"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID2"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID3"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID4"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID5"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" /> 
+                    <set name="USERID6"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <break/>
+                </case> 
+                <case value="2">
+                    <set name="USERID1"      value=" and cust_login = ' '" />
+                    <set name="USERID2"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID3"      value=" and cust_login = ' '" />
+                    <set name="USERID4"      value=" and cust_login = ' '" />
+                    <set name="USERID5"      value=" and cust_login = ' '" />
+                    <set name="USERID6"      value=" and cust_login = ' '" />
+                    <break/>
+                </case>
+                <case value="3"><!--充值-->   
+                    <set name="USERID4"         expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />  
+                    <set name="USERID1"         value=" and cust_login = ' '" />                     
+                    <set name="USERID2"         expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />        <!-- 商品订单 StpPrdInf -->             
+                    <set name="USERID3"         value=" and cust_login = ' '" />
+                    <set name="USERID5"         value=" and cust_login = ' '" />    
+                    <set name="USERID6"         value=" and cust_login = ' '" /> 
+                    <break/>
+                </case>
+                <case value="4"><!-- 提现 -->    
+                    <set name="USERID3"         expr="STRCAT(' and cust_login = \'',USRMP,'\'')" /> 
+                    <set name="USERID1"         value=" and cust_login = ' '" />
+                    <set name="USERID2"         value=" and cust_login = ' '" />
+                    <set name="USERID4"         value=" and cust_login = ' '" />
+                    <set name="USERID5"         value=" and cust_login = ' '" />   
+                    <set name="USERID6"         value=" and cust_login = ' '" /> 
+                    <break/>
+                </case>
+                <case value="5"><!-- 付款 -->    
+                    <set name="USERID1"         expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID2"         value=" and cust_login = ' '" />
+                    <set name="USERID3"         value=" and cust_login = ' '" />
+                    <set name="USERID4"         value=" and cust_login = ' '" /> 
+                    <set name="USERID5"         value=" and cust_login = ' '" />   
+                    <set name="USERID6"         value=" and cust_login = ' '" /> 
+                    <break/>
+                </case>
+                <case value="6"><!-- 收款 -->
+                    <set name="USERID5"         expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID1"         value=" and cust_login = ' '" />
+                    <set name="USERID2"         value=" and cust_login = ' '" />
+                    <set name="USERID3"         value=" and cust_login = ' '" /> 
+                    <set name="USERID4"         value=" and cust_login = ' '" />
+                    <set name="USERID6"         value=" and cust_login = ' '" /> 
+                    <break/>
+                </case>
+                <default>
+                    <!--查询商品订单记录-->
+                    <set name="USERID1"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID2"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID3"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID4"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID5"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                    <set name="USERID6"      expr="STRCAT(' and cust_login = \'',USRMP,'\'')" />
+                </default>
+            </switch>
+            <if condition="IS_EQUAL_STRING(USERID1,'')">
+                <set name="USERID1"      value=" and cust_login = ' '" />
+            </if>
+            <if condition="IS_EQUAL_STRING(USERID2,'')">
+                <set name="USERID2"      value=" and cust_login = ' '" />
+            </if>
+            <if condition="IS_EQUAL_STRING(USERID3,'')">
+                <set name="USERID3"      value=" and cust_login = ' '" />
+            </if>
+            <if condition="IS_EQUAL_STRING(USERID4,'')">
+                <set name="USERID4"      value=" and cust_login = ' '" />
+            </if>
+            <if condition="IS_EQUAL_STRING(USERID5,'')">
+                <set name="USERID5"      value=" and cust_login = ' '" />
+            </if>
+            <if condition="IS_EQUAL_STRING(USERID6,'')">
+                <set name="USERID6"      value=" and cust_login = ' '" />
+            </if>
+            
+            <!-- 客户端传过来的PageNum从0开始 -->
+            <set name="PageNum"         expr="ADD(PageNum,1)"/>
+            
+            <do func="PagedQuery"       error="ignore">
+                <para name="PageNum"      expr="PageNum"/>
+                <para name="NumPerPag"    expr="G_NumPerPag"/>
+                <para name="Sql"          sql="queryAllInf"/>
+            </do>
+            <if condition="#RetCod==2">
+                <set name="MsgTyp"          value="E"/>
+                <set name="RspCod"          value="09999"/>
+                <set name="RspMsg"          value="无交易记录"/>
+                <set name="TOLCNT"          value="0"/>
+                <set name="ALLPAGENUM"      value="0"/>
+                <set name="RECNUM"          value="0"/>
+                <set name="PAGENUM"         value="0"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="009999"/>
+                <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+                <return/>
+            </elseif>
+            
+            <set name="ALLPAGENUM"      expr="DIV(TOLCNT,G_NumPerPag)"/>
+            <set name="mob"             expr="MOD(TOLCNT,G_NumPerPag)"/>
+            <if condition="IS_NOEQUAL_STRING(MOB,'0')">
+                <set name="ALLPAGENUM"     expr="ADD(ALLPAGENUM,1)"/>
+            </if>
+            <if condition="INTCMP(PageNum,6,ALLPAGENUM)">
+                <set name="returnNames"     value="ALLPAGENUM"     desc="如果传入的页面大于实际页面，此次查询无效"/>
+            </if>
+            <set name="MsgTyp"        value="N"/>
+            <set name="RspCod"        value="000000"/>
+            <set name="RspMsg"        value="交易成功"/>
+        </process>
+    </transaction>
+    
+    <transaction code="8000190" desc="订单支付">
+        <sql name="QryCusInf"><!-- 查询客户信息-->
+            SELECT cus.CUST_STATUS,cus.CUST_ID as USERID,usr.USR_STATUS as USRSTATUS FROM STPUSRINF usr,STPCUSINF cus WHERE usr.CUST_ID = cus.CUST_ID AND usr.CUST_LOGIN = #{USRMP}
+        </sql>
+        <sql name="SelAccInf"><!-- 查询客户账户信息:状态和余额-->
+            select a.PAY_AC_NO as PAY_AC_NO,a.CASH_AC_BAL,a.AC_STATUS from ARP_AC_PROFILE a,STPUSRINF b where b.CUST_ID=#{USERID} and (b.CUST_ID =substr(a.PAY_AC_NO,0,14))
+        </sql>
+        <sql name="SelPrdInf"><!-- 查询要支付的订单信息-->
+            select a.*,a.ORDAMT as OrderAmt from stpprdinf a where PrdOrdNo=#{ORDERNUM}
+        </sql>
+        <sql name="QryRecvInf"> <!--查询支付订单信息-->
+            SELECT  #{seqno1} ACC_SEQ,#{payacno} PAY_AC_NO, a.ordAmt TXN_AMT,'' OPP_ACC_NO,'CNY' CCY,'D' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM stpprdinf a,ARP_AC_CUST_REL b,STPUSRINF c WHERE a.PrdOrdNo=#{ORDERNUM} and  trim(c.CUST_ID)=trim(a.CUST_ID) and trim(b.CUST_ID)=trim(c.CUST_ID) 
+            union
+            SELECT #{seqno2} ACC_SEQ,b.pay_ac_no PAY_AC_NO, a.ordAmt TXN_AMT,#{payacno} OPP_ACC_NO,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM stpprdinf a,ARP_AC_CUST_REL b WHERE  a.PrdOrdNo=#{ORDERNUM} and  trim(b.CUST_ID)=trim(a.merno) 
+        </sql>
+        <sql name="UpdSts"> <!-- 更新商品订单表 -->
+            update stpprdinf set OrdStatus='01' where PrdOrdNo=#{ORDERNUM}
+        </sql>
+        <sql name="QryPayInf"> <!--查询客户支付信息 -->
+            SELECT distinct #{seqno2} ACC_SEQ,'' ACC_SUBJECT,b.PAY_AC_NO PAY_AC_NO, #{netRecAmt} TXN_AMT,'' OPP_ACC_NO,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM StpPayInf a,ARP_AC_CUST_REL b WHERE a.payordno=#{payordno} and trim(b.CUST_ID)=trim(a.MerNo)
+            union
+            SELECT #{seqno1} ACC_SEQ,#{ACC_SUBJECT} ACC_SUBJECT,'' PAY_AC_NO, a.txAmt TXN_AMT,'' OPP_ACC_NO,'CNY' CCY,'D' DR_CR_FLAG,'I' OPP_ACC_SIGN FROM StpPayInf a WHERE a.payordno=#{payordno}
+        </sql>
+        <sql name="QryBnkSubject"> <!--查询银行科目表-->
+            SELECT gl_code FROM FCS_ACC_SUBJECT WHERE gl_name LIKE '%应收银行%${glname}%'
+        </sql>
+        <sql name="QryPassInf"><!-- 查询客户支付密码信息-->
+            SELECT PASSWORD FROM ARP_AC_CUST_REL WHERE PAY_AC_NO=#{PAYNO}
+        </sql>
+        <sql name="UpdPrd"> <!-- 更新商品订单表 -->
+            PrdOrdNo = #{ORDERNUM}
+        </sql>
+        <sql name="UpdPay"> <!-- 更新商品订单表 -->
+            payOrdNo = #{payOrdNo}
+        </sql>
+        <sql name="QryBnkBankCode"> <!--查询银行缩写-->
+            select BANKCODE,BANKCODE as BANKCOD from crdbininf where BINCTT like substr(#{BANKNO},0,6)
+        </sql>
+        <process>
+            <set name="PayType"     value="01"      />
+            <set name="UsrMp"       expr="UsrMp"    />
+            <set name="OrderNum"    expr="OrderNum" />
+            <set name="PayNo"       expr="PayNo"    />
+            <set name="PayPwd"      expr="PayPwd"   />
+            <set name="OrderAmt"    expr="OrderAmt" />
+            <set name="PayAmt"      expr="PayAmt"   />
+            
+            <!-- 检查支付密码是否冻结 -->
+            <set name="RCS_PWD_TYPE"        value="3"           />
+            <set name="RCS_USER_CODE"       expr="USRMP"        />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"     />
+            <set name="RCS_PRD_NO"          value=""            />
+            <set name="RCS_TCODE"           value="5"           />
+            <set name="RCS_STATUS"          value="0"           />
+            <!--quote name="tranPwdLock"/-->
+            
+            <!-- 客户端传入支付方式转换 虚拟：01至00 快捷02至03 -->
+            <if condition="IS_EQUAL_STRING(PAYTYPE,'01')">
+                <set name="PAYTYPE"    value="00"/>
+            </if>
+            <if condition="IS_EQUAL_STRING(PAYTYPE,'02')">
+                <set name="PAYTYPE"    value="03"/>
+            </if>
+            
+            <quote name="usrChk"/>
+            <quote name="chkAcc"/>
+            <quote name="getPublicInfo"/>
+            <!-- 查询订单 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="SelPrdInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="订单不存在"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            <set name="AAA" expr="ORDAMT"/>
+            <set name="BBB" expr="CASH_AC_BAL"/>
+            <!--验证订单状态-->
+            <if condition="IS_NOEQUAL_STRING(ORDSTATUS,'00')">
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="当前订单状态不可支付！"/>
+                
+                <set name="RCS_USER_CODE"       expr="USRMP"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          expr="prdOrdNo"         />
+                <set name="RCS_TCODE"           value="订单不可支付"    />
+                <set name="RCS_STATUS"          value="0"               />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>  
+            <!--验证可用金额是否大于订单金额-->
+            <if condition="DOUBLECMP(ORDAMT,6,AMTPOWER(CASH_AC_BAL,2))">
+                <set name="RspCod"    value="20014"/>
+                <set name="RspMsg"    value="订单金额大于账户余额！"/>
+                <return/>
+            </if>
+            <!--校验支付密码-->
+            <set name="PAYNO"      expr="PAY_AC_NO"/>
+            <set name="paypwd"     expr="PAYPWD"/>
+            <!--quote name="chkPayPwd"/-->
+            
+            <!--限额检查  start --> 
+            <set name="txAmt"         expr="AMTPOWER(OrderAmt,2)"/>    <!--交易金额-->
+            <set name="Amt"           expr="txAmt"/>
+            <set name="User_code"     expr="userID"/>
+            <set name="comp_code"     expr="merNo"/>
+            <set name="cust_type"     value="0"/>  
+            <set name="Time"          expr="GETDATETIME()"/>
+            <set name="DATE"          expr="GETDATE()"/>
+            
+            <set name="TRAN_TYPE"      value="2"/>
+            
+            <set name="ServiceCode"   value="680518"/>  
+            <!--quote name="chkLimAmt"/-->
+            <!--限额检查   end-->
+            
+            <!--建立支付订单 start -->
+            <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpPayInf','PayOrdNo',GETDATE())"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+            </if>
+            <set name="payOrdNo"    expr="STRCAT('P',SUBSTR(ActDat,2,7),KeyVal)"></set>
+            
+            <set name="payType"     expr="payType"/>
+            <set name="txCcy"       value="CNY"/>
+            <set name="SignMsg"     expr="signature"/>                    <!--签名信息-->
+            <set name="ActDat"      expr="GETDATETIME()"/>                <!--支付时间-->
+            <set name="OrdStatus"   value="00"/>                          <!--未支付-->
+            <set name="cust_id"     expr="userID"/>
+            <set name="BANKCOD"     expr="BANKCODE"/>  
+            <set name="isProxy"     value="0"/>  
+                 
+            <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam"  value="StpPayInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                <return/>
+            </if> 
+            <!--建立支付订单 end -->
+         
+            <!--支付方式-->
+            <if condition="IS_EQUAL_STRING(PAYTYPE,'00')"><!--虚拟账户支付-->
+                <!--支付-->
+                <set name="payacno"     expr="PAY_AC_NO"/><!--支付账号-->
+                <set name="seqno1"      value="001"/> 
+                <set name="seqno2"      value="002"/> 
+                <do func="QueryInGroup" error="IGNORE">
+                    <para name="SqlCmd"      sql="QryRecvInf" />
+                    <para name="RecordName"  value="ACC_GROUP" />
+                </do>
+                <if condition="#RetCod!=0">
+                    <set name="RspCod"    value="07001"/>
+                    <set name="RspMsg"    value="该订单信息不存在"/>
+                    <return/>
+                </if>     
+                
+                <!--记账处理-->
+                <set name="TXN_COD"          value="880101"/>           <!--交易码 用户转账-->
+                <set name="TXN_SUB_COD"      value="003"/>              <!--交易子码-->
+                <set name="NOTENUM"          expr="RECNUM"/>            <!--传票数-->
+                <set name="TXN_TLR"          expr="USRMP"/>             <!--柜员号-->
+                <quote name="accProcess_old"/>
+                <if condition="#RetCod!=0">
+                    <set name="MsgTyp"    value="E"/>
+                    <set name="RspCod"    value="08060"/>
+                    <set name="RspMsg"    value="支付失败"/>
+                    <set name="ClearDat"     expr="GETDATE()"/>    <!--清算日期-->
+                    <quote name="UpdPay"/>
+                    <set name="acDate"       expr="GETDATE()"/>    <!--清算日期-->  
+                    <set name="acTime"       expr="GETDATETIME('HHMISS')"/>  <!--清算时间-->
+                    <quote name="UpdPrd"/>
+                    <return/>
+                </if>
+                 
+                <set name="acDate"    expr="GETDATE()"/>
+                <set name="acTime"    expr="GETDATETIME('HHMISS')"/>
+                <set name="ClearDat"  expr="GETDATE()"/>
+                <!--更新订单状态-->
+                <set name="ORDNO"       expr="traOrdNo" />
+                <set name="ORDSTATUS"   value="01"      />
+                <quote name="UpdPay"/>
+                
+                <set name="custPayAcNo"  expr="payacno"     desc="支付帐号"/>
+                <!--更新商品订单信息-->
+                <quote name="UpdPrd"/>
+
+            </if>
+            <elseif condition="IS_EQUAL_STRING(PAYTYPE,'03')"><!--快捷支付-->
+                <!--begain 快捷支付送银行  测试-支付成功 -->
+                <set name="PayRet"       value="00"/>
+                <!--end    快捷支付送银行  测试-支付成功 -->
+                <if condition="IS_NOEQUAL_STRING(PayRet,'00')">
+                    <!--<quote name="UpdPay"/>
+                    <quote name="UpdReg"/>    -->           <!--  更新充值订单  -->
+                    <set name="_REQUESTATTR.FORWARDURL"  expr="errorPage"/> 
+                    <set name="acDate"  expr="GETDATE()"/>              <!--清算日期-->
+                    <set name="acTime"  expr="GETDATETIME('HHMISS')"/>  <!--清算时间-->  
+                    <return/>
+                </if>
+                
+                <!-- 查询BankCode -->
+                <do func="ReadRecord" error="IGNORE">
+                    <para name="SqlCmd" sql="QryBnkBankCode" />
+                </do>
+                <if condition="#RetCod==2">
+                    <set name="bankcode"  value=""/>
+                </if>
+                
+                <set name="ORDSTATUS"      value="01"/>
+                <set name="payacno"        expr="PAY_AC_NO"/> 
+                <!--查询银行相应科目-->
+                <quote name="BankCod2Nam"/>
+                <quote name="selBnkSubject"/>
+                <set name="seqno1"      value="001"/>  
+                <set name="seqno2"      value="002"/>  
+                <set name="Tran_type"   value="1"/>     <!--交易方式 1网银、2终端、3消费卡、4虚拟积分 5混合-->
+                <set name="fee"         value="0"/>
+                <set name="netRecAmt"   expr="SUB(ORDAMT,fee)"/>                  <!--净额-->  
+                
+                <!--记账处理-->  
+                <set name="ACC_SUBJECT" expr="gl_code"/>   <!--科目-->  
+                <do func="QueryInGroup" error="IGNORE">
+                    <para name="SqlCmd"      sql="QryPayInf" />
+                    <para name="RecordName"  value="ACC_GROUP" />
+                </do>
+                <if condition="#RetCod!=0">
+                    <set name="RspCod"    value="07001"/>
+                    <set name="RspMsg"    value="该订单信息不存在"/>
+                    <return/>
+                </if>     
+                
+                <set name="TXN_COD"          value="880101"/>           <!--交易码 用户充值-->
+                <set name="TXN_SUB_COD"      value="001"/>
+                <set name="NOTENUM"          expr="RECNUM"/>            <!--传票数-->
+                <set name="TXN_TLR"          expr="USRMP"/>             <!--柜员号-->
+                <quote name="accProcess_old"/>
+                <if condition="#RetCod!=0">
+                    <set name="RspCod"    value="07005"/>
+                    <set name="RspMsg"    value="支付失败"/>
+                    <return/>
+                </if>
+                
+                <set name="TRANTYPE"       value="2"/>                  <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+                <set name="TRANWAY"        value="01"/>                 <!--交易方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付--> 
+                <set name="TXCCY"          value="CNY"/>
+                
+                <set name="acDate"    expr="GETDATE()"/>
+                <set name="acTime"    expr="GETDATETIME('HHMISS')"/>
+                <set name="ClearDat"  expr="GETDATE()"/>
+                <!--更新订单状态-->
+                <set name="ORDNO"    expr="traOrdNo"/>
+                <set name="ORDSTATUS"   value="01"      />
+                <quote name="UpdPay"/>
+                
+                <set name="custPayAcNo"  expr="payacno"     desc="支付帐号"/>
+                <!--更新商品订单信息-->
+                <quote name="UpdPrd"/>
+                
+                <set name="NXTPAG"         expr="succePage"/>     
+                <set name="merRemark"      value="棠棣支付"/> <!-- 商户信息 -->
+                <set name="_REQUESTATTR.FORWARDURL"       expr="NXTPAG"/>    <!--异步通知页面-->
+                
+                <!--登记银行收款结算表-->
+                <do func="GetSeqNo"  error="IGNORE">
+                    <para name="TblNam" value="stpseqrec"/>
+                    <para name="KeyNam" value="KeyNam"/>
+                    <para name="KeyVal" expr="STRCAT('ARP_BANK_REC_STL','SEQ_NO')"/>
+                    <para name="SeqNam" value="KeyVal"/>
+                    <para name="Len"    value="6"/>
+                    <para name="Circle" value="1"/>
+                </do>
+                <if condition="#RetCod!=0">
+                    <set name="MsgTyp"    value="E"/>
+                    <set name="RspCod"    value="09001"/>
+                    <set name="RspMsg"    value="获取序号错误"/>
+                    <return/>
+                </if>
+                <set name="SEQ_NO"           expr="STRCAT(SUBSTR(ActDat,1,4),KeyVal)"/>  
+                <set name="BANK_CODE"        expr="bankcode"/>  
+                <set name="BANK_AC_DATE"     expr="bankStlDate"/>  
+                <set name="BANK_JRN_NO"      expr="bankJrnNo"/>  
+                <set name="TX_CCY"           value="CNY"/>  
+                <set name="TX_AMT"           expr="txAmt"/>  
+                <set name="FEE"              expr="fee"/>      <!--计算手续费  ？？-->
+                <set name="NET_REC_AMT"      expr="netRecAmt"/> 
+                <set name="MER_NO"           expr="merNo"/> 
+                <set name="PRD_ORD_NO"       expr="prdOrdNo"/> 
+                <set name="PAY_CHANNEL"      expr="payType"/>  
+                <set name="PAY_ORD_NO"       expr="payOrdNo"/> 
+                <set name="PAY_ORD_DATE"     expr="GETDATE()"/> 
+                <set name="PAY_BIZ_TYPE"     value="01"/>     <!--01 支付   02 充值-->
+                <set name="REC_STL_STATUS"   value="0"/>      <!--0 正常记账   1 补记账-->
+                <do func="InsertRecord" error="IGNORE">
+                    <para name="TblNam"  value="ARP_BANK_REC_STL" />
+                </do>
+                <if condition="#RetCod!=0">
+                    <set name="MsgTyp"    value="E"/>
+                    <set name="RspCod"    value="09999"/>
+                    <set name="RspMsg"    value="数据库操作错误"/>
+                    <set name="DWZ_STATUS_CODE"   value="300"/>
+                    <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+                    <return/>
+                </if>
+                
+                <set name="TXAMT"     expr="AMTADDDOT(TXAMT)"/>
+                <set name="ACTDAT"    expr="FMTDATE(ActDat,0,4)"/>
+                <set name="FLOR_TIME" expr="GETDATETIME()"/>
+                <set name="OF_TITL"   expr="支付"/>
+                <set name="OF_CONT"   expr="快捷订单支付"/>
+            </elseif>
+            
+            <!--通知风控系统登记订单信息-->
+            <set name="ServiceCode" value="680517"/>
+            <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+            <set name="TCODE"       expr="ORDERNUM"/>           <!--平台流水号 支付订单号-->
+            <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+            <set name="CLIENTCODE"  expr="USERID"/>             <!--客户编号-->
+            <set name="CLIENTNAME"  expr="USRNAME"/>
+            <set name="MOBILEPHONE" expr="USRMP"/>
+            <set name="TAMT"        expr="ORDAMT"/>
+            <set name="REGDTTIME"   expr="STRCAT(nowDate,nowTime)"/>
+            <set name="Time"        expr="nowDate"/>
+            <set name="TRANTYPE"    value="2"/>
+            <!--支付方式-->
+            <if condition="IS_EQUAL_STRING(PAYTYPE,'00')"><!--虚拟账户支付-->
+                <set name="TRANWAY"    value="04"/>
+            </if>
+            <if condition="IS_EQUAL_STRING(PAYTYPE,'03')"><!--快捷支付-->
+                <set name="TRANWAY"    value="05"/>
+            </if>
+            <quote name="noticRcs"/>
+            
+            <set name="RspCod"    value="000000"/>
+            <set name="RspMsg"    value="支付成功"/>
+            
+            <set name="RCS_USER_CODE"       expr="USRMP"            />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+            <set name="RCS_PRD_NO"          expr="prdOrdNo"         />
+            <set name="RCS_TCODE"           value=""                />
+            <set name="RCS_STATUS"          value="1"               />
+            <quote name="tranByRightTime"/>
+        </process>
+    </transaction>
+</application>

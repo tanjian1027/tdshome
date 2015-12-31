@@ -1,0 +1,575 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="DEBUG">
+    <!--交易日志记录配置-->
+    <include file="etc/public/STPCTL_TRC.XML"/>
+    <before>
+        <!--打印ETF树-->
+        <do func="DumpEtf"/>
+        <!--翻页每页显示的条数-->
+        <set name="NumPerPag"                    value="19"/>
+    </before>
+    <after>
+        <do func="DumpEtf"/>
+    </after>
+
+    <transaction code="601021" desc="科目实时余额查询">
+        <sql name="balanceA">              
+          SELECT  ACC_ORG_NO,CCY,ACC_SUBJECT
+            FROM    ACC_TCK_INF   
+           WHERE   1=1 ${ACC_ORG_NOL} ${CCYL}  ${ACC_SUBJECTL}  AND TXN_DAT=#{AC_DATE} 
+        </sql>
+        <sql name="balanceC">              
+          SELECT  COUNT(TCK_SUB_NO) AS UDP_TCK_FLAGC,TO_CHAR(to_number(SUM(TXN_AMT))/100,'FM9999,999,999,990.00') AS TXN_AMTC,SUM(TXN_AMT) AS TXN_AMTC1
+            FROM    ACC_TCK_INF   
+           WHERE   1=1 ${ACC_ORG_NOL} ${CCYL}  ${ACC_SUBJECTL} AND DR_CR_FLAG='C'  AND TXN_DAT=#{AC_DATE}  
+        </sql>
+        <sql name="balanceD">              
+             SELECT  COUNT(TCK_SUB_NO) AS UDP_TCK_FLAGD,TO_CHAR(to_number(SUM(TXN_AMT))/100,'FM9999,999,999,990.00') AS TXN_AMTD,SUM(TXN_AMT) AS TXN_AMTD1
+            FROM    ACC_TCK_INF   
+             WHERE   1=1 ${ACC_ORG_NOL} ${CCYL}  ${ACC_SUBJECTL} AND DR_CR_FLAG='D'  AND TXN_DAT=#{AC_DATE}
+        </sql>
+        <sql name="balanceE">              
+             SELECT  TO_CHAR(to_number(PREV_DR_BAL)/100,'FM9999,999,999,990.00') PREV_DR_BAL,TO_CHAR(to_number(PREV_CR_BAL)/100,'FM9999,999,999,990.00') PREV_CR_BAL
+            FROM    ARP_GENERAL_LEDGER_HIS   
+             WHERE   1=1 ${CCYL} AND GL_CODE=#{ACC_SUBJECT} AND AC_DATE=#{AC_DATE} 
+        </sql>
+        <process>
+            <!--获取按钮权限-->
+            <do func="GetOwnButton"/>
+            <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/ledger/balance.jsp"/>
+            <!--检查用户登录平台是否正确-->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+                <set name="RspCod"               value="01001"/>
+                <set name="RspMsg"               value="用户登录平台不正确"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum"              value="1"/>
+            </if>
+            <if condition="ISNULL(ACC_ORG_NO)">
+                <set name="ACC_ORG_NOL"          value=""/>
+            </if>
+            <else>
+                <set name="ACC_ORG_NOL"          expr="STRCAT('AND ACC_ORG_NO=\'',ACC_ORG_NO,'\'')"/>
+            </else>
+            <if condition="ISNULL(CCY)">
+                <set name="CCYL"                 value=""/>
+            </if>
+            <else>
+                <set name="CCYL"                 expr="STRCAT('AND CCY=\'',CCY,'\'')"/>
+            </else>
+            <set name="ACC_SUBJECT" expr="DELBOTHSPACE(ACC_SUBJECT)"/>
+            <if condition="ISNULL(ACC_SUBJECT)">
+                <set name="RsgCod"         value="01002"/>
+                <set name="RspMsg"         value="会计科目号不能为空！"/>
+                <set name="DWZ_STATUS_CODE" value="300"/>
+                <set name="DWZ_RSP_MSG"     expr="RspMsg"/>
+                <return/>
+            </if>
+            <else>
+                <set name="ACC_SUBJECTL"         expr="STRCAT('AND ACC_SUBJECT=\'',ACC_SUBJECT,'\'')"/>
+            </else>
+            <set name="AC_DATE"                  expr="GETDATE()"/>
+            
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="balanceA" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"               value="02001"/>
+                <set name="RspMsg"               value="没有科目信息"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="balanceC" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"               value="02001"/>
+                <set name="RspMsg"               value="没有科目信息"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="balanceD" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"               value="02001"/>
+                <set name="RspMsg"               value="没有科目信息"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="balanceE" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="PREV_DR_BAL"          value="0.00"/>
+                <set name="PREV_CR_BAL"          value="0.00"/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            
+            <if condition="ISNULL(TXN_AMTD)">
+                <set name="TXN_AMTD"             value="0.00"/>
+                <set name="TXN_AMTD1"            value="0"/>
+            </if>
+            <elseif condition="ISNULL(TXN_AMTC)">
+                <set name="TXN_AMTC"             value="0.00"/>
+                <set name="TXN_AMTC1"            value="0"/>
+            </elseif>  
+            
+            <if condition="DOUBLECMP(TXN_AMTD1,1,TXN_AMTC1)">
+                <set name="J_PREV_DR_BAL"        value="0"/>
+                <set name="J_PREV_CR_BALL"       expr="SUB(TXN_AMTC1,TXN_AMTD1)"/>
+                <set name="J_PREV_CR_BAL"        expr="AMTADDDOT(J_PREV_CR_BALL)"/>
+            </if>
+            <else>
+                <set name="J_PREV_CR_BAL"        value="0"/>
+                <set name="J_PREV_DR_BALL"       expr="SUB(TXN_AMTD1,TXN_AMTC1)"/>
+                <set name="J_PREV_DR_BAL"        expr="AMTADDDOT(J_PREV_DR_BALL)"/>
+            </else>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="交易成功"/>
+        </process>
+    </transaction>
+
+    <transaction code="601022" desc="科目实时明细查询">
+        <sql name="detailist">              
+            SELECT  ACC_DAT,TCK_NO,TCK_SUB_NO,BIZ_TYP_CODE,TXN_DAT,TO_CHAR(to_date(TXN_DAT||TXN_TIM,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') TXN_TIM ,TXN_ORG_NO,RE_ENTRY,UPD_TCK_FLAG,CHK_FLAG,ACC_ORG_NO,CCY,ACC_SUBJECT,DR_CR_FLAG,TO_CHAR(to_number(TXN_AMT)/100,'FM9999,999,999,990.00') TXN_AMT,VCH_TYP,VCH_COD,OPP_ACC_SIGN,OPP_ACC_NO,OPP_ACC_NAME,RMK_COD_INF,TCK_INF
+            FROM    ACC_TCK_INF   
+            WHERE   1=1 ${ACC_ORG_NOL} ${CCYL} ${TXN_TIML} ${ACC_SUBJECTL}  AND TXN_DAT=#{AC_DATE}  order by TXN_DAT||TXN_TIM desc     
+        </sql>
+        <process>
+            <!--获取按钮权限-->
+            <do func="GetOwnButton"/>
+            <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/ledger/KmSdetail.jsp"/>
+            <!--检查用户登录平台是否正确-->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+                <set name="RspCod"               value="01001"/>
+                <set name="RspMsg"               value="用户登录平台不正确"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum"              value="1"/>
+            </if>
+            <if condition="ISNULL(ACC_ORG_NO)">
+                <set name="ACC_ORG_NOL"          value=""/>
+            </if>
+            <else>
+                <set name="ACC_ORG_NOL"          expr="STRCAT('AND ACC_ORG_NO=\'',ACC_ORG_NO,'\'')"/>
+            </else>
+            <if condition="ISNULL(CCY)">
+                <set name="CCYL"                 value=""/>
+            </if>
+            <else>
+                <set name="CCYL"                 expr="STRCAT('AND CCY=\'',CCY,'\'')"/>
+            </else>
+            <set name="ACC_SUBJECT" expr="DELBOTHSPACE(ACC_SUBJECT)"/>
+            <if condition="ISNULL(ACC_SUBJECT)">
+                <set name="ACC_SUBJECTL"         value=""/>
+            </if>
+            <else>
+                <set name="ACC_SUBJECTL"         expr="STRCAT('AND ACC_SUBJECT=\'',ACC_SUBJECT,'\'')"/>
+            </else>
+            <if condition="AND(ISNULL(begin_date),ISNULL(end_date))">
+                <set name="TXN_TIML"             value=""/>
+            </if>
+            <elseif condition="ISNULL(end_date)">
+                <set name="begin_datea"          expr="REPALLSTR(begin_date,':','')"/>
+                <set name="TXN_TIML"             expr="STRCAT('and TXN_TIM &gt;=\'',begin_datea,'\'')"/>
+            </elseif>
+            <elseif condition="ISNULL(begin_date)">
+                <set name="end_datea"            expr="REPALLSTR(end_date,':','')"/>
+                <set name="TXN_TIML"             expr="STRCAT('and TXN_TIM &lt;=\'',end_datea,'\'')"/>
+            </elseif>
+            <else>
+                <set name="end_datea"            expr="REPALLSTR(end_date,':','')"/>
+                <set name="begin_datea"          expr="REPALLSTR(begin_date,':','')"/>
+                <set name="TXN_TIML"             expr="STRCAT('and TXN_TIM &gt;=\'',begin_datea,'\' and TXN_TIM &lt;=\'',end_datea,'\'')"/>
+            </else>
+            <set name="AC_DATE"                  expr="GETDATE()"/>
+            <do func="PagedQuery" error="ignore">
+                <para name="PageNum"             expr="PageNum"/>
+                <para name="NumPerPag"           expr="NumPerPag"/>
+                <para name="Sql" sql="detailist"/>
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"               value="02001"/>
+                <set name="RspMsg"               value="没有订单信息"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="交易成功"/>
+        </process>
+    </transaction>
+    
+    <transaction code="411090" desc="科目维护列表查询" >
+        <sql name="subject">        
+            SELECT GL_CODE,GL_NAME,TO_CHAR(TO_DATE(EFCT_DATE,'YYYYMMDD'),'YYYY-MM-DD')AS EFCT_DATE,TO_CHAR(TO_DATE(EXPIRED_DATE,'YYYYMMDD'),'YYYY-MM-DD') EXPIRED_DATE,GL_TYPE   
+            FROM   FCS_ACC_SUBJECT 
+            WHERE  1=1  ${GL_NAMEL} ${GL_CODEL} 
+            ORDER BY GL_CODE desc        
+        </sql>
+        <process>
+            <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/ledger/subject.jsp"/>
+            <!--检查用户登录平台是否正确-->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+                <set name="RspCod"               value="01001"/>
+                <set name="RspMsg"               value="用户登录平台不正确"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum"              value="1"/>
+            </if>
+            <if condition="ISNULL(GL_NAME)">
+                <set name="GL_NAMEL"             value=""/>
+            </if>
+            <else>
+                <set name="GL_NAMEL"             expr="STRCAT('AND GL_NAME LIKE \'%',GL_NAME,'%\'')"/>
+            </else>
+            <set name="GL_CODE" expr="DELBOTHSPACE(GL_CODE)"/>
+            <if condition="ISNULL(GL_CODE)">
+                <set name="GL_CODEL"             value=""/>
+            </if>
+            <else>
+                <set name="GL_CODEL"             expr="STRCAT('AND GL_CODE LIKE \'%',GL_CODE,'%\'')"/>
+            </else>
+            <!--获取按钮权限-->
+            <do func="GetOwnButton"/>
+            <do func="PagedQuery" error="ignore">
+                <para name="PageNum"             expr="PageNum"/>
+                <para name="NumPerPag"           expr="NumPerPag"/>
+                <para name="Sql" sql="subject"/>
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"               value="02001"/>
+                <set name="RspMsg"               value="没有科目信息"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="交易成功"/>
+        </process>
+    </transaction>
+    
+    <transaction code="411091" desc="科目维护详情">
+        <sql name="subjects">
+            SELECT GL_CODE,GL_NAME,TO_CHAR(TO_DATE(EFCT_DATE,'YYYYMMDD'),'YYYY-MM-DD')AS EFCT_DATE,TO_CHAR(TO_DATE(EXPIRED_DATE,'YYYYMMDD'),'YYYY-MM-DD') EXPIRED_DATE,GL_TYPE,HAS_SL,HAS_DL,DEBIT_CREDIT,ZERO_FLAG,MANUAL_BK_FLAG,TOTAL_CHK_FLAG,ENT_BK_GL,TO_CHAR(TO_DATE(CREATE_DATE,'YYYYMMDD'),'YYYY-MM-DD')AS CREATE_DATE ,To_Char(to_date(CREATE_TIME,'hh24miss'),'hh24:mi:ss')AS CREATE_TIME ,CREATE_USER,  case when LAST_UPD_DATE != ' ' then TO_CHAR(TO_DATE(LAST_UPD_DATE,'YYYYMMDD'),'YYYY-MM-DD') end LAST_UPD_DATE ,case when LAST_UPD_TIME != ' ' then To_Char(to_date(LAST_UPD_TIME,'hh24miss'),'hh24:mi:ss') end LAST_UPD_TIME ,LAST_UPD_USER   
+            FROM   FCS_ACC_SUBJECT 
+            WHERE  1=1 AND GL_CODE=#{GL_CODE}     
+        </sql>
+        <process>
+            <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/ledger/subjects.jsp"/>
+            <!--检查用户登录平台是否正确-->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+                <set name="RspCod"               value="01001"/>
+                <set name="RspMsg"               value="用户登录平台不正确"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum"              value="1"/>
+            </if>
+            <set name="GL_CODE" expr="DELBOTHSPACE(GL_CODE)"/>
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="subjects" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"               value="02001"/>
+                <set name="RspMsg"               value="没有科目信息"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="交易成功"/>
+        </process>
+    </transaction>  
+    
+    <transaction code="411092" desc="科目维护增加">        
+      <sql name="subjectId">
+            SELECT GL_CODE
+            FROM   FCS_ACC_SUBJECT
+            WHERE  GL_CODE=#{GL_CODE}     
+        </sql>
+        <sql name="InsertFcsAccSubject">
+          insert into fcs_acc_subject 
+          (GL_CODE, GL_NAME, EFCT_DATE, EXPIRED_DATE, HAS_SL, HAS_DL, GL_TYPE, 
+          DEBIT_CREDIT, ZERO_FLAG, MANUAL_BK_FLAG, TOTAL_CHK_FLAG, ENT_BK_GL,
+          CREATE_DATE, CREATE_TIME, CREATE_USER, LAST_UPD_DATE, LAST_UPD_TIME,LAST_UPD_USER,  
+          OPN_DATE, OPN_TLR,PRE_DAY_ACC_BAL, ACC_BAL, FLT_ACC_BAL, DR_ACC_NUM, CR_ACC_NUM)
+          values(#{GL_CODE},#{GL_NAME},#{EFCT_DATE},#{EXPIRED_DATE},#{HAS_SL},#{HAS_DL},#{GL_TYPE},
+          #{DEBIT_CREDIT},#{ZERO_FLAG},#{MANUAL_BK_FLAG},#{TOTAL_CHK_FLAG},#{ENT_BK_GL},
+          #{CREATE_DATE},#{CREATE_TIME},#{CREATE_USER},#{LAST_UPD_DATE},#{LAST_UPD_TIME},#{LAST_UPD_USER},
+          #{OPN_DATE},#{OPN_TLR},'0','0','0','0','0')  
+        </sql>
+        <process>
+            <!--检查用户登录平台是否正确-->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+                <set name="RspCod"               value="01001"/>
+                <set name="RspMsg"               value="用户登录平台不正确"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum"              value="1"/>
+            </if>
+            <if condition="IS_EQUAL_STRING(PD,'000')">
+                <set name="_REQUESTATTR.FORWARDURL"   value="/WEB-INF/html/ledger/subjectin.jsp"/>
+            </if>             
+            <!--判断银行信息-->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="subjectId" />
+            </do>
+            <if condition="#RetCod==0">
+                <set name="RspCod"               value="01004"/>
+                <set name="RspMsg"               value="科目信息已存在"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=2">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </elseif>
+            
+            <set name="CREATE_USER"              expr="SESSIONS.UID"/>
+            <set name="CREATE_DATE"              expr="GETDATE()"/>
+            <set name="CREATE_TIME"              expr="GETDATETIME('HHMISS')"/>
+            <set name="EFCT_DATE"                expr="FMTDATE(EFCT_DATE,4,0)"/>
+            <set name="EXPIRED_DATE"             expr="FMTDATE(EXPIRED_DATE,4,0)"/>
+            <set name="GL_CODE"                  expr="GL_CODE"/>
+            <set name="GL_NAME"                  expr="GL_NAME"/>
+            
+            <set name="GL_TYPE"                  expr="GL_TYPE"/>
+            <set name="HAS_SL"                   expr="HAS_SL"/>
+            <set name="HAS_DL"                   expr="HAS_DL"/>
+            <set name="DEBIT_CREDIT"             expr="DEBIT_CREDIT"/>
+            <set name="ZERO_FLAG"                expr="ZERO_FLAG"/>
+            <set name="MANUAL_BK_FLAG"           expr="MANUAL_BK_FLAG"/>
+            <set name="TOTAL_CHK_FLAG"           expr="TOTAL_CHK_FLAG"/>
+            <set name="ENT_BK_GL"                expr="ENT_BK_GL"/>
+            <set name="OPN_DATE"                 expr="GETDATE()"/>
+            <set name="OPN_TLR"                  expr="GETDATETIME('HHMISS')"/>
+            <if condition="INTCMP(EXPIRED_DATE,2,EFCT_DATE)">                
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="失效日期不能晚于或等于生效日期"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="IS_EQUAL_STRING(GL_CODE,GL_NAME)">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="科目编号和科目名称不能相同"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <set name="LAST_UPD_TIME"            value=""/>
+            <set name="LAST_UPD_DATE"            value=""/>
+            <set name="LAST_UPD_USER"            value=""/>  
+            <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="InsertFcsAccSubject"/>
+            </do>       
+            <if condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="交易成功"/>
+            <set name="DWZ_CALLBACK_TYPE"        value="closeCurrent"/>
+            <set name="DWZ_FORWARD_URL"          value="411090.stp?syscod=1120"/>
+            <set name="DWZ_STATUS_CODE"          value="200"/>
+            <set name="DWZ_RSP_MSG"              expr="RspMsg"/>
+        </process>
+    </transaction>
+
+    <transaction code="411093" desc="科目维护更新">        
+        <sql name="subjects">   
+        SELECT GL_CODE,GL_NAME,TO_CHAR(TO_DATE(EFCT_DATE,'YYYYMMDD'),'YYYY-MM-DD')AS EFCT_DATE,TO_CHAR(TO_DATE(EXPIRED_DATE,'YYYYMMDD'),'YYYY-MM-DD') EXPIRED_DATE,GL_TYPE,HAS_SL,HAS_DL,DEBIT_CREDIT,ZERO_FLAG,MANUAL_BK_FLAG,TOTAL_CHK_FLAG,ENT_BK_GL,TO_CHAR(TO_DATE(CREATE_DATE,'YYYYMMDD'),'YYYY-MM-DD')AS CREATE_DATE ,To_Char(to_date(CREATE_TIME,'hh24miss'),'hh24:mi:ss')AS CREATE_TIME ,CREATE_USER,  case when LAST_UPD_DATE != ' ' then TO_CHAR(TO_DATE(LAST_UPD_DATE,'YYYYMMDD'),'YYYY-MM-DD') end LAST_UPD_DATE ,case when LAST_UPD_TIME != ' ' then To_Char(to_date(LAST_UPD_TIME,'hh24miss'),'hh24:mi:ss') end LAST_UPD_TIME ,LAST_UPD_USER   
+        FROM   FCS_ACC_SUBJECT 
+        WHERE  1=1 AND GL_CODE=#{GL_CODE}          
+        </sql>
+        <sql name="updFcsAccSubject">
+          update FCS_ACC_SUBJECT set 
+          GL_NAME=#{GL_NAME},EFCT_DATE=#{EFCT_DATE},EXPIRED_DATE=#{EXPIRED_DATE},
+          LAST_UPD_USER=#{LAST_UPD_USER},LAST_UPD_DATE=#{LAST_UPD_DATE},LAST_UPD_TIME=#{LAST_UPD_TIME},
+          HAS_SL=#{HAS_SL},HAS_DL=#{HAS_DL},GL_TYPE=#{GL_TYPE},DEBIT_CREDIT=#{DEBIT_CREDIT},
+          ZERO_FLAG=#{ZERO_FLAG},MANUAL_BK_FLAG=#{MANUAL_BK_FLAG},TOTAL_CHK_FLAG=#{TOTAL_CHK_FLAG},
+          ENT_BK_GL=#{ENT_BK_GL}
+          where GL_CODE=#{GL_CODE}
+        </sql>
+        <process>
+            <!--检查用户登录平台是否正确-->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+                <set name="RspCod"               value="01001"/>
+                <set name="RspMsg"               value="用户登录平台不正确"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum"              value="1"/>
+            </if>
+            <if condition="IS_EQUAL_STRING(SL,'001')">
+                <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/ledger/subjectup.jsp"/>
+                <!--科目明细 -->
+                <do func="ReadRecord" error="IGNORE">
+                    <para name="SqlCmd" sql="subjects" />
+                </do>
+                <if condition="#RetCod==2">
+                    <set name="RspCod"           value="01004"/>
+                    <set name="RspMsg"           value="没有科目信息"/>
+                    <set name="DWZ_STATUS_CODE"  value="300"/>
+                    <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+                    <return/>
+                </if>
+                <elseif condition="#RetCod!=0">
+                    <set name="RspCod"           value="09999"/>
+                    <set name="RspMsg"           value="系统错误"/>
+                    <set name="DWZ_STATUS_CODE"  value="300"/>
+                    <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+                    <return/>
+                </elseif>
+                <return/>
+            </if>
+            <set name="LAST_UPD_USER"            expr="SESSIONS.UID"/>
+            <set name="LAST_UPD_DATE"            expr="GETDATE()"/>
+            <set name="LAST_UPD_TIME"            expr="GETDATETIME('HHMISS')"/>
+            <set name="EFCT_DATE"                expr="FMTDATE(EFCT_DATE,4,0)"/>
+            <set name="EXPIRED_DATE"             expr="FMTDATE(EXPIRED_DATE,4,0)"/>
+            <if condition="INTCMP(EXPIRED_DATE,2,EFCT_DATE)">                
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="失效日期不能晚于或等于生效日期"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="IS_EQUAL_STRING(GL_CODE,GL_NAME)">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="科目编号和科目名称不能相同"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="updFcsAccSubject"/>
+            </do>           
+            <if condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="交易成功"/>
+            <set name="DWZ_CALLBACK_TYPE"        value="closeCurrent"/>
+            <set name="DWZ_FORWARD_URL"          value="411090.stp?syscod=1120"/>
+            <set name="DWZ_STATUS_CODE"          value="200"/>
+            <set name="DWZ_RSP_MSG"              expr="RspMsg"/>
+        </process>
+    </transaction>
+    
+    <transaction code="411094" desc="科目维护删除">       
+        <process>
+            <!--检查用户登录平台是否正确-->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+                <set name="RspCod"               value="01001"/>
+                <set name="RspMsg"               value="用户登录平台不正确"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum"              value="1"/>
+            </if>
+            <do func="DataEntry" error="IGNORE">
+                <para name="TableName"           value="FCS_ACC_SUBJECT"/>
+                <para name="Method"              value="DELETE"/>                
+                <para name="Columns"             value="*"/>             
+                <para name="keys"                value="GL_CODE/"/>
+            </do>          
+            <if condition="#RetCod!=0">
+                <set name="RspCod"               value="09999"/>
+                <set name="RspMsg"               value="系统错误"/>
+                <set name="DWZ_STATUS_CODE"      value="300"/>
+                <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                <return/>
+            </if>
+            <set name="RspCod"                   value="00000"/>
+            <set name="RspMsg"                   value="删除成功"/>
+            <set name="DWZ_FORWARD_URL"          value="411090.stp?syscod=1120"/>
+            <set name="DWZ_STATUS_CODE"          value="200"/>
+            <set name="DWZ_RSP_MSG"              expr="RspMsg"/>
+        </process>
+    </transaction>
+    
+</application>

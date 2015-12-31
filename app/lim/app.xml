@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="lim" desc="权限系统2.0" log_level="INFO" natures="base,default,remote,channel,javaengine,timer">
+  <module>tangdi.service.TdAppWebLoader</module>
+  <module>tangdi.engine.tags.xml.TdXMLModule</module>
+
+  <!--密文解密-->
+  <atc name="pub" package="tangdi.act.safety">
+    <class>KeyDecrypt</class>
+  </atc>  
+   <!--邮件发送-->
+  <atc name="pub" package="tangdi.sms">
+     <class>TdMailSendNew</class>
+  </atc>
+
+  <atc name="pub" package="tangdi.aes"> <!--密码控件转DES加密-->
+    <class>TdAES</class>
+  </atc>
+  
+  <!--截取交易码-->
+  <atc name="pub" package="tangdi.util">
+    <class>TdCode</class>
+  </atc>
+  <atc name="pub" package="tangdi.procedure">
+    <class>TdStoreRecProc</class>
+  </atc>
+  
+
+  <atc name="pub" package="com.tangdi.util">
+    <class>SetlistSession</class>
+  </atc>
+  
+   <atc name="pub" package="com.tangdi.util"> <!-- 过滤按钮-->
+    <class>GetOwnButton</class>
+   </atc>
+  
+  <expr>com.tangdi.util.getMenuNode</expr>   <!-- 获取最大菜单节点ID-->
+  
+  
+  <timers>
+    <file>etc/TIMCON_LIM.XML</file>
+  </timers>
+  
+  <transactions>
+    <file>etc/AuditOperation_CTL.XML</file>
+    <file>etc/AuxiliaryItem_CTL.XML</file>
+    <file>etc/CorporateMember_CTL.XML</file>
+    <file>etc/PeripheryManage_CTL.XML</file>
+    <file>etc/SystemManage_CTL.XML</file>
+  </transactions>
+  
+  <channels>
+    <!--接入-->
+    <channel name="CTHDMNG1" file="etc/channel/CTHDMANAGE_ATR.XML" />      <!--权限管理服务-->
+    <channel name="CTHDAUD1" file="etc/channel/CTHDAUDIT_ATR.XML" />       <!--审计服务-->
+    <!--接出-->
+    <channel name="STHDMNG1" file="etc/channel/STHDMANAGE_ATR.XML" />      <!--调用权限系统-->
+    <channel name="STHDRCSU" file="etc/channel/STHDRCS_ATR.XML"/>          <!--调用风控系统-->
+  </channels>
+ </application>

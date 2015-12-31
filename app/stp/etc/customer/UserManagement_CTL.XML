@@ -1,0 +1,806 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="OFRTBIZ1" code="100" log_level="DEBUG" >
+  <before>
+    <set name="DWZ_ERROR_CODE"    value="300"/>
+    <set name="DWZ_SUCCESS_CODE"  value="200"/>
+    <set name="DWZ_TIME_OUT_CODE" value="301"/>
+    <do func="GetOwnButton"/>
+    <do func="DumpMsg"/>
+  </before>
+  
+  <after>
+    <do func="DumpMsg"/>
+  </after> 
+  
+  <include file="etc/public/Userp_MACRO.XML"/>
+   
+  <transaction code="412210"   desc="用户认证信息查询">
+      <sql name="user_auth_list">   <!-- 根据条件（客户姓名、客户编号、证件号码、注册日期、认证状态）查询用户信息 -->    
+        select c.CUST_ID,c.CUST_NAME,u.USR_STATUS,u.CUST_LOGIN,c.CUST_CRED_NO,c.CUST_CRED_TYPE,u.ADMIN_ID,
+               To_Char(to_date(u.ADMIN_DATE,'yyyymmdd'),'yyyy-mm-dd') as ADMIN_DATE,
+               To_Char(to_date(c.CUST_REG_DATE||c.CUST_REG_TIME,'yyyymmddhh24miss'),'yyyymmddhh24miss') dates,
+               To_Char(to_date(c.CUST_REG_DATE,'yyyymmdd'),'yyyy-mm-dd') as CUST_REG_DATE
+          from stpcusinf c, stpusrinf u   
+         where c.CUST_ID=u.CUST_ID  and c.CUST_TYPE='0'
+         ${tj} order by dates desc 
+      </sql>
+      <sql name="update_user_auth"> 
+        UPDATE stpusrinf SET  ${USR_STATUS1}, ADMIN_ID='${ADMIN_ID}', ADMIN_DATE='${ADMIN_DATE}', ADMIN_TIME='${ADMIN_TIME}'
+        WHERE CUST_ID = ${cust_id}
+      </sql>
+      <process>
+          <if condition="IS_EQUAL_STRING(flag,'modi')">
+              <if condition="ISNULL(cust_id)">
+                  <set name="RspCod"           value="01005"/>
+                  <set name="RspMsg"           value="客户编号为空"/>
+                  <return/>
+              </if>
+              <if condition="ISNULL(USR_STATUS)">
+                  <set name="RspCod"           value="01006"/>
+                  <set name="RspMsg"           value="认证状态为空"/>
+                  <return/>
+              </if>
+              <!-- 取系统时间、当前操作员 -->
+              <set name="ADMIN_DATE"           expr="GETDATE()"/>
+              <set name="ADMIN_TIME"           expr="GETDATETIME('HHMISS')"/>
+              <set name="ADMIN_ID"             expr="SESSIONS.UID"/>
+              <set name="USR_STATUS1"          expr="STRCAT(' USR_STATUS=\'',USR_STATUS,'\'')"/>
+              <set name="cust_id1"             expr="STRCAT(' cust_id=\'',cust_id,'\'')"/>
+              <!-- 修改协议信息 -->
+              <do func="ExecSql" error="ignore">
+                  <para name="SqlCmd" sql="update_user_auth" />
+              </do>
+              <if condition="#RetCod!=0">
+                  <set name="RspCod"           value="09999"/>
+                  <set name="RspMsg"           value="系统错误"/>
+                  <set name="DWZ_STATUS_CODE"  value="300"/>
+                  <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+                  <return/>
+              </if>
+          </if>
+           <set name="_REQUESTATTR.FORWARDURL"  value="WEB-INF/html/pact/user_auth_list.jsp"/>
+           <!--登录账号-->
+           <if condition="AND(NOT(ISNULL(CUST_LOGIN)),IS_NOEQUAL_STRING(CUST_LOGIN,''))">
+             <!-- 客户登录帐号 -->
+             <set name="tj" expr="STRCAT(tj,' and u.CUST_LOGIN like \'%' ,CUST_LOGIN,'%\'')"/>
+           </if>
+           <!--用户姓名-->
+           <if condition="AND(NOT(ISNULL(CUST_NAME)),IS_NOEQUAL_STRING(CUST_NAME,''))">
+             <!-- 客户姓名 -->
+             <set name="tj" expr="STRCAT(tj,' and c.CUST_NAME like \'%' ,CUST_NAME,'%\'')"/>
+           </if>
+           <!--证件号-->
+           <if condition="AND(NOT(ISNULL(CUST_CRED_NO)),IS_NOEQUAL_STRING(CUST_CRED_NO,''))">
+             <!-- 证件号 -->
+             <set name="tj" expr="STRCAT(tj,' and c.CUST_CRED_NO like \'%' ,CUST_CRED_NO,'%\'')"/>
+           </if>
+           
+           <!--认证状态  -->
+           <if condition="AND(NOT(ISNULL(USR_STATUS)),IS_NOEQUAL_STRING(USR_STATUS,'-1'))">
+             <set name="tj" expr="STRCAT(tj,' and u.USR_STATUS = \'', USR_STATUS ,'\'')"/>
+           </if>
+           <else>
+             <set name="USE_STATUS" value="-1"/>
+           </else>
+           <!--证件类型  -->
+           <if condition="AND(NOT(ISNULL(CUST_CRED_TYPE)),IS_NOEQUAL_STRING(CUST_CRED_TYPE,'-1'))">
+             <set name="tj" expr="STRCAT(tj,' and c.CUST_CRED_TYPE = \'', CUST_CRED_TYPE ,'\'')"/>
+           </if>
+           <else>
+             <set name="CUST_CRED_TYPE" value="-1"/>
+           </else>
+          
+          <if condition="ISNULL(PageNum)">
+              <set name="PageNum"              value="1"/>
+          </if>
+         <if condition="ISNULL(NumPerPag)">
+             <set name="NumPerPag" value="19"/>
+         </if>
+          <!-- 执行条件查询 协议信息 -->
+          <do func="PagedQuery" error="ignore">
+              <para name="PageNum"             expr="PageNum"/>
+              <para name="NumPerPag"           expr="NumPerPag"/>
+              <para name="Sql"                 sql="user_auth_list"/>
+          </do>
+          <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 有信息且查询成功-->
+          <if condition="#RetCod==2"> 
+              <set name="RspCod"               value="00021"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          value="系统错误"/>
+              <return/>
+          </if>
+          <elseif condition="#RetCod!=0">
+              <set name="RspCod"               value="09999"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          value="系统错误"/>
+              <return/>
+          </elseif>
+              
+           <foreach name="GRP" iterator="#grp">
+             <set name="sDeData"       expr="#grp.CUST_CRED_NO"   />
+             <if condition="ISNULL(DES_DECRYPT(sDeData))">
+                <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+             </if>
+             <else>
+                <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+                <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+             </else>
+            <do func="loopSetEach">
+               <para name="ele" expr="#grp.CUST_CRED_NO"/> 
+               <para name="value" expr="descryptdata"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="RspCod"            value="09998"/>
+               <set name="RspMsg"            value="系统错误"/>
+               <set name="DWZ_STATUS_CODE"   value="300"/>
+               <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+               <return/>
+            </if>
+          </foreach>
+           <set name="RspCod"            value="00000"/>
+           <set name="RspMsg"            value="系统错误"/>
+           <set name="DWZ_STATUS_CODE"   value="200"/>
+           <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+          
+      </process>
+  </transaction>
+  
+  <transaction code="412214"   desc="查询单条用户信息 供详情与审核使用">
+      <sql name="select_one_user"><!-- 查询单条用户信息 -->
+        select  c.CUST_ID,c.CUST_NAME,u.PUBLIC_STATUS,u.USR_STATUS,u.CUST_LOGIN,c.CUST_CRED_NO,c.CUST_CRED_TYPE,u.ADMIN_ID,
+                To_Char(to_date(u.ADMIN_DATE,'yyyymmdd'),'yyyy-mm-dd') as ADMIN_DATE,c.CUST_CARD_DATE,
+                u.PUBLIC_PHOTO, u.CRED_PHOTO_FRONT, u.CRED_PHOTO_BACK,u.SEND_TYPE,
+                To_Char(to_date(c.CUST_REG_DATE||c.CUST_REG_TIME,'yyyymmddhh24miss'),'yyyymmddhh24miss') dates,
+                To_Char(to_date(c.CUST_REG_DATE,'yyyymmdd'),'yyyy-mm-dd') as CUST_REG_DATE
+         from  stpcusinf c, stpusrinf u   
+        where  c.CUST_ID=u.CUST_ID  and c.CUST_TYPE='0' and c.cust_id=${cust_id} 
+      </sql>
+      <process>
+          <set name="_REQUESTATTR.FORWARDURL"  value="WEB-INF/html/pact/user_auth_echo.jsp"/>
+          <!-- 查询信息 -->
+          <do func="ReadRecord" error="IGNORE">
+              <para name="SqlCmd" sql="select_one_user"/>
+          </do>
+          <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 执行成功-->
+          <if condition="#RetCod==2">
+              <set name="RspCod"               value="01004"/>
+              <set name="RspMsg"               value="无信息"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <return/>
+          </if>
+          <elseif condition="#RetCod!=0">
+              <set name="RspCod"               value="09999"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <return/>
+          </elseif>
+          
+          <set name="sDeData"       expr="CUST_CRED_NO"   />
+          <if condition="ISNULL(DES_DECRYPT(sDeData))">
+            <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+            <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+            <set name="CUST_CRED_NO"      expr="STRCAT(First,'****',End)"/>
+            <set name="CUST_CRED_NO"      expr="sDeData"   />
+          </if>
+          <else>
+            <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+            <set name="First"             expr="SUBSTR(sDeData,1,3)"/>
+            <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+            <set name="CUST_CRED_NO"      expr="STRCAT(First,'****',End)"/>
+            <set name="CUST_CRED_NO"      expr="sDeData"   />
+          </else>
+          
+          <!--将tds图片存到pay服务器上-->  
+          <set name="ConfigName" value="FtpGetToPay" />
+          <quote name="ReadXmlCfg" />
+          <set name="CRED_PHOTO_FRONT"         expr="STRCAT(ObjDir,CRED_PHOTO_FRONT)"/>
+          <set name="CRED_PHOTO_BACK"          expr="STRCAT(ObjDir,CRED_PHOTO_BACK)"/>
+          <set name="PUBLIC_PHOTO"             expr="PUBLIC_PHOTO"/>
+          
+          <set name="RspCod"                   value="00000"/>
+          <set name="RspMsg"                   value="交易成功"/>
+      </process>
+  </transaction>
+    
+  <transaction code="412300"   desc="查询用户信息">
+    <sql name="queryUserInfo">
+      select c.CUST_ID,c.CUST_NAME,c.CUST_STATUS,u.CUST_LOGIN,c.CUST_CRED_NO,c.CUST_CRED_TYPE,u.USR_STATUS,
+             To_Char(to_date(c.CUST_REG_DATE,'yyyymmdd'),'yyyy-mm-dd') as CUST_REG_DATE,
+             To_Char(to_date(c.CUST_REG_DATE||c.CUST_REG_TIME,'yyyymmddhh24miss'),'yyyymmddhh24miss') dates
+        from stpcusinf c, stpusrinf u   where c.CUST_ID=u.CUST_ID  and c.CUST_TYPE='0' ${tj} 
+       order by dates desc
+    </sql>
+    <process> 
+       <set name="tj" value=""/>
+       <set name="th" value="'"/>
+       <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/user/userinfo.jsp"/>
+       <!--登录账号-->
+       <if condition="AND(NOT(ISNULL(CUST_LOGIN)),IS_NOEQUAL_STRING(CUST_LOGIN,''))">
+         <!-- 客户登录帐号 -->
+         <set name="tj" expr="STRCAT(tj,' and u.CUST_LOGIN =' ,CUST_LOGIN,' ')"/>
+       </if>
+       <!--用户姓名-->
+       <if condition="AND(NOT(ISNULL(CUST_NAME)),IS_NOEQUAL_STRING(CUST_NAME,''))">
+         <!-- 客户姓名 -->
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_NAME like ',th,'%' ,CUST_NAME,'%',th)"/>
+       </if>
+       <!--证件号-->
+       <if condition="AND(NOT(ISNULL(CUST_CRED_NO)),IS_NOEQUAL_STRING(CUST_CRED_NO,''))">
+         <set name="CUST_CRED_NOS"         expr="DES_ENCRYPT(CUST_CRED_NO)"  />
+         <!-- 证件号 -->
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_CRED_NO = ' ,CUST_CRED_NOS,' ')"/>
+       </if>
+       
+       <!--用户注册日期-->
+       <if condition="AND(NOT(ISNULL(START_DAT)),NOT(ISNULL(END_DAT)))">
+         <if condition="INTCMP(END_DAT,1,START_DAT)">
+           <set name="RSPCOD" value="02036"/>
+           <set name="RSPMSG" value="开始日期不能小于结束日期!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+         </if>
+       </if>
+       <if condition="AND(NOT(ISNULL(START_DAT)),NOT(ISNULL(END_DAT)))">
+           <set name="tj" expr="STRCAT(tj,' and subStr(c.CUST_REG_DATE,1,8) &gt;= \'', START_DAT, '\' and subStr(c.CUST_REG_DATE,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <if condition="AND(NOT(ISNULL(END_DAT)),ISNULL(START_DAT))">
+           <set name="tj" expr="STRCAT(tj,' and subStr(c.CUST_REG_DATE,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <if condition="AND(NOT(ISNULL(START_DAT)),ISNULL(END_DAT))">
+           <set name="END_DAT" expr="GETDATE()"/>
+           <set name="tj" expr="STRCAT(tj,' and subStr(c.CUST_REG_DATE,1,8) &gt;= \'', START_DAT, '\' and subStr(c.CUST_REG_DATE,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <!--用户状态 c.CUST_STATUS -->
+       <if condition="AND(NOT(ISNULL(CUST_STATUS)),IS_NOEQUAL_STRING(CUST_STATUS,'-1'))">
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_STATUS = \'', CUST_STATUS ,'\'')"/>
+       </if>
+       <else>
+         <set name="CUST_STATUS" value="-1"/>
+       </else>
+       
+       <!--证件类型  -->
+       <if condition="AND(NOT(ISNULL(CUST_CRED_TYPE)),IS_NOEQUAL_STRING(CUST_CRED_TYPE,'-1'))">
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_CRED_TYPE = \'', CUST_CRED_TYPE ,'\'')"/>
+       </if>
+       <else>
+         <set name="CUST_CRED_TYPE" value="-1"/>
+       </else>
+
+       <if condition="ISNULL(PageNum)">
+           <set name="PageNum" value="1"/>
+       </if>
+       <if condition="ISNULL(NumPerPag)">
+           <set name="NumPerPag" value="19"/>
+       </if>
+       <!--查询用户信息-->
+       <do func="PagedQuery" error="IGNORE">
+         <para name="PageNum" expr="PageNum"/>
+         <para name="NumPerPag" expr="NumPerPag"/>
+         <para name="sql" sql="queryUserInfo"/>
+       </do>
+       <if condition="#RetCod!=-1">
+           
+           <foreach name="GRP" iterator="#grp">
+             <set name="sDeData"       expr="#grp.CUST_CRED_NO"   />
+             <if condition="ISNULL(DES_DECRYPT(sDeData))">
+                <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+             </if>
+             <else>
+                <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+                <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+             </else>
+            <do func="loopSetEach">
+               <para name="ele"   expr="#grp.CUST_CRED_NO"/> 
+               <para name="value" expr="descryptdata"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="RspCod"            value="09998"/>
+               <set name="RspMsg"            value="系统错误"/>
+               <set name="DWZ_STATUS_CODE"   value="300"/>
+               <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+               <return/>
+            </if>
+          </foreach>
+             
+         <!--查询成功-->
+         <set name="RSPCOD" value="00000"/>   
+         <set name="RSPMSG" value="用户信息查询成功!"/>
+         <return/>
+       </if>
+       <else>
+         <set name="RSPCOD" value="00001"/>   
+         <set name="RSPMSG" value="用户信息查询失败!"/>
+         <return/>
+       </else>
+    </process>
+  </transaction>
+  
+  <transaction code="412301"   desc="查询单个用户信息">
+   <sql name="queryUserz">
+      select  c.CUST_ID,c.CUST_NAME,u.CUST_LOGIN,c.CUST_CRED_NO,c.CUST_CRED_TYPE,
+      USR_JOB,USR_ADDRESS,c.CUST_CARD_DATE,u.USR_EMAIL,u.USR_STATUS,c.CUST_STATUS,
+      case when u.NATIONALITY='1' then '中国' else '外国' end NATIONALITY,
+       case when u.USR_GENDER='1' then '女' else '男' end GENDER,
+       To_Char(to_date(c.CUST_REG_DATE||c.CUST_REG_TIME,'yyyymmddhh24miss'),'yyyymmddhh24miss') dates,
+      To_Char(to_date(c.CUST_REG_DATE,'yyyymmdd'),'yyyy-mm-dd') as CUST_REG_DATE
+      from stpcusinf c, stpusrinf u   where c.CUST_ID=u.CUST_ID  and c.CUST_TYPE='0' and
+       c.cust_id =#{CUST_ID} 
+   </sql>
+   <sql name="stpusrjob"> <!--  查询用户信息  --> 
+         SELECT m.enm_dat_des USR_JOB 
+           FROM stpusrinf a, stpcusinf c ,lyxdicenm m
+          WHERE a.CUST_ID=#{CUST_ID} and a.cust_id=c.cust_id 
+                and a.USR_JOB = trim(m.Enm_Dat_Opt) and m.sys_id='0001' and  trim(m.enm_en_nam) like 'USR_JOB' 
+   </sql>
+   <process>
+     <if condition="OR(ISNULL(DELSPACE(CUST_ID,'all')),ISNULL(DELSPACE(CUST_ID,'all')))">
+       <set name="RSPCOD" value="02038"/>
+       <set name="RSPMSG" value="获取用户信息失败!"/>
+       <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+       <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+       <return/>
+     </if>
+     <!--查询基本信息-->
+     <do func="ReadRecord" error="IGNORE">
+       <para name="SqlCmd" sql="queryUserz"/>
+     </do>               
+     <if condition="#RetCod!=0">
+       <if condition="#RetCod==2">
+          <set name="RSPCOD" value="02038"/>
+          <set name="RSPMSG" value="该用户信息为空,浏览失败!"/>
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+          <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+          <return/>
+       </if>
+       <else>
+         <set name="RSPCOD" value="02038"/>
+         <set name="RSPMSG" value="获取该用户息失败!"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         <return/>
+       </else>
+     </if>
+     
+     <!-- 查询用户工作信息 -->
+     <do func="ReadRecord"     error="IGNORE">
+        <para name="SqlCmd"    sql="stpusrjob" />
+     </do>
+     <if condition="#RetCod==2">
+        <set name="MsgTyp"     value="E"/>
+        <set name="RspCod"     value="02008"/>
+        <set name="RspMsg"     value="用户未设置工作"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+        <set name="MsgTyp"     value="E"/>
+        <set name="RspCod"     value="09997"/>
+        <set name="RspMsg"     value="系统操作异常,请稍后再试或联系客服"/>
+        <set name="_REQUESTATTR.FORWARDURL"    value="/html/error.jsp"/>
+        <return/>
+     </elseif> 
+       
+     <set name="sDeData"       expr="Cust_Cred_No"   />
+     <if condition="ISNULL(DES_DECRYPT(sDeData))">
+        <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+        <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+        <set name="Cust_Cred_No"      expr="STRCAT(First,'****',End)"/>
+     </if>
+     <else>
+        <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+        <set name="First"             expr="SUBSTR(sDeData,1,3)"/>
+        <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+        <set name="Cust_Cred_No"      expr="STRCAT(First,'****',End)"/>
+     </else>
+     
+     <if condition="NOT(ISNULL(CUST_CARD_DATE))">
+        <set name="CUST_CARD_DATE"  expr="FMTDATE(CUST_CARD_DATE,0,4)"/>
+     </if>
+     
+     <set name="RSPCOD"          value="00000"/>
+     <set name="RSPMSG"          value="成功查询到该用户信息"/>
+     <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/user/userliulan.jsp"/>
+
+    </process>
+  </transaction>
+  
+  <transaction code="412302"   desc="激活或禁用用户登录">
+    <sql name="deleteLogz">
+      delete from STPLOGTMP where login_name in (select login_name from stpusrinf where CUST_ID=#{CUST_ID}) 
+    </sql>
+    <process>
+     <if condition="OR(ISNULL(CUST_ID),IS_EQUAL_STRING(DELSPACE(CUST_ID,'all'),''))">
+         <set name="RSPCOD" value="02038"/>
+         <set name="RSPMSG" value="获取用户信息失败,请稍后再试"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         <return/>
+     </if>
+     <if condition="OR(ISNULL(LOGIN_FAIL_COUNT),IS_EQUAL_STRING(DELSPACE(LOGIN_FAIL_COUNT,'all'),''))">
+         <set name="RSPCOD" value="02038"/>
+         <set name="RSPMSG" value="获取用户信息失败,请稍后再试"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         <return/>
+     </if>
+     <if condition="INTCMP(LOGIN_FAIL_COUNT,6,4)">
+       <!--禁用状态 改为可用-->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="deleteLogz"/>
+       </do>
+       <if condition="#RetCod==0">
+         <set name="RSPCOD" value="00000"/>
+         <set name="RSPMSG" value="用户登录状态修改成功!"/>  
+         <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE"/>
+         <set name="DWZ_CALLBACK_TYPE" value="forward"/>
+         <set name="DWZ_FORWARD_URL"   value="412300.stp"/>
+         <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <do func="RollBackWork"/>
+         <set name="RSPCOD" value="02088"/>
+         <set name="RSPMSG" value="对不起,数据库中数据有误,修改失败!"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         <return/>
+       </elseif>
+       <else>
+        <do func="RollBackWork"/>
+        <set name="RSPCOD" value="02089"/>
+        <set name="RSPMSG" value="数据库操作有误,修改失败!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+        <return/>
+       </else>
+     </if>
+     <else>
+         <set name="RSPCOD" value="02038"/>
+         <set name="RSPMSG" value="该用户目前已经是可以登录的,不需要修改!"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         <return/>
+     </else>
+    </process>
+  </transaction>
+   
+  <transaction code="412303"   desc="导出当前页所有的用户信息">
+    <sql name="queryUserInfo">
+      select c.CUST_ID,c.CUST_NAME,c.CUST_STATUS,u.CUST_LOGIN,c.CUST_CRED_NO,c.CUST_CRED_TYPE,
+             case when c.CUST_CRED_NO is  null then '' else
+            substr(nvl(DECRYPT_DES(c.CUST_CRED_NO,'0123456789ABCDEF'),''),1,3) || '****' ||
+            substr(nvl(DECRYPT_DES(c.CUST_CRED_NO,'0123456789ABCDEF'),''),(length(nvl(DECRYPT_DES(c.CUST_CRED_NO,'0123456789ABCDEF'),''))-3),4) end
+             CREDNO ,
+             case when u.USR_STATUS='0' then '未认证' when u.USR_STATUS='1' then '审核中' 
+             when u.USR_STATUS='2' then '已通过' when u.USR_STATUS='3' then '未通过' else '未知' end USR_STATUS,
+             case when c.CUST_STATUS='0' then '正常' when c.CUST_STATUS='1' then '试用期' when c.CUST_STATUS='9' then '注销' else '未知' end CUST_STATUSS,
+             case when c.CUST_CRED_TYPE='0' then '居民身份证' when c.CUST_CRED_TYPE='1' then '护照' 
+             when c.CUST_CRED_TYPE='2' then '军官证' when c.CUST_CRED_TYPE='I' then '港澳身份证' 
+             when c.CUST_CRED_TYPE='C' then '台湾居民身份证' when c.CUST_CRED_TYPE='F' then '临时身份证' 
+             when c.CUST_CRED_TYPE='G' then '警察证' when c.CUST_CRED_TYPE='Z' then '其他'  else '未知' end CUST_CRED_TYPE_DES,
+             To_Char(to_date(c.CUST_REG_DATE||c.CUST_REG_TIME,'yyyymmddhh24miss'),'yyyymmddhh24miss') dates,
+             To_Char(to_date(c.CUST_REG_DATE,'yyyymmdd'),'yyyy-mm-dd') as CUST_REG_DATE
+       from  stpcusinf c, stpusrinf u   where c.CUST_ID=u.CUST_ID  and c.CUST_TYPE='0' ${tj} 
+      ORDER  BY DATES DESC
+    </sql>
+    <process>
+       <set name="tj" value=""/>
+       
+       <!--登录账号-->
+       <if condition="AND(NOT(ISNULL(CUST_LOGIN)),IS_NOEQUAL_STRING(CUST_LOGIN,''))">
+         <!-- 客户登录帐号 -->
+         <set name="tj" expr="STRCAT(tj,' and u.CUST_LOGIN like \'%' ,CUST_LOGIN,'%\'')"/>
+       </if>
+       <!--用户姓名-->
+       <if condition="AND(NOT(ISNULL(CUST_NAME)),IS_NOEQUAL_STRING(CUST_NAME,''))">
+         <!-- 客户姓名 -->
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_NAME like \'%' ,CUST_NAME,'%\'')"/>
+       </if>
+       <!--证件号-->
+       <if condition="AND(NOT(ISNULL(CUST_CRED_NO)),IS_NOEQUAL_STRING(CUST_CRED_NO,''))">
+         <!-- 证件号 -->
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_CRED_NO like \'%' ,CUST_CRED_NO,'%\'')"/>
+       </if>
+       
+       <!--用户注册日期-->
+       <if condition="AND(NOT(ISNULL(START_DAT)),NOT(ISNULL(END_DAT)))">
+         <if condition="INTCMP(END_DAT,1,START_DAT)">
+           <set name="RSPCOD"          value="02036"/>
+           <set name="RSPMSG"          value="开始日期不能小于结束日期!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+         </if>
+       </if>
+       <if condition="AND(NOT(ISNULL(START_DAT)),NOT(ISNULL(END_DAT)))">
+           <set name="tj" expr="STRCAT(tj,' and subStr(c.CUST_REG_DATE,1,8) &gt;= \'', START_DAT, '\' and subStr(c.CUST_REG_DATE,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <if condition="AND(NOT(ISNULL(END_DAT)),ISNULL(START_DAT))">
+           <set name="tj" expr="STRCAT(tj,' and subStr(c.CUST_REG_DATE,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <if condition="AND(NOT(ISNULL(START_DAT)),ISNULL(END_DAT))">
+           <set name="END_DAT" expr="GETDATE()"/>
+           <set name="tj" expr="STRCAT(tj,' and subStr(c.CUST_REG_DATE,1,8) &gt;= \'', START_DAT, '\' and subStr(c.CUST_REG_DATE,1,8) &lt;= \'', END_DAT,'\'')"/>
+       </if>
+       <!--用户状态 c.CUST_STATUS -->
+       <if condition="AND(NOT(ISNULL(CUST_STATUS)),IS_NOEQUAL_STRING(CUST_STATUS,'-1'))">
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_STATUS = \'', CUST_STATUS ,'\'')"/>
+       </if>
+       <else>
+         <set name="CUST_STATUS" value="-1"/>
+       </else>
+       
+       <!--证件类型  -->
+       <if condition="AND(NOT(ISNULL(CUST_CRED_TYPE)),IS_NOEQUAL_STRING(CUST_CRED_TYPE,'-1'))">
+         <set name="tj" expr="STRCAT(tj,' and c.CUST_CRED_TYPE = \'', CUST_CRED_TYPE ,'\'')"/>
+       </if>
+       <else>
+         <set name="CUST_CRED_TYPE" value="-1"/>
+       </else>
+       
+       <!--查询用户信息-->
+       <do func="QueryInGroup">
+          <para name="SqlCmd"         sql="queryUserInfo" />
+          <para name="RecordName"     value="reportList" />
+       </do>
+       <if condition="#RetCod!=-1">
+         <set name="RSPCOD" value="02037"/>
+         <set name="RSPMSG" value="操作数据库有误!"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+             
+           <foreach name="GRP" iterator="#grp">
+             <set name="sDeData"       expr="#grp.CUST_CRED_NO"   />
+             <if condition="ISNULL(DES_DECRYPT(sDeData))">
+                <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+             </if>
+             <else>
+                <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+                <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+             </else>
+            <do func="loopSetEach">
+               <para name="ele"   expr="#grp.CUST_CRED_NO"/> 
+               <para name="value" expr="descryptdata"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="RspCod"            value="09998"/>
+               <set name="RspMsg"            value="系统错误"/>
+               <set name="DWZ_STATUS_CODE"   value="300"/>
+               <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+               <return/>
+            </if>
+          </foreach>
+          
+       </if>
+       
+       <!--查询成功-->
+       <do func="ReportExport" error="IGNORE">
+           <para name="Root"          value="reportList"/>
+           <para name="FileDemo"      value="userInfo"/>      <!--导出模板名-->
+           <para name="NameForUser"   value="User_"/>         <!--导出文件名-->
+           <para name="FilePath"      value="rptdemo"/>       <!--导出模板路径-->
+           <para name="FileToPath"    value="/dat/download"/> <!--导出目标地址-->
+           <para name="WebPath"       expr="GETCURAPPHOME()"/> 
+           <para name="params"        value="CUST_NAME/CUST_LOGIN/CREDNO/CUST_CRED_TYPE_DES/CUST_CRED_NO/USR_STATUS/CUST_STATUSS/CUST_REG_DATE"/>
+           <para name="collectParams" value=""/> <!--导出总条数，总金额如果没有传空-->
+       </do>
+       <if condition="#RetCod!=0">
+           <set name="RspCod"    value="02103"/>
+           <set name="RspMsg"    value="导出出错!"/>
+           <set name="DWZ_STATUS_CODE" value="300"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+       </if>
+       <else>
+          <set name="FILENAME"          expr="#FILENAME"/>
+          <!--调用移动方法将文件存到web服务器上-->
+          <set name="ConfigName"        value="FtpPutPay"/>
+          <quote name="ReadXmlCfg"/>
+          <do func="MoveFile">
+              <para name="srcDir" expr="LclDir"    />
+              <para name="srcFil" expr="FILENAME"  />
+              <para name="tarDir" expr="ObjDir"    />
+          </do>
+          <if condition="#RetCod!=0"> 
+              <set name="RspCod"  value="01007"/>  
+              <set name="RspMsg"  value="移动文件错误!"/>  
+              <return/> 
+          </if>
+          
+          <set name="pos_webapps"       expr="GETSTRPOS(ObjDir,'/webapps/')"                                />
+          <set name="ObjDir"            expr="RIGHTSTR(ObjDir,SUB(STRLEN(ObjDir),ADD(pos_webapps,8)))"      />
+    
+          <set name="RspCod"            value="00000"/>
+          <set name="RspMsg"            value="导出成功"/>
+          <set name="DWZ_STATUS_CODE"   expr="DWZ_SUCCESS_CODE"/>
+          <set name="DWZ_RSP_MSG"       expr="RspMsg"/>   
+          <set name="_REQUESTATTR.REDIRECTURL"   expr="STRCAT('/',ObjDir,'/',FILENAME)"/>
+       </else>
+    </process>
+  </transaction>
+  
+  <transaction code="412213"   desc="修改用户认证状态 更新审核结果">
+      <sql name="user_auth_list"><!-- 根据条件（客户姓名、客户编号、证件号码、注册日期、认证状态）查询用户信息 -->
+          select  c.CUST_ID,c.CUST_NAME,u.USR_STATUS,u.CUST_LOGIN,c.CUST_CRED_NO,c.CUST_CRED_TYPE,u.ADMIN_ID,
+       To_Char(to_date(u.ADMIN_DATE,'yyyymmdd'),'yyyy-mm-dd') as ADMIN_DATE,
+       To_Char(to_date(c.CUST_REG_DATE||c.CUST_REG_TIME,'yyyymmddhh24miss'),'yyyymmddhh24miss') dates,
+      To_Char(to_date(c.CUST_REG_DATE,'yyyymmdd'),'yyyy-mm-dd') as CUST_REG_DATE
+      from stpcusinf c, stpusrinf u   where c.CUST_ID=u.CUST_ID  and c.CUST_TYPE='0'
+      order by u.USR_STATUS,dates desc 
+      </sql>
+      <process>
+          <if condition="ISNULL(cust_id)">
+              <set name="RspCod"               value="01005"/>
+              <set name="RspMsg"               value="客户编号为空"/>
+              <return/>
+          </if>
+          <if condition="ISNULL(USR_STATUS)">
+              <set name="RspCod"               value="01006"/>
+              <set name="RspMsg"               value="认证状态为空"/>
+              <return/>
+          </if>
+          <if condition="IS_EQUAL_STRING(USR_STATUS,'3')">
+            <if condition="ISNULL(REMARK)">
+                 <set name="RspCod"               value="01006"/>
+                 <set name="RspMsg"               value="审核意见不能为空"/>
+                 <set name="DWZ_STATUS_CODE"      value="300"/>
+                 <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                 <return/>
+            </if>
+          </if>
+          <if condition="IS_EQUAL_STRING(USR_STATUS,'2')">
+             <if condition="ISNULL(CUST_CARD_DATE)">
+                 <set name="RspCod"               value="01006"/>
+                 <set name="RspMsg"               value="证件有效期为空"/>
+                 <set name="DWZ_STATUS_CODE"      value="300"/>
+                 <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                 <return/>
+             </if>
+             <if condition="NOT(ISNUMBER(CUST_CARD_DATE))">
+                 <set name="RspCod"               value="01006"/>
+                 <set name="RspMsg"               value="证件有效期只能为数字！"/>
+                 <set name="DWZ_STATUS_CODE"      value="300"/>
+                 <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                 <return/>
+             </if>
+             <set name="dates" expr="GETDATE()"/>
+             <if condition="INTCMP(CUST_CARD_DATE,1,dates)">
+                 <set name="RspCod"               value="01016"/>
+                 <set name="RspMsg"               value="证件有效期必须大于当前日期！"/>
+                 <set name="DWZ_STATUS_CODE"      value="300"/>
+                 <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                 <return/>
+             </if>
+          </if>
+          
+          <!-- 取系统时间、当前操作员 -->
+          <set name="ADMIN_DATE"               expr="GETDATE()"/>
+          <set name="ADMIN_TIME"               expr="GETDATETIME('HHMISS')"/>
+          <set name="ADMIN_ID"                 expr="SESSIONS.UID"/>
+          <!-- 修改用户信息 -->
+          <do func="DataAdd" error="ignore">
+              <para name="TableName"           value="stpusrinf"/>
+              <para name="Method"              value="UPDATE"/>
+              <para name="Columns"             value="USR_STATUS/ADMIN_ID/ADMIN_DATE/ADMIN_TIME/REMARK"/>
+              <para name="Keys"                value="CUST_ID"/>
+          </do>
+          <if condition="#RetCod!=0">
+              <set name="RspCod"               value="09999"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <return/>
+          </if>
+          <if condition="IS_EQUAL_STRING(USR_STATUS,'2')">
+              <set name="CUST_STATUS"          value="0"/>
+              <set name="USERAPPFLAG"          value="2"/>
+          </if>
+          <else>
+              <set name="CUST_STATUS"          value="0"/>
+          </else>
+          <do func="DataEntry" error="ignore">
+              <para name="TableName"           value="STPCUSINF"/>
+              <para name="Method"              value="UPDATE"/>
+              <para name="Columns"             value="CUST_STATUS/CUST_CARD_DATE"/>
+              <para name="Keys"                value="CUST_ID"/>
+          </do>
+          <if condition="#RetCod!=0">
+              <set name="RspCod"               value="09999"/>
+              <set name="RspMsg"               value="系统错误"/>
+              <set name="DWZ_STATUS_CODE"      value="300"/>
+              <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+              <return/>
+          </if>
+          <else>
+               
+               <if condition="ISNULL(PageNum)">
+                   <set name="PageNum" value="1"/>
+               </if>
+               <if condition="ISNULL(NumPerPag)">
+                   <set name="NumPerPag" value="19"/>
+               </if>
+              <do func="PagedQuery" error="ignore">
+                  <para name="PageNum"         expr="PageNum"/>
+                  <para name="NumPerPag"       expr="NumPerPag"/>
+                  <para name="Sql"             sql="user_auth_list"/>
+              </do>
+              <!--原子函数 2 数据库没有找到信息 -1 数据库错误 0 有信息且查询成功-->
+              <if condition="#RetCod==2">
+                  <set name="RspCod"           value="01004"/>
+                  <set name="RspMsg"           value="无信息"/>
+                  <set name="DWZ_STATUS_CODE"  value="300"/>
+                  <set name="DWZ_RSP_MSG"      value="无信息"/>
+                  <return/>
+              </if>
+              <elseif condition="#RetCod!=0">
+                  <set name="RspCod"           value="09999"/>
+                  <set name="RspMsg"           value="系统错误"/>
+                  <set name="DWZ_STATUS_CODE"  value="300"/>
+                  <set name="DWZ_RSP_MSG"      value="系统错误"/>
+                  <return/>
+              </elseif>
+              <else>
+                  
+                 <foreach name="GRP" iterator="#grp">
+                   <set name="sDeData"       expr="#grp.CUST_CRED_NO"   />
+                   <if condition="ISNULL(DES_DECRYPT(sDeData))">
+                      <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                      <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                      <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+                   </if>
+                   <else>
+                      <set name="sDeData"           expr="DES_DECRYPT(sDeData)"   />
+                      <set name="First"             expr="SUBSTR(sDeData,1,3)"/> 
+                      <set name="End"               expr="SUBSTR(sDeData,SUB(STRLEN(sDeData),3),STRLEN(sDeData))"/>
+                      <set name="descryptdata"      expr="STRCAT(First,'****',End)"/>
+                   </else>
+                  <do func="loopSetEach">
+                     <para name="ele" expr="#grp.CUST_CRED_NO"/> 
+                     <para name="value" expr="descryptdata"/>
+                  </do>
+                  <if condition="#RetCod!=0">
+                     <set name="RspCod"            value="09998"/>
+                     <set name="RspMsg"            value="系统错误"/>
+                     <set name="DWZ_STATUS_CODE"   value="300"/>
+                     <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+                     <return/>
+                  </if>
+                </foreach>
+                  <!-- 调用风控接口 -->
+                  <set name="DTYPE"            value="2"/>
+                  <set name="ISTYPE"           value="0"/>
+                  <set name="sthCode"          value="540504"/>
+                  <set name="UCODE"            expr="cust_id"/>
+                  <set name="PCODE"            expr="CUST_CRED_NO"/>
+                  <set name="PAPERTYPE"        expr="CUST_CRED_TYPE"/>
+                  <set name="PAPERREMDATE"     expr="CUST_CARD_DATE"/>
+                  <quote name="rcsMaro"/>
+                  <set name="MsgTyp"           value="N"/>
+                  <set name="RspCod"           value="00000"/>
+                  <set name="RspMsg"           value="操作成功!"/>
+                  <set name="DWZ_STATUS_CODE"  value="200"/>
+                  <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+                  <set name="_REQUESTATTR.FORWARDURL"       value="WEB-INF/html/pact/user_auth_list.jsp"/>
+                  
+              </else>
+          </else>
+      </process>
+  </transaction>
+  
+    
+</application>

@@ -1,0 +1,879 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<application name="STP" code="100" log_level="DEBUG">
+   <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   
+   <before>
+      <!--打印ETF树-->
+      <do func="DumpEtf"/>
+      <if condition="NOT(ISNULL(REQIP))">
+        <set name="RspCod"            value="02001"/>
+        <set name="RspMsg"            value="请勿手工通过浏览器发起"/>
+        <return/>
+      </if>
+      
+   </before>
+   <after>
+   	 <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+      <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+         <set name="DWZ_STATUS_CODE"       value="200"/>
+      </if>
+      <else>
+         <set name="DWZ_STATUS_CODE"       value="300"/>
+      </else>
+      <do func="DumpEtf"/>
+   </after>
+
+   <macro name="ReadXmlCfg">
+     <!-- 读取XML配置文件中的数据，添加到ETF树上 -->
+     <!--0 成功; -1参数错误;2 取XML配置父节点失败 -->
+     <do func="ReadXmlConfig"     error="IGNORE">
+       <para name="FILNAM"        value="etc/public/STP_CONFIG.XML"/>
+       <para name="NAME"          expr="ConfigName"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"         value="08020"></set>
+       <set name="RspMsg"         value="参数错误"></set>
+       <return/>
+     </if>
+     <elseif condition="#RetCod==2">
+       <set name="RspCod"         value="08021"></set>
+       <set name="RspMsg"         value="取XML配置父节点失败"></set>
+       <return/>
+     </elseif>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"         value="09998"></set>
+       <set name="RspMsg"         value="系统错误"></set>
+       <return/>
+     </elseif>
+   </macro>
+   
+   <transaction code="990199"   desc="日终批量">
+     <sql name="QryBatch">
+         SELECT BatchID,State FROM TDBatchInfo WHERE appName='stp' and BatchNam=#{BatNam} and StartTime like #{QryDat}
+     </sql>
+     <process>
+       <if condition="ISNULL(QryDat)">
+         <set name="QryDat"    expr="GETDATE()"/> <!--发起日期-->
+       </if>
+       <set name="QryDat"    expr="STRCAT(QryDat,'%')"/>
+       <set name="BatNam"    value="StpDayBat"/> <!--批量文件名-->
+       
+       <do func="ReadRecord"            error="IGNORE">
+          <para name="SqlCmd"         sql="QryBatch" />
+       </do>
+       <if condition="#RetCod==0"> <!--有记录-->
+          <if condition="IS_EQUAL_STRING(State,'01')">
+            <set name="RspCod"            value="02001"/>
+            <set name="RspMsg"            value="日终批量执行已经执行成功"/>
+            <return/>
+          </if>
+          <!--批量未成功,重新发起-->
+          <do func="restartBatch" error="IGNORE">
+            <para name="batchName" expr="BatNam" />
+            <para name="batchId"   expr="BatchID" />
+          </do>
+          <if condition="#RetCod!=0">
+            <set name="RspCod"            value="02001"/>
+            <set name="RspMsg"            value="重新发起日终批量失败"/>
+            <return/>
+          </if>
+          <set name="RspCod"               value="00000"/>
+          <set name="RspMsg"               value="重新发起批量成功"/>
+          <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+          <set name="RspCod"            value="00000"/> <!--当日无批量,允许调起-->
+       </elseif>
+       <else>
+          <set name="RspCod"            value="02001"/>
+          <set name="RspMsg"            value="数据库错误"/>
+          <return/>
+       </else>
+       
+       <set name="SysCod" value="Batch"></set>
+       <!--调起stp的日终批量-->
+       <do func="startBatch" error="IGNORE">
+         <para name="batchName" expr="BatNam" />
+         <para name="INPUT" value="SysCod" /> <!--可选参数,值可以传到该批量的每个作业中-->
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="RspCod"            value="02001"/>
+         <set name="RspMsg"            value="发起日终批量失败"/>
+         <return/>
+       </if>
+       <set name="RspCod"               value="00000"/>
+       <set name="RspMsg"               value="发起批量成功"/>
+     </process>
+   </transaction>
+
+   <transaction code="990101"   desc="日切">
+     <sql name="PUBPLTINF">
+         SELECT SYSID,LOGNO,BLOGNO,ACTDAT AS ACTDATJ,DATEND AS DATENDJ
+         FROM   PUBPLTINF
+         WHERE  SYSID='000001' FOR UPDATE
+     </sql>
+     <process>
+       
+       <!--检查用户登录平台是否正确-->       
+       <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+          <set name="RspCod"            value="01001"/>
+          <set name="RspMsg"            value="用户登录平台不正确"/>
+          <return/>        
+       </if>
+       
+       <do func="ReadRecord"            error="IGNORE">
+          <para name="SqlCmd"         sql="PUBPLTINF" />
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"            value="01002"/>
+          <set name="RspMsg"            value="没有信息"/>
+          <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"            value="09999"/>
+          <set name="RspMsg"            value="系统错误"/>
+          <return/>
+       </elseif>
+       
+       <do func="Sleep">
+          <para name="SleepTime"   value="3" />
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="RspCod"            value="09999"/>
+          <set name="RspMsg"            value="系统错误"/>
+          <return/>
+       </if>
+
+       <set name="ACTDAT"         expr="CALCDATE(ACTDATJ,'+','d','1')"/>
+       <if condition="IS_EQUAL_STRING(DATENDJ,'01')">
+          <set name="DATEND"            value="00" />
+       </if>
+       <if condition="IS_EQUAL_STRING(DATENDJ,'00')">
+          <set name="DATEND"            value="01" />
+       </if>
+
+       <set name="LOGNO"             value="1"/>
+       <set name="BLOGNO"            value="1"/>
+       <do func="DataEntry"             error="IGNORE">
+          <para name="TableName"        value="PUBPLTINF"/>
+          <para name="Method"           value="UPDATE"/>
+          <para name="Columns"          value="ACTDAT/DATEND/LOGNO/BLOGNO"/>
+          <para name="Keys"             value="SYSID"/>
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="RspCod"            value="09999"/>
+          <set name="RspMsg"            value="系统错误"/>
+          <do func="RollBackWork"/>
+          <return/>
+       </if>
+
+       <set name="RspCod"               value="00000"/>
+       <set name="RspMsg"               value="交易成功"/>
+     </process>
+   </transaction>
+
+   <transaction code="990106"   desc="订单失效"> 
+      <sql name="UpdPrdInfo">
+         UPDATE StpPrdInf set ordstatus=#{ordstatus} 
+         WHERE SUBSTR(ORDERTIME,1,8) &lt;= #{DATE} and ordstatus='00'
+      </sql>
+      <process>
+          <!--检查用户登录平台是否正确-->       
+          <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+             <set name="RspCod"            value="01001"/>
+             <set name="RspMsg"            value="用户登录平台不正确"/>
+             <return/>        
+          </if> 
+          
+          <!--取公共参数配置-->
+          <set name="ConfigName"   value="BeforeCfg"/>
+          <quote name="ReadXmlCfg"/>
+          
+          <!--更新订单失效状态-->
+          <set name="DATE"          expr="CALCDATE(GETDATE(),'-','d',loseDate)"/>
+          <set name="ordstatus"     value="11"/>   <!--交易关闭-->
+          <do func="ExecSql" error="IGNORE" >
+             <para name="SqlCmd" sql="UpdPrdInfo" />
+          </do> 
+          <if condition="#RetCod==2">
+             <set name="RspCod"            value="00000"/>
+             <set name="RspMsg"            value="没有失效订单"/>
+          </if>
+          <elseif condition="#RetCod!=0">
+             <set name="RspCod"            value="09999"/>
+             <set name="RspMsg"            value="系统错误"/>
+             <return/>
+          </elseif> 
+          <set name="RspCod"               value="00000"/>
+          <set name="RspMsg"               value="交易成功"/> 
+      </process>
+   </transaction>
+   
+   <transaction code="990107"   desc="更新公共账户"> 
+      <process>
+         <!--检查用户登录平台是否正确-->       
+         <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+            <set name="RspCod"            value="01001"/>
+            <set name="RspMsg"            value="用户登录平台不正确"/>
+            <return/>        
+         </if> 
+         
+         <set name="Act_Dat"     expr="CALCDATE(GETDATE(),'-','d',1)"/>
+         <do func="TdPubActBal" error="IGNORE" >
+            <para name="Act_Dat" expr="Act_Dat" />
+         </do> 
+         <if condition="#RetCod!=0">
+            <set name="RspCod"            value="00000"/>
+            <set name="RspMsg"            value="更新失败"/>
+         </if>
+         <set name="RspCod"               value="00000"/>
+         <set name="RspMsg"               value="交易成功"/> 
+      </process>
+   </transaction>
+   
+   <transaction code="990113"   desc="账户每日余额记录">
+     <sql name="PUBPLTINF">
+         SELECT SYSID,LOGNO,BLOGNO,ACTDAT AS ACTDATJ,DATEND AS DATENDJ
+         FROM   PUBPLTINF
+         WHERE  SYSID='000001'
+     </sql>
+     <sql name="InsAccBalHis">
+         INSERT INTO ARP_AC_BAL_HIS (PAY_AC_NO,STL_DATE,CONS_AC_BAL,CCY) SELECT PAY_AC_NO,#{ACTDATJ} STL_DATE, CAST(CASH_AC_BAL AS DECIMAL(15, 0))  AS CONS_AC_BAL,'CNY' CCY FROM ARP_AC_PROFILE
+     </sql>
+     <process>
+       <!--检查用户登录平台是否正确-->       
+       <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+          <set name="RspCod"            value="01001"/>
+          <set name="RspMsg"            value="用户登录平台不正确"/>
+          <return/>        
+       </if>
+       
+       <do func="ReadRecord"  error="IGNORE">
+          <para name="SqlCmd"     sql="PUBPLTINF" />
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"            value="01002"/>
+          <set name="RspMsg"            value="没有信息"/>
+          <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"            value="09999"/>
+          <set name="RspMsg"            value="系统错误"/>
+          <return/>
+       </elseif>
+
+       <set name="ACTDATJ"         expr="CALCDATE(ACTDATJ,'-','d','1')"/><!--昨日-->
+       
+       <!--注意账户余额历史数据-->
+       <do func="ExecSql"             error="IGNORE">
+          <para name="SqlCmd"            sql="InsAccBalHis" />
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"             value="E"/>
+         <set name="RspCod"             value="09999"/>
+         <set name="RspMsg"             value="系统错误"/>
+         <do func="RollBackWork"/>
+         <return/>
+       </if>
+
+       <set name="RspCod"               value="00000"/>
+       <set name="RspMsg"               value="交易成功"/>
+     </process>
+   </transaction>
+   
+   <transaction code="561100"   desc="用户余额监控">
+       <sql name="QryBalCtl">       <!--  查询用户余额控制表  -->
+         SELECT * FROM STPBALCTL WHERE CTL_DAT=#{NowDay}
+       </sql>
+       <sql name="UpdateBalCtl">    <!--  更新用户余额控制表  -->
+         UPDATE STPBALCTL set CTL_STS = #{CTL_STS} WHERE CTL_DAT=#{NowDay}
+       </sql>
+       <sql name="InsBalHis">       <!-- 用户余额表记录插入 -->
+         INSERT INTO STPBALLOG (CUST_ID, PAY_AC_NO, BAL_DATE,  CTL_LIM_AMT,  BAL_ABL_AMT, BAL_FRZ_AMT, BAL_TOT_AMT)  
+         SELECT c.CUST_ID, a.PAY_AC_NO, #{NowDay}, #{CTL_LIM_AMT}, to_number(a.CASH_AC_BAL) - to_number(a.FROZ_BALANCE) CASH_AC_BAL, a.FROZ_BALANCE, a.CASH_AC_BAL as TOT_AMT FROM ARP_AC_PROFILE a , ARP_AC_CUST_REL c WHERE  a.PAY_AC_NO = c.PAY_AC_NO
+       </sql>
+       <sql name="QryAcLog">       <!--  查询超额账户信息  -->
+         SELECT CUST_ID, PAY_AC_NO  FROM STPBALLOG  WHERE BAL_DATE= #{NowDay} and to_number(BAL_TOT_AMT) > to_number(CTL_LIM_AMT)
+       </sql>
+       <sql name="QryAcPro">       <!--  查询余额超限表记录  -->
+         SELECT BAL_END_DATE, DAY_NUM  FROM STPBALINF  WHERE CUST_ID= #{CUST_ID} and PAY_AC_NO=#{PAY_AC_NO}
+       </sql>
+       <sql name="InsBalInf">       <!-- 用户余额超限插入 -->
+          INSERT INTO STPBALINF (CUST_ID,PAY_AC_NO,BAL_START_DATE,BAL_END_DATE,DAY_NUM) 
+          VALUES (#{CUST_ID}, #{PAY_AC_NO}, #{NowDay}, #{NowDay}, '1')
+       </sql>
+       <sql name="UpdBalInf">       <!-- 用户余额超限更新 -->
+          UPDATE STPBALINF   SET ${BAL_START_DATE1} BAL_END_DATE=#{NOWDAY}, DAY_NUM=#{DAY_NUM1}
+          WHERE CUST_ID=#{CUST_ID} and PAY_AC_NO=#{PAY_AC_NO}
+       </sql>
+       <sql name="QryCustBal">       <!--  查询余额超限表记录  -->
+         SELECT count(cust_id) usrNum FROM STPBALINF  WHERE DAY_NUM >= #{CTL_LIM_DAY}
+       </sql>
+       <sql name="InMsgSed"><!--  登记短信信息  -->
+          INSERT INTO STPMSGSED VALUES(#{USRMP},#{MSG_DAT},#{MSG_TIM},#{CUS_NAM},#{SMSCONTENT},'0')
+       </sql>
+       <sql name="UpdMsgSed"><!--  更新短信发送状态  -->
+          UPDATE STPMSGSED SET MSG_STS='1' WHERE PHONE=#{USRMP} AND MSG_TIM=#{MSG_TIM}
+       </sql>
+       <sql name="QryCtlMan">       <!--  查询通知风控人员信息  -->
+         SELECT user_mobile FROM RCS_SERVICE_MAN 
+       </sql>
+       <process>
+         <set name="NowDay"        expr="CALCDATE(GETDATE(),'-','d',1)"/>    
+         <set name="CTL_LIM_DAY"   value="10"/>
+
+         <!-- 判断用户是否已经比对过 -->
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="QryBalCtl"/>
+         </do>
+         <if condition="#RetCod==2">
+           <!-- 插入控制信息  -->
+           <set name="CTL_DAT"       expr="NowDay"/><!-- 会计日期 -->
+           <set name="Ctl_Sts"       value="1"/>
+           <set name="CTL_LIM_AMT"   value="500000"/><!-- 额度 -->
+           <do func="InsertRecord" >
+              <para name="TblNam"  value="stpbalctl" />
+           </do>
+           <if condition="#RetCod==3">
+              <set name="RspCod"    value="09996"/>
+              <set name="RspMsg"    value="数据库主键冲突"/>
+              <return/>
+           </if>
+           <elseif condition="#RetCod!=0">
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <return/>
+           </elseif>
+         </if>
+         <elseif condition="#RetCod==0">
+           <if condition="IS_EQUAL_STRING(ctl_sts,'0')">
+              <set name="MsgTyp"       value="E"/>
+              <set name="RspCod"       value="02898"/>
+              <set name="RspMsg"       value="已经处理过，并且成功"/>
+              <return/>
+           </if>
+           <elseif condition="IS_EQUAL_STRING(ctl_sts,'1')">
+              <set name="MsgTyp"       value="E"/>
+              <set name="RspCod"       value="02898"/>
+              <set name="RspMsg"       value="处理中，请等待处理"/>
+              <return/>
+           </elseif>
+           <elseif condition="IS_EQUAL_STRING(ctl_sts,'2')">
+           	  <set name="CTL_STS"       value="1"/>
+              <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="UpdateBalCtl" />
+              </do>
+              <if condition="#RetCod!=0">
+                 <set name="MsgTyp"    value="E"/>
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <return/>
+              </if>         
+           </elseif>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+           <set name="Ctl_Sts"       value="2"/>
+           <set name="MsgTyp"       value="E"/>
+           <set name="RspCod"       value="09999"/>
+           <set name="RspMsg"       value="系统错误"/>
+           <return/>
+         </elseif>
+       
+         <!-- 用户余额表记录插入 -->         
+         <do func="ExecSql" error="IGNORE">
+           <para name="SqlCmd" sql="InsBalHis" />
+         </do> 
+         <if condition="#RetCod==2">
+            <set name="RspMsg"    value="无账户记录"/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <do func="RollBackWork"/>
+            <set name="CTL_STS"       value="2"/>
+            <do func="ExecSql" error="IGNORE">
+              <para name="SqlCmd" sql="UpdateBalCtl" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <return/>
+            </if> 
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>   
+         </elseif>
+                 
+         <do func="QueryInGroup" error="IGNORE">
+           <para name="SqlCmd"     sql="QryAcLog"/>
+           <para name="RecordName" value="GRP"/>
+           <para name="RecNum"     value="UsNum"/>
+         </do>
+         <if condition="#RetCod==2">
+             <set name="CTL_STS"       value="0"/>
+             <do func="ExecSql" error="IGNORE">
+               <para name="SqlCmd" sql="UpdateBalCtl" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="系统错误"/>
+                <return/>
+             </if>
+             
+             <set name="MsgTyp"       value="N"/>
+             <set name="RspCod"       value="00000"/>
+             <set name="RspMsg"       value="交易成功"/>
+             <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+           <set name="RspCod"    value="09999"/>
+           <set name="RspMsg"    value="系统错误"/>
+           <return/>
+         </elseif>
+         
+         <foreach name="GRP" iterator="#tmp">
+            <set name="CUST_ID"       expr="#tmp.CUST_ID"/>
+            <set name="PAY_AC_NO"     expr="#tmp.PAY_AC_NO"/>
+         
+            <do func="ReadRecord" error="IGNORE">
+              <para name="SqlCmd" sql="QryAcPro" />
+            </do>
+            <if condition="#RetCod==2">
+               <!-- 插入新记录 -->	
+               <do func="ExecSql" error="IGNORE">
+                 <para name="SqlCmd" sql="InsBalInf" />
+               </do>
+               <if condition="#RetCod!=0">
+                     <set name="MsgTyp"    value="E"/>
+                     <set name="RspCod"    value="09999"/>
+                     <set name="RspMsg"    value="系统错误"/>
+                     <return/>
+               </if> 
+            </if>
+            <elseif condition="#RetCod==-1">
+              <set name="MsgTyp"        value="E"/>
+              <set name="RspCod"        value="09999"/>
+              <set name="RspMsg"        value="系统错误"/>
+              <return/>
+            </elseif>
+            <elseif condition="#RetCod==0">
+                <!-- 更新旧记录 -->
+                <if condition="DIFFDATE(BAL_END_DATE,NowDay)==1">
+                	 <set name="BAL_START_DATE1"    value=""/>
+                	 <set name="DAY_NUM1"    expr="ADD(DAY_NUM,'1')"/>
+                   <do func="ExecSql" error="IGNORE">
+                     <para name="SqlCmd" sql="UpdBalInf" />
+                   </do>
+                   <if condition="#RetCod!=0">
+                     <set name="MsgTyp"    value="E"/>
+                     <set name="RspCod"    value="09999"/>
+                     <set name="RspMsg"    value="系统错误"/>
+                     <return/>
+                   </if> 
+                 </if>
+                 <if condition="DIFFDATE(BAL_END_DATE,NowDay)>1">
+                 	  <set name="BAL_START_DATE1"    expr="STRCAT(' BAL_START_DATE=',NowDay,', ')"/>
+                 	  <set name="DAY_NUM1"           value="1"/>
+                    <do func="ExecSql" error="IGNORE">
+                       <para name="SqlCmd" sql="UpdBalInf" />
+                    </do>
+                    <if condition="#RetCod!=0">
+                       <set name="MsgTyp"    value="E"/>
+                       <set name="RspCod"    value="09999"/>
+                       <set name="RspMsg"    value="系统错误"/>
+                       <return/>
+                    </if> 
+                 </if>               
+            </elseif>
+         </foreach>    
+
+         <set name="CTL_STS"       value="0"/>        
+         <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdateBalCtl" />
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="QryCustBal" />
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="RspCod"    value="09999"/>
+           <set name="RspMsg"    value="系统错误"/>
+           <return/>
+         </if>
+         <else>
+            <if condition="INTCMP(usrNum,1,0)">
+               <!--短信通知风控人员-->
+               <!-- 设置短信内容 -->
+               <set name="SmsContent"      expr="STRCAT('存在用户余额连续',CTL_LIM_DAY,'天超过',CTL_LIM_AMT,'请及时处理！')"/>
+               
+               <!--取公共参数配置-->
+               <set name="ConfigName"   value="SendSms"/>
+               <quote name="ReadXmlCfg"/>
+
+               <do func="QueryInGroup" error="IGNORE">
+                 <para name="SqlCmd"     sql="QryCtlMan"/>
+                 <para name="RecordName" value="GRP"/>
+               </do>
+               <if condition="#RetCod==2">
+                   <set name="MsgTyp"       value="N"/>
+                   <set name="RspCod"       value="00000"/>
+                   <set name="RspMsg"       value="交易成功"/>
+                   <return/>
+               </if>
+               <elseif condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <return/>
+               </elseif>
+         
+              <foreach name="GRP" iterator="#tmp">
+                 <set name="mobile"       expr="#tmp.USER_MOBILE"/>
+                 
+                 <!-- 插入短信信息 -->
+                 <set name="Msg_Dat"         expr="GETDATE()"/>
+                 <set name="Msg_Tim"         expr="GETDATETIME()"/>
+                 <set name="Cus_Nam"         value="系统用户余额异常通知"/>
+                 <set name="USRMP"           expr="mobile"/>
+                 <do func="ExecSql" error="IGNORE">
+                   <para name="SqlCmd" sql="InMsgSed"/>
+                 </do>
+                 <if condition="#RetCod!=0">
+                   <set name="RspCod"        value="01006"/>
+                   <set name="RspMsg"        value="登记短信发送表失败"/>
+                   <return/>
+                 </if>  
+                 
+                 <!-- 发送短信 -->
+                 <do func="sendMesSwt" error="IGNORE">
+                    <para name="sendUrl"              value="http://59.41.60.158:8914/TradeAppServer/user/sms.jf"/>
+                    <para name="softwareSerialNo"     value="linan-jufeng"/>
+                    <para name="smspassword"          value="linan-@jufeng"/>
+                    <para name="SendId"               value="12"/>
+                    <para name="MobNo"                expr="UsrMp"/>
+                    <para name="Context"              expr="SmsContent"/>
+                 </do>
+                 <if condition="#RetCod!=0">
+                   <set name="RspCod"               value="1003"/>
+                   <set name="RspMsg"               value="短信发送失败"/>
+                   <set name="DWZ_STATUS_CODE"      value="300"/>
+                   <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                 </if>
+                 <else>
+                 	 <!-- 更新短信发送状态 --> 
+                   <do func="ExecSql" error="IGNORE">
+                      <para name="SqlCmd" sql="UpdMsgSed" />
+                   </do>
+                   <if condition="#RetCod!=0">
+                      <set name="RspCod"       value="02005"/>
+                      <set name="RspMsg"       value="修改发送状态失败"/>
+                   </if>
+                 	 
+                 </else>
+              </foreach>
+              <delete name="pwd"/>
+              <delete name="account"/>
+            </if>
+         </else>
+         
+         <set name="MsgTyp"       value="N"/>
+         <set name="RspCod"       value="00000"/>
+         <set name="RspMsg"       value="交易成功"/>
+     </process>
+   </transaction>
+   
+   <transaction code="700005"   desc="客户余额报表" >   
+   	   <sql name="queryArpAc">
+   	   	select a.PAY_AC_NO,a.CASH_AC_BAL,a.FROZ_BALANCE,
+   	   	TO_CHAR(to_number(a.CASH_AC_BAL-a.FROZ_BALANCE)/100,'9999999999990.00') balance
+   	   	 from ARP_AC_PROFILE a order by PAY_AC_NO
+   	   </sql>	     
+       <process>            					
+          <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+             <set name="RspCod"               value="01001"/>
+             <set name="RspMsg"               value="用户登录平台不正确"/>
+             <return/>
+          </if>
+
+          <!--查询用户信息-->
+          <do func="QueryInGroup">
+             <para name="SqlCmd"         sql="queryArpAc" />
+             <para name="RecordName"     value="reportList" />
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RSPCOD"          value="00000"/>
+             <set name="RSPMSG"          value="无客户账户信息"/>
+             <return/>
+          </if>
+          <elseif condition="#RetCod!=0">
+             <set name="RSPCOD"          value="09999"/>
+             <set name="RSPMSG"          value="系统错误!"/>
+             <return/>
+          </elseif>
+          <!--查询成功-->
+          <do func="ReportExport" error="IGNORE">
+             <para name="Root"          value="reportList"/>
+             <para name="FileDemo"      value="balance"/> <!--导出模板名-->
+             <para name="NameForUser"   value="balance"/> <!--导出文件名-->
+             <para name="FilePath"      value="rptdemo"/>       <!--导出模板路径-->
+             <para name="FileToPath"    value="/dat/download"/> <!--导出目标地址-->
+             <para name="WebPath"       expr="GETCURAPPHOME()"/> 
+             <para name="params"        value="PAY_AC_NO/CASH_AC_BAL/FROZ_BALANCE/balance"/>
+             <para name="collectParams" value=""/> <!--导出总条数，总金额如果没有传空-->
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"         value="02103"/>
+             <set name="RspMsg"         value="导出出错!"/>
+             <return/>
+          </if>                                                    
+          
+          <set name="RspCod"            value="00000"/>
+          <set name="RspMsg"            value="交易成功"/>
+       </process>
+   </transaction>
+
+   <transaction code="990112"   desc="证件到期提醒"> 
+      <sql name="QryUsrCred"><!--用户证件到期查询-->
+         select CUST_CARD_DATE,(TRUNC(to_date(CUST_CARD_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd')) as days ,
+                a.CUST_ID,CUST_CRED_NO,CUST_TYPE,CUST_NAME,CUST_LOGIN
+           from stpcusinf a,stpusrinf b 
+          where a.cust_id=b.cust_id and a.cust_type='0' and CUST_CARD_DATE is not null 
+                and TRUNC(to_date(CUST_CARD_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd') &lt;= #{remidDays}
+      </sql>
+      <sql name="QryMerCred"><!--商户证件到期查询-->
+         select CERT_END_DATE, (TRUNC(to_date(CERT_END_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd')) as days ,
+                cust_id,law_person_cret_no cret_no,mer_law_person,'身份证' cret_type,compay_email SERV_EMAIL
+           from stpmerinf where CERT_END_DATE is not null and TRUNC(to_date(CERT_END_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd') &lt;= #{remidDays} 
+          union
+         select ORGANIZATION_END_DATE CERT_END_DATE, (TRUNC(to_date(ORGANIZATION_END_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd')) as days ,
+                cust_id,organization_no cret_no,mer_law_person,'组织机构代码' cret_type,compay_email SERV_EMAIL
+           from stpmerinf where ORGANIZATION_END_DATE is not null and TRUNC(to_date(ORGANIZATION_END_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd') &lt;= #{remidDays} 
+          union
+         select CRED_END_DATE CERT_END_DATE, (TRUNC(to_date(CRED_END_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd')) as days ,
+                cust_id,MER_BUSREGNUM cret_no,mer_law_person,'营业执照注册号' cret_type,compay_email SERV_EMAIL
+           from stpmerinf where CRED_END_DATE is not null and TRUNC(to_date(CRED_END_DATE,'yyyy-mm-dd'),'dd') - TRUNC(sysdate,'dd') &lt;= #{remidDays} 
+      </sql>
+      <sql name="InMsgSed"><!--  登记短信信息  -->
+        INSERT INTO STPMSGSED VALUES(#{USRMP},#{MSG_DAT},#{MSG_TIM},#{CUS_NAM},#{SMSCONTENT},'0')
+      </sql>
+      <sql name="UpdMsgSed"><!--  更新短信发送状态  -->
+        UPDATE STPMSGSED SET MSG_STS='1' WHERE PHONE=#{USRMP} AND MSG_TIM=#{MSG_TIM}
+      </sql>  
+      <sql name="updUsrSts">  <!--  更新用户认证状态 0 未认证 -->
+        UPDATE STPUSRINF SET USR_STATUS='0' WHERE CUST_ID=#{CUST_ID}
+      </sql>
+      <process>
+          <!--检查用户登录平台是否正确-->       
+          <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+             <set name="RspCod"            value="01001"/>
+             <set name="RspMsg"            value="用户登录平台不正确"/>
+             <return/>        
+          </if>
+          
+          <!--证件统一提醒天数-->
+          <set name="remidDays"  value="60"/> 
+          <set name="RspCod"     value="00000"/>
+          <set name="RspMsg"     value="系统暂不做证件到期提醒"/>
+          <return/>        
+          
+          <!--查询用户证件过期-->
+          <do func="QueryInGroup">
+            <para name="SqlCmd"      sql="QryUsrCred" />
+            <para name="RecordName"  value="usrInf" />
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"    value="01002"/>
+             <set name="RspMsg"    value="无过期证件"/>
+          </if>
+          <elseif condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+          </elseif>
+          <else>
+             <!--通知用户证件即将到期-->
+             <foreach name="usrInf" iterator="#usr">
+                <set name="CUST_LOGIN"  expr="#usr.CUST_LOGIN"/>
+                <set name="DAYS"        expr="#usr.DAYS"/>
+                <set name="CUST_ID"     expr="#usr.CUST_ID"/>
+                <set name="CUST_CRED_NO"         expr="DES_DECRYPT(#usr.CUST_CRED_NO)"   />
+                <set name="First"                expr="SUBSTR(CUST_CRED_NO,1,6)" />
+                <set name="End"                  expr="SUBRIGHT(CUST_CRED_NO,4)" />
+                <set name="CUST_CRED_NO"         expr="STRCAT(First,'****',End)" />
+                <!-- 设置发送内容 -->
+                <if condition="INTCMP(DAYS,5,'0')">
+                   <set name="SmsContent"      expr="STRCAT('尊敬的用户，您的证件号为',#usr.CUST_CRED_NO,'的证件还有',DAYS,'天即将到期，请尽快更新证件，以免影响您的使用。')"/>
+                </if>
+                <else>
+                   <set name="SmsContent"      expr="STRCAT('尊敬的用户，您的证件号为',#usr.CUST_CRED_NO,'的证件有效期已经过期，请尽快更新证件，以免影响您的使用。')"/>
+                   <!--证件已到期，更新用户状态为未认证 -->
+                   <do func="ExecSql">
+                     <para name="SqlCmd" sql="updUsrSts"/>
+                   </do>
+                   <if condition="#RetCod!=0">
+                     <set name="RspCod"        value="09999"/>
+                     <set name="RspMsg"        value="系统错误"/>
+                     <continue/>
+                   </if>
+                   <!--通知风控更新用户状态-->
+                   <set name="DTYPE"             value="2"/>
+                   <set name="UCODE"             expr="CUST_ID"/> 
+                   <set name="ISTYPE"            value="1"/>    <!--1 试用期-->  
+                   <set name="USERAPPFLAG"       value="0"/>    <!--0 未认证-->   
+                   <set name="sthCode"           value="540504"/>
+                   <do func="CallThirdOther"     error="IGNORE">
+                      <para name="channel"       value="STHDRCSU" />
+                      <para name="code"          expr="sthCode"/>
+                   </do>
+                   <if condition="#RetCod!=0">
+                      <set name="MsgTyp"         value="E"/>
+                      <set name="RspCod"         value="09997"/>
+                      <set name="RspMsg"         value="通讯错误"/>
+                      <continue/>
+                   </if>
+                </else>
+                <if condition="ISNUMBER(CUST_LOGIN)">
+                   <!--发送短信-->
+                   
+                   <!-- 插入短信信息 -->
+                   <set name="USRMP"           expr="CUST_LOGIN"/>
+                   <set name="Msg_Dat"         expr="GETDATE()"/>
+                   <set name="Msg_Tim"         expr="GETDATETIME()"/>
+                   <set name="Cus_Nam"         value="证件到期提醒"/>
+                   <do func="ExecSql" error="IGNORE">
+                     <para name="SqlCmd" sql="InMsgSed"/>
+                   </do>
+                   <if condition="#RetCod!=0">
+                     <set name="RspCod"        value="01006"/>
+                     <set name="RspMsg"        value="登记短信发送表失败"/>
+                     <continue/>
+                   </if>
+                   
+                   <!--取公共参数配置-->
+                   <set name="ConfigName"   value="SendSms"/>
+                   <quote name="ReadXmlCfg"/>
+                   <do func="sendMesSwt" error="IGNORE">
+                      <para name="sendUrl"              value="http://59.41.60.158:8914/TradeAppServer/user/sms.jf"/>
+                      <para name="softwareSerialNo"     value="linan-jufeng"/>
+                      <para name="smspassword"          value="linan-@jufeng"/>
+                      <para name="SendId"               value="12"/>
+                      <para name="MobNo"                expr="UsrMp"/>
+                      <para name="Context"              expr="SmsContent"/>
+                   </do>
+                   <if condition="#RetCod!=0">
+                     <set name="RspCod"               value="1003"/>
+                     <set name="RspMsg"               value="短信发送失败"/>
+                     <set name="DWZ_STATUS_CODE"      value="300"/>
+                     <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+                   </if>
+                   <else>
+                   	 <!-- 更新短信发送状态 --> 
+                     <do func="ExecSql" error="IGNORE">
+                        <para name="SqlCmd" sql="UpdMsgSed" />
+                     </do>
+                     <if condition="#RetCod!=0">
+                        <set name="RspCod"       value="02005"/>
+                        <set name="RspMsg"       value="修改发送状态失败"/>
+                      <continue/>
+                     </if>
+                   	 
+                   </else>
+                   
+                   <delete name="Random"/>
+                   <delete name="SmsContent"/>
+                   <delete name="account"/>
+                   <delete name="endpoint"/>
+                   <delete name="pwd"/>
+                   
+                </if>
+                <else>
+                   <!--发送邮件--> 
+                   <set name="ConfigName"   value="CheckEmailNew"/>
+                   <quote name="ReadXmlCfg"/>
+                    
+                   <set name="Email"           expr="CUST_LOGIN"/>                                                                                                                                       
+                   <set name="EmResAddr"       expr="SmsContent"/>
+                   <!--发送邮件-->
+                   <do func="TdMailSendNew" error="IGNORE">
+                     <para name="EmTo"             expr="Email" />
+                     <para name="EmTitle"          value="证件到期提醒" />
+                     <para name="EmText"           value="证件到期提醒" />
+                     <para name="EmResAddr"        expr="G_EMCOMPHTTP" />
+                     <para name="EmerchantOper"    value="usr" />
+                     <para name="EmerchantId"      value="" />
+                   </do>
+                   <if condition="#RetCod!=0">
+                     <set name="MsgTyp"        value="E"/>
+                     <set name="RspCod"        value="09999"/>
+                     <set name="RspMsg"        value="发送邮件失败"/>
+                     <continue/>
+                   </if>
+                </else>
+             </foreach>
+          </else>
+          
+          <!--查询商户证件过期-->
+          <do func="QueryInGroup">
+            <para name="SqlCmd"      sql="QryMerCred" />
+            <para name="RecordName"  value="merInf" />
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"    value="01002"/>
+             <set name="RspMsg"    value="无过期证件"/>
+          </if>
+          <elseif condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+          </elseif>
+          <else>
+             <!--发送邮件通知客户客服人员--> 
+             <set name="ConfigName"   value="CheckEmailNew"/>
+             <quote name="ReadXmlCfg"/>
+             
+             <foreach name="merInf" iterator="#mer">
+                <set name="DAYS"        expr="#mer.DAYS"/>
+                <set name="cret_no"              expr="DES_DECRYPT(#mer.cret_no)"   />
+                <set name="First"                expr="SUBSTR(cret_no,1,6)" />
+                <set name="End"                  expr="SUBRIGHT(cret_no,4)" />
+                <set name="cret_no"               expr="STRCAT(First,'****',End)" />
+                <if condition="INTCMP(DAYS,5,'0')">
+                   <set name="SmsContent"   expr="STRCAT('尊敬的客户，公司证件号为',#mer.cret_no,'的证件还有',DAYS,'天即将到期，请尽快更新证件，以免影响您的使用。')"/>
+                </if>
+                <else>
+                   <set name="SmsContent"   expr="STRCAT('尊敬的客户，公司证件号为',#mer.cret_no,'的证件有效期已经过期，请尽快更新证件，以免影响您的使用。')"/>
+                </else>
+                <set name="Email"        expr="#mer.SERV_EMAIL"/>                                                                                                                                       
+                <set name="EmResAddr"    expr="SmsContent"/>
+                <!--发送邮件-->
+                <do func="TdMailSendNew" error="IGNORE">
+                  <para name="EmTo"             expr="Email" />
+                  <para name="EmTitle"          value="证件到期提醒" />
+                  <para name="EmText"           value="证件到期提醒" />
+                  <para name="EmResAddr"        expr="G_EMCOMPHTTP" />
+                  <para name="EmerchantOper"    value="usr" />
+                  <para name="EmerchantId"      value="" />
+                </do>
+                <if condition="#RetCod!=0">
+                  <set name="MsgTyp"        value="E"/>
+                  <set name="RspCod"        value="09999"/>
+                  <set name="RspMsg"        value="发送邮件失败"/>
+                  <continue/>
+                </if>
+             </foreach>
+          </else>
+          <set name="RspCod"               value="00000"/>
+          <set name="RspMsg"               value="交易成功"/> 
+      </process>
+   </transaction>
+    
+</application>
+
+

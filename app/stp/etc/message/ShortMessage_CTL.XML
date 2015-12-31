@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="sms" code="102" log_level="DEBUG" >
+   <!-- 支付网关-短信平台 -->
+   
+   <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   <!--公共宏文件引入-->
+   <include file="etc/public/Order_MACRO.XML"/>
+   
+   <!--交易前查询-->
+   <before>
+     <set name="MsgTyp"       value="N"/>
+     <set name="RspCod"       value="00000"/>
+     <do expr="@tangdi.engine.context.Msg@dump()"/>
+     
+     <!--取公共参数配置-->
+     <set name="ConfigName"   value="BeforeCfg"/>
+     <quote name="ReadXmlCfg"/>
+     
+     <set name="NumPerPag"       value="19"/> <!--翻页每页显示的条数-->
+   </before>
+
+   <!--交易后查询-->
+   <after>
+     <do expr="@tangdi.engine.context.Msg@dump()"/>
+     <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+       <set name="MsgTyp"       value="N"/>
+     </if>
+     <else>
+       <set name="MsgTyp"       value="E"/>
+     </else>
+   </after>
+
+   <transaction code="563216"  desc="查询短信发送历史">
+     <sql name="QryMsg"><!-- 查询短信发送历史记录 -->
+       select to_char(to_date(Msg_tim,'YYYY-MM-DD HH24:MI:SS'),'YYYY-MM-DD HH24:MI:SS') Msg_tim,Phone,Msg_Sts,Msg_Txt , NVL2( Cus_NAM , '商城' , '') MERNAM  
+         from StpMsgSed 
+        where (Msg_Dat &gt;= #{Sta_Dat} and Msg_Dat &lt;= #{End_Dat}) and Phone like '%${Phone}%' and Msg_Txt like '%${Msg_Txt}%' and (Msg_Sts=#{Msg_Sts} or ' '=' '||#{Msg_Sts})
+        order by Msg_tim DESC ,Phone 
+     </sql>
+     <process>
+       <if condition="ISNULL(Phone)">
+         <set name="Phone"    value=""/>
+       </if>
+       <if condition="ISNULL(Msg_Txt)">
+         <set name="Msg_Txt"    value=""/>
+       </if>
+       <if condition="ISNULL(Msg_Sts)">
+         <set name="Msg_Sts"    value=""/>
+       </if>
+       <if condition="ISNULL(pageflag)">
+         <set name="pageflag"    value="0"/>
+       </if>
+       
+       <!-- 时间格式设置 start -->
+       <if condition="ISNULL(Sta_Day)">
+         <set name="Sta_Dat"    value="19000101"/>
+       </if>
+       <else>
+         <if condition="INTCMP(STRLEN(Sta_Day),6,8)">
+           <set name="Sta_Dat"    expr="FMTDATE(Sta_Day,4,0)"/>
+         </if>
+         <else>
+           <set name="Sta_Dat"    expr="Sta_Day"/>
+         </else>
+       </else>
+       
+       <if condition="ISNULL(End_Day)">
+         <set name="End_Dat"    value="99999999"/>
+       </if>
+       <else>
+         <if condition="INTCMP(STRLEN(End_Day),6,8)">
+           <set name="End_Dat"    expr="FMTDATE(End_Dat,4,0)"/>
+         </if>
+         <else>
+           <set name="End_Dat"    expr="End_Day"/>
+         </else>
+       </else>
+       <if condition="AND(NOT(ISNULL(Sta_Day)),NOT(ISNULL(End_Day)))">
+          <if condition="INTCMP(Sta_Day,6,End_Day)">
+            <set name="RspCod"    value="02004"/>
+            <set name="RspMsg"    value="开始日期不能大于结束日期！"/>
+            <set name="DWZ_STATUS_CODE"     value="300"/>
+            <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+            <return/>
+          </if>
+       </if>
+       
+       <!-- 设置下拉框 短信发送状态 -->
+       <set name="DICTNAME_MSGSTS"  expr="STRCAT('MSGSTS:',Msg_Sts)"/>
+       <do func="CreateDictOption" error="IGNORE">
+           <para name="DictCodes"    expr="DICTNAME_MSGSTS"/>
+       </do>
+       
+       <if condition="ISNULL(PageNum)">
+          <set name="PageNum" value="1"/>
+       </if>
+       <if condition="ISNULL(NumPerPag)">
+          <set name="NumPerPag" expr="NumPerPag"/>
+       </if>
+       <do func="PagedQuery" error="ignore">
+         <para name="PageNum"   expr="PageNum"/>
+         <para name="NumPerPag" expr="NumPerPag"/>
+         <para name="Sql"       sql="QryMsg"/>
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="数据库操作失败"/>
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="RspCod"    value="10001"/>
+         <set name="RspMsg"    value="没有符合条件的记录"/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09997"/>
+         <set name="RspMsg"    value="系统错误，请稍后再试"/>
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+       </elseif>
+       <quote name="FromPageNum"/>
+       
+       <do func="FormatDict2Etf" error="IGNORE"/>
+       
+       <!-- 显示数据信息记录 -->
+       <if condition="INTCMP(TOLCNT,1,NumPerPag)">
+         <set name="endPerNum"      expr="ADD(MUL(SUB(pagenum,1),numperpag),tolcnt)"/>
+       </if>
+       <else>
+         <set name="endPerNum"      expr="MUL(PageNum,NumPerPag)"/>
+       </else>
+       <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/sms/msgSum.jsp"/>
+     </process>
+   </transaction>
+   
+   <transaction code="563217"   desc="短信发送数量统计">
+     <sql name="QryMsgSum">
+       select count(1) SumNum from StpMsgSed where (Msg_Dat &gt;= #{Sta_Dat} and Msg_Dat &lt;= #{End_Dat}) and Msg_Sts='1'
+     </sql>
+     <sql name="QryMsg"> 
+       select to_char(to_date(msg_dat,'YYYY-MM-DD'),'YYYY-MM-DD') M_Tim ,msg_txt M_Txt,count(*) M_Cnt,phone from stpmsgsed where (Msg_Dat &gt;= #{Sta_Dat} and Msg_Dat &lt;= #{End_Dat}) and Msg_Sts='1' group by msg_dat,msg_txt,phone order by M_Tim desc,phone DESC
+     </sql>
+     <process>
+       <if condition="ISNULL(pageflag)">
+         <set name="pageflag"    value="1"/>
+       </if>
+       <!-- 时间格式设置 start -->
+       <if condition="ISNULL(Sta_Day)">
+         <set name="Sta_Dat"    value="19000101"/>
+       </if>
+       <else>
+         <if condition="INTCMP(STRLEN(Sta_Day),6,8)">
+           <set name="Sta_Dat"    expr="FMTDATE(Sta_Day,4,0)"/>
+         </if>
+         <else>
+           <set name="Sta_Dat"    expr="Sta_Day"/>
+         </else>
+       </else>
+       
+       <if condition="ISNULL(End_Day)">
+         <set name="End_Dat"    value="99999999"/>
+       </if>
+       <else>
+         <if condition="INTCMP(STRLEN(End_Day),6,8)">
+           <set name="End_Dat"    expr="FMTDATE(End_Day,4,0)"/>
+         </if>
+         <else>
+           <set name="End_Dat"    expr="End_Day"/>
+         </else>
+       </else>
+       <!-- 时间格式设置 end -->
+       
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="QryMsgSum"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="08512"/>
+         <set name="RspMsg"    value="查询短信发送总数失败"/>
+         <return/>
+       </if>
+       <!-- 统计短信发送记录数 -->
+       <!--
+           PageNum ->页码  
+           NumPerPag ->每页显示的条数    
+           recordNum ->查询出来的记录名(默认为GRP)   
+           sql ->SQL语句
+       -->
+       <if condition="ISNULL(PageNum)">
+          <set name="PageNum" value="1"/>
+       </if>
+       <do func="PagedQuery" error="ignore">
+         <para name="PageNum"   expr="PageNum"/>
+         <para name="NumPerPag" expr="NumPerPag"/>
+         <para name="Sql"       sql="QryMsg"/>
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="数据库操作失败"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="RspCod"    value="10001"/>
+         <set name="RspMsg"    value="无短信发送历史"/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09997"/>
+         <set name="RspMsg"    value="系统错误，请稍后再试"/>
+         <return/>
+       </elseif>
+       <quote name="FromPageNum"/>
+       <!-- 显示数据信息记录 -->
+       <if condition="INTCMP(TOLCNT,1,NumPerPag)">
+         <set name="endPerNum"      expr="ADD(MUL(SUB(pagenum,1),numperpag),tolcnt)"/>
+       </if>
+       <else>
+         <set name="endPerNum"      expr="MUL(PageNum,NumPerPag)"/>
+       </else>
+       <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/sms/msgSum.jsp"/>
+     </process>
+   </transaction>
+   
+</application>

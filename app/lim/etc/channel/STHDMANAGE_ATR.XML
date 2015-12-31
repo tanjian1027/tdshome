@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="GBK"?>
+<channel name="STHDMNG1" log_level="INFO">
+  <connector name="connector1" class="tangdi.comm.tcp.TdNewTcpConnector">
+    <para name="host" value="127.0.0.1" />
+    <para name="port" value="60003"/>
+    <interceptor class="tangdi.interceptor.xml.TdSendXmlInterceptor" />
+  </connector>
+  
+  <process>
+    <do expr="@tangdi.engine.context.Xml@begin()" />
+    <do func="pack">
+       <para name="ITF" value="etc/channel/STHDMANAGE_ITF.XML" />
+    </do>
+    <callconnector connector="connector1"/>
+    
+    <do func="unpack">
+       <para name="charset" value="utf-8"/>
+       <para name="dataType" value="asc" />
+       <para name="ITF" value="etc/channel/STHDMANAGE_ITF.XML" />
+    </do>
+  </process>
+  
+</channel>

@@ -1,0 +1,979 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<application name="STP" code="100" log_level="DEBUG">
+   <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   <!-- 公共宏文件引入-->
+   <include file="etc/public/Order_MACRO.XML"/>
+   <before> 
+      <!--打印ETF树-->
+      <do func="DumpEtf"/>
+      <set name="MsgTyp"        value="N"/>
+      <set name="RspCod"        value="00000"/>
+
+   </before>
+
+   <after>
+      <do func="DumpEtf"/>
+   </after>
+   
+   <!--计算交易手续费-->
+   <macro name="calTxnFee">
+      <!--查询商户交易累计额 包含本次结算金额-->
+      <do func="ReadRecord" >
+         <para name="SqlCmd" sql="selTotAmt"/>
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <continue/>
+      </if>
+      
+      <!--计算手续费-->
+      <quote name="FeeCount"/>
+   </macro>
+   
+   <!--加锁，防止并发-->
+   <macro name="lock">
+      <do func="Lock">
+         <para name="RecKey"     expr="RecKey" />
+         <para name="AutoUnLock" value="yes" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="08001"/>
+         <set name="RspMsg"    value="当日处理中"/>
+         <return/>
+      </if> 
+   </macro>
+   
+   <transaction code="601012" desc="商户订单手续费计算">
+      <sql name="QryPrdInf"><!-- 查询订单信息-->
+         SELECT a.merNo,a.prodcode,a.PrdOrdNo,a.payOrdNo,a.ordAmt FROM STPPRDINF a, STPPAYINF b
+          WHERE a.PAYORDNO = b.PAYORDNO and substr(b.ACTDAT,1,8)=#{txnDat} and a.OrdStatus='01' and (a.prdOrdType='0' or a.prdOrdType='2')
+          ORDER BY b.ACTDAT
+      </sql>
+      <sql name="SelMerFeeCod"><!-- 查询客户套餐费率代码-->
+         SELECT a.fee_code,a.exp_date,b.pre_amt,b.txn_flow,b.def_feecod 
+           FROM STPMERSIG a,STPPKGINF b 
+          WHERE a.pack_code=b.pkg_code and a.mer_no=#{merNo} and a.prod_code=#{prodCode} and a.VAL_DATE &lt;= #{txnDat} and  a.EXP_DATE &gt;= #{txnDat}
+      </sql>
+      <sql name="SelMerProTotAmt"><!-- 查询商户产品交易累计额-->
+         SELECT totAmt FROM merProTotAmt WHERE merNo=#{merNo} and prodCode=#{prodCode}
+      </sql>
+      <sql name="updPrdFee">  <!-- 更新商品订单手续费-->
+         UPDATE stpprdinf SET txnComAmt=#{fee} WHERE merNo=#{merNo} AND PrdOrdNo=#{PrdOrdNo}
+      </sql>
+      <sql name="updPayFee">  <!-- 更新支付订单手续费-->
+         UPDATE stppayinf SET fee=#{fee} WHERE payOrdNo=#{payOrdNo}
+      </sql>
+      <sql name="updMerProTotAmt">  <!-- 更新商户产品累计额-->
+         UPDATE merProTotAmt SET totAmt=totAmt+#{ordAmt} WHERE merNo=#{merNo} AND prodCode=#{prodCode}
+      </sql>
+      <process>
+         
+         <set name="txnDat"  expr="CALCDATE(GETDATE(),'-','d','1')"/>
+         
+         <!--加锁，防止并发-->
+         <set name="RecKey"  value="601012"/>
+         <quote name="lock"/>
+         
+         <!--查询当日支付成功的商品订单-->
+         <do func="QueryInGroup" >
+            <para name="SqlCmd"     sql="QryPrdInf" />
+            <para name="RecordName" value="Rec" />
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"    value="00000"/>
+            <set name="RspMsg"    value="无订单信息"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         
+         <foreach name="Rec" iterator="#Rec">  
+            <set name="merNo"                    expr="#Rec.merNo"/>
+            <set name="prodcode"                 expr="#Rec.prodcode"/> 
+            <set name="PrdOrdNo"                 expr="#Rec.PrdOrdNo"/>
+            <set name="payOrdNo"                 expr="#Rec.payOrdNo"/>
+            <set name="ordAmt"                   expr="#Rec.ordAmt"/>
+         
+            <!--查询该商户产品已累计交易额-->
+            <do func="ReadRecord" >
+               <para name="SqlCmd" sql="SelMerProTotAmt"/>
+            </do>
+            <if condition="#RetCod==2">
+               <set name="totAmt"    value="0"/>
+               <set name="flag"      value="0"/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <continue/>
+            </elseif>
+            <else>
+               <set name="flag"      value="1"/>
+            </else>
+            
+            <!--查询该商户产品对应的套餐信息-->
+            <do func="ReadRecord" >
+               <para name="SqlCmd" sql="SelMerFeeCod"/>
+            </do>
+            <if condition="#RetCod==2">
+               <set name="RspCod"    value="01002"/>
+               <set name="RspMsg"    value="无套餐信息"/>
+               <continue/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <continue/>
+            </elseif>
+            
+            <!--手续费计算： 检查是否过期 小于：已失效 按超量费率计算手续费  
+                                          大于等于：生效 交易总额 < 交易流量 不收手续费；
+                                                         交易总额+当前订单金额 > 交易流量，超出流量部分金额按超量费率计算； 
+                                                         交易总额>=交易流量 按超量费率计算；
+             -->
+            <set name="txnAmt_fee"       expr="ordAmt"/>      <!--订单金额-->
+            <set name="fee_code"         expr="fee_code"/>    <!--超量费率-->
+            <if condition="INTCMP(exp_date,1,txnDat)">        <!--产品套餐已失效-->
+               <quote name="FeeCount"/>
+               <set name="txnFee"        expr="fee"/> 
+            </if>
+            <else>
+               <if condition="DOUBLECMP(totAmt,1,txn_flow)">  <!--交易流量内-->
+                  <set name="curTotAmt"     expr="ADDAMT(totAmt,ordAmt)"/>
+                  <if condition="DOUBLECMP(curTotAmt,6,txn_flow)"> <!--临界订单 超出流量范围的部分金额按超量费率计算-->
+                     <set name="txnAmt_fee" expr="SUBAMT(curTotAmt,txn_flow)"/>  
+                     <quote name="FeeCount"/>
+                     <set name="txnFee"     expr="fee"/> 
+                  </if>
+                  <else>    <!--流量范围内 不收手续费--> 
+                     <set name="txnFee"     value="0"/>        
+                  </else> 
+               </if> 
+               <else>       <!--交易流量外 按超量费率计算-->
+                  <quote name="FeeCount"/>
+                  <set name="txnFee"     expr="fee"/>  
+               </else>
+            </else>
+            
+            <!--更新支付订单表 手续费-->
+            <do func="ExecSql">
+               <para name="SqlCmd"  sql="updPayFee" />
+            </do>
+            <if condition="#RetCod!=0">
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <do func="RollBackWork"/>  
+              <continue/>
+            </if>
+            
+            <!--更新商品订单表 手续费-->
+            <do func="ExecSql">
+               <para name="SqlCmd"  sql="updPrdFee" />
+            </do>
+            <if condition="#RetCod!=0">
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <do func="RollBackWork"/>  
+              <continue/>
+            </if>
+            
+            <!--登记商户产品交易额累计表-->
+            <if condition="IS_EQUAL_STRING(flag,'0')">  <!--无记录，进行插入-->
+               <set name="ccy"         value="CNY"/>
+               <set name="totAmt"      expr="ordAmt"/> 
+               
+               <!--登记商户产品交易额累计表-->
+               <do func="InsertRecord">
+                  <para name="TblNam"  value="merProTotAmt" />
+               </do>
+               <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <do func="RollBackWork"/>  
+                 <continue/>
+               </if>
+            </if>
+            <else><!--有记录，进行更新-->
+               <do func="ExecSql">
+                  <para name="SqlCmd"  sql="updMerProTotAmt" />
+               </do>
+               <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <do func="RollBackWork"/>  
+                 <continue/>
+               </if>
+            </else>
+         </foreach>
+         
+      </process>
+   </transaction>
+   
+   <transaction code="601010" desc="商户产品清算汇总">
+      <sql name="chkClrCtl">
+         SELECT clrSts FROM stpClrCtl WHERE clrDat=#{clrDat}
+      </sql>
+      <sql name="insClrCtl">
+         INSERT INTO stpClrCtl (clrDat,clrSts) values(#{clrDat},'0')
+      </sql>
+      <sql name="insMerClrTotInf">
+         INSERT INTO merProClrTot (mer_No,prod_Code,clr_Dat,clr_Amt)
+            SELECT merNo,prodCode,#{clrDat},sum(ordAmt) ordAmt
+              FROM ARP_BANK_REC_STL
+             WHERE clrsts='0' and orderTime &lt;= #{txnDat}||'235959'
+             GROUP BY merNo,prodCode
+      </sql>
+      <sql name="updMerStlRecSts">
+         update ARP_BANK_REC_STL set clrSts='1' where clrsts='0' and orderTime &lt;= #{txnDat}||'235959'
+      </sql>
+      <sql name="updClrCtlSts">
+         update stpClrCtl set clrSts=#{clrSts} where clrDat=#{clrDat}
+      </sql>
+      <sql name="InsClrDat"><!--虚拟账户支付的订单（不参与对账）入结算明细表 -->
+         INSERT INTO ARP_BANK_REC_STL (merNo,prodCode,PrdOrdNo,orderTime,ordCcy,ordAmt,fee)
+           SELECT a.MerNo,b.prodCode,a.PrdOrdNo,SUBSTR(a.ActDat, 0, 8),'CNY',b.ordAmt,b.txnComAmt
+             FROM StpPayInf a,StpPrdInf b 
+            WHERE a.payOrdNo=b.payOrdNo AND (a.PrdOrdType='0' or a.PrdOrdType='2') and a.payType='00' and SUBSTR(a.ActDat, 0, 8)=#{txnDat}
+      </sql>
+      <process>
+         <set name="clrDat"  expr="GETDATE()"/>
+         <set name="txnDat"  expr="CALCDATE(GETDATE(),'-','d','1')"/>
+         
+         <!--加锁，防止并发-->
+         <set name="RecKey"  expr="clrDat"/>
+         <quote name="lock"/>
+         
+         <!--虚拟账户支付的订单（不参与对账）入结算明细表-->
+         <do func="ExecSql"     error="IGNORE">
+           <para name="SqlCmd"  sql="InsClrDat"/>
+         </do>
+         <if condition="#RetCod==2">
+           <set name="RspCod"    value="00000"/>
+           <set name="RspMsg"    value="没有虚拟账户清算明细信息"/>
+         </if>
+         <elseif condition="#RetCod!=0">
+           <set name="RspCod"    value="09999"/>
+           <set name="RspMsg"    value="系统错误"/>	   
+           <set name="clrSts"        value="2"/>    <!--2 清算失败-->
+         </elseif>
+         
+         <!--检查当日是否已做清算-->
+         <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="chkClrCtl"/>
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"    value="01003"/>
+            <set name="RspMsg"    value="无符合条件记录"/>
+            <!--登记清算控制表-->
+            <do func="ExecSql" >
+              <para name="SqlCmd"  sql="insClrCtl" />
+            </do>
+            <if condition="#RetCod!=0">
+              <set name="RspCod"        value="09999"/>
+              <set name="RspMsg"        value="系统错误"/>
+              <return/>
+            </if>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="系统错误"/>
+            <return/>
+         </elseif>
+         
+         <if condition="OR(IS_EQUAL_STRING(clrSts,'0'),IS_EQUAL_STRING(clrSts,'1'))">
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="当日正在清算或已清算完成"/>
+            <return/>
+         </if>
+         <do func="CommitWork"/>
+         
+         <!--登记商户产品每日及之前对账成功记录汇总-->
+         <do func="ExecSql" >
+           <para name="SqlCmd"  sql="insMerClrTotInf" />
+         </do>
+         <if condition="#RetCod==2">  
+           <set name="RspCod"        value="00000"/> 
+           <set name="RspMsg"        value="没有清算明细信息"/>
+           <set name="clrSts"        value="1"/> 
+         </if>
+         <elseif condition="#RetCod!=0">
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <set name="clrSts"        value="2"/>    <!--2 清算失败-->
+         </elseif>
+         <else>
+            <set name="clrSts"       value="1"/>    <!--1 清算成功-->
+            <!--更新清算汇总状态为 1 已清算-->
+            <do func="ExecSql" >
+              <para name="SqlCmd"  sql="updMerStlRecSts" />
+            </do>
+            <if condition="#RetCod==2">
+              <set name="RspMsg"        value="没有清算明细信息"/>
+            </if>
+            <elseif condition="#RetCod!=0">
+              <set name="RspCod"        value="09999"/>
+              <set name="RspMsg"        value="系统错误"/>
+              <do func="RollBackWork"/>  
+              <set name="clrSts"        value="2"/>    <!--2 清算失败-->
+            </elseif>
+         </else>
+         
+         <!--更新清算控制状态-->
+         <do func="ExecSql" >
+           <para name="SqlCmd"  sql="updClrCtlSts" />
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/> 
+           <return/>
+         </if>
+         
+      </process>
+   </transaction>
+   
+   <transaction code="601009" desc="商户自动结算">
+      <sql name="SelClrCtlSts"><!-- 查询清算控制信息-->
+         SELECT clrSts FROM stpClrCtl WHERE clrDat = #{stlDate}
+      </sql>
+      <sql name="QryCusAutoStlRec"><!-- 查询所有客户结算信息 统一结算周期-->
+         SELECT CUST_ID,CUST_BANK_DEPOSIT_NAME,DEPOSIT_BANK_BRCH_NAME,BANK_REL_NO,CUST_STL_BANK_AC_NO,CUST_SET_PERIOD,nvl(CUST_SET_FREY,0) as CUST_SET_FREY,LAST_SET_DAY 
+           FROM STPMERINF 
+          WHERE STL_PERIOD_FLG='0' and ROUND(TO_NUMBER(#{stlDate} - LAST_SET_DAY)) &gt;= CUST_SET_FREY
+      </sql>
+      <sql name="QryCusInf"><!-- 查询客户信息-->
+         SELECT CUST_STATUS FROM StpCusInf WHERE CUST_ID=#{CUST_ID}
+      </sql>
+      <sql name="QryAccInf"><!-- 查询客户账户信息-->
+         SELECT a.AC_STATUS,a.MIN_STL_BALANCE,a.LIST_STS_FLG,a.BR_NO,a.AC_TYPE,a.PAY_AC_NO,a.cash_ac_bal-a.froz_balance as cashfroz
+           FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b 
+          WHERE a.PAY_AC_NO=b.PAY_AC_NO AND b.CUST_ID=#{CUST_ID} AND a.AC_TYPE='02'
+      </sql>
+      <sql name="QryMerProStlInf"><!-- 查询商户结算明细信息 支付成功 不包括预付款的订单-->
+         SELECT a.merNo,a.prodCode,SUM(nvl(a.ordAmt,0)) totStlAmt,SUM(nvl(a.fee,0)) totStlFee
+           FROM ARP_BANK_REC_STL a,STPPRDINF b
+          WHERE a.PrdOrdNo = b.PrdOrdNo and a.merno=b.merno and b.OrdStatus='01' 
+                AND a.merNo=#{CUST_ID} AND a.orderTime &lt;=#{END_DATE}||#{END_TIME} AND a.clrSts='1' 
+          GROUP BY a.merNo,a.prodCode
+      </sql>
+      <sql name="SelMerTotAmt"><!-- 查询商户应结算总金额-->
+         SELECT sum(nvl(stl_Amt,0)) totStlAmt,sum(nvl(stl_Fee,0)) totStlFee FROM merProStlTot WHERE mer_No=#{merNo} and stl_Dat=#{stlDate} and stl_sts='0'
+      </sql>
+      <sql name="chkCusStlInf"><!-- 查询客户当日是否有结算未支付的信息-->
+         SELECT MER_NO,BATCH_NO FROM ARP_BANK_PAY_STL WHERE MER_NO=#{CUST_ID} and TX_DATE=#{stlDate} and PAY_STL_STATUS='0'
+      </sql>
+      <sql name="UpdPrdOrdInf"><!-- 更新商户结算明细信息 批次号 清算状态-->
+         UPDATE ARP_BANK_REC_STL
+            SET batNo=#{BATCH_NO},clrSts='2'
+          WHERE merNo=#{CUST_ID} AND orderTime &lt;=#{END_DATE}||#{END_TIME} AND clrSts='1' 
+      </sql>
+      <sql name="UpdPrdStlInf"><!-- 更新商户产品结算汇总信息 状态-->
+         UPDATE merProStlTot SET stl_sts='1' WHERE mer_No=#{merNo} and stl_Dat=#{stlDate} and stl_sts='0'
+      </sql>
+      <sql name="UpdCusStlInf"><!-- 更新商户信息表 上一结算日 -->
+         UPDATE STPMERINF
+            SET LAST_SET_DAY=#{LAST_SET_DAY}
+          WHERE CUST_ID=#{CUST_ID} 
+      </sql>
+      <process>
+         <if condition="NOT(ISNULL(REQIP))">
+            <set name="RspCod"            value="02001"/>
+            <set name="RspMsg"            value="请勿手工通过浏览器发起"/>
+            <return/>
+         </if>
+         
+         <set name="stlDate"            expr="GETDATE()"/>
+         
+         <!--加锁，防止并发-->
+         <set name="RecKey"             expr="stlDate"/>
+         <quote name="lock"/>
+         
+         <!--检查当日清算是否完成，否则不允许做结算-->
+         <do func="ReadRecord" >
+            <para name="SqlCmd" sql="SelClrCtlSts"/>
+         </do>
+         <if condition="#RetCod==2">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01002"/>
+            <set name="RspMsg"    value="清算汇总处理未进行"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         <if condition="IS_NOEQUAL_STRING(clrSts,'1')">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08001"/>
+            <set name="RspMsg"    value="清算汇总处理未完成或未成功"/>
+            <return/>
+         </if>
+         
+         <!--查询所有客户结算信息 统一结算周期-->
+         <do func="QueryInGroup" >
+            <para name="SqlCmd"     sql="QryCusAutoStlRec" />
+            <para name="RecordName" value="Rec" />
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"    value="01002"/>
+            <set name="RspMsg"    value="无客户结算信息"/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         
+         <foreach name="Rec" iterator="#Rec">  
+            <set name="USERID"                    expr="#Rec.CUST_ID"/>
+            <set name="CUST_ID"                   expr="#Rec.CUST_ID"/> 
+            <set name="CUST_STL_BANK_AC_NO"       expr="#Rec.CUST_STL_BANK_AC_NO"/>    <!--结算银行账号-->
+            <set name="CUST_BANK_DEPOSIT_NAME"    expr="#Rec.CUST_BANK_DEPOSIT_NAME"/> <!--银行账户户名-->
+            <set name="DEPOSIT_BANK_BRCH_NAME"    expr="#Rec.DEPOSIT_BANK_BRCH_NAME"/> <!--开户银行网点名称-->
+            <set name="CUST_SET_PERIOD"           expr="#Rec.CUST_SET_PERIOD"/>        <!--结算周期 D 按天-->
+            <set name="CUST_SET_FREY"             expr="#Rec.CUST_SET_FREY"/>          <!--结算频率-->
+            <set name="LAST_SET_DAY"              expr="#Rec.LAST_SET_DAY"/>           <!--上一结算日--> 
+            
+            <!--客户状态检查-->
+            <quote name="usrChk"/>    
+            <!--客户账户信息检查-->
+            <quote name="accChk"/>
+            
+            <set name="OPERID"       value="system"/>        <!--系统-->
+            <set name="END_DATE"     expr="CALCDATE(GETDATE(),'-','d',CUST_SET_FREY)"/>   <!--减去结算频率n-->
+            <set name="END_TIME"     expr="235959"/>
+            
+            <!--查询商户所有产品结算总金额-->
+            <do func="QueryInGroup" >
+               <para name="SqlCmd"     sql="QryMerProStlInf"/>
+               <para name="RecordName" value="StlRec" />
+            </do>
+            <if condition="#RetCod==2">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="01002"/>
+               <set name="RspMsg"    value="该商户无结算信息"/>
+               <continue/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <continue/>
+            </elseif>
+            
+            <foreach name="StlRec" iterator="#StlRec">  
+               <set name="merNo"        expr="#StlRec.merNo"/>
+               <set name="prodCode"     expr="#StlRec.prodCode"/> 
+               <set name="totStlAmt"    expr="#StlRec.totStlAmt"/>
+               <set name="totStlFee"    expr="#StlRec.totStlFee"/>
+
+               <!--获取序号 -->
+               <do func="GetSeqNoNew"  >
+                  <para name="TblNam"   value="stpseqrec"/>
+                  <para name="KeyNam"   value="KeyNam"/>
+                  <para name="KeyVal"   expr="STRCAT('merProStlTot','stl_no')"/>
+                  <para name="SeqNam"   value="KeyVal"/>
+                  <para name="Len"      value="8"/>
+                  <para name="Circle"   value="1"/>
+               </do>
+               <if condition="#RetCod!=0">
+                  <set name="MsgTyp"    value="E"/>
+                  <set name="RspCod"    value="09001"/>
+                  <set name="RspMsg"    value="获取序号错误"/>
+                  <continue/>
+               </if> 
+               
+               <set name="stl_No"       expr="STRCAT(stlDate,KeyVal)"/>   <!--结算流水号-->
+               <set name="mer_No"       expr="merNo"/> 
+               <set name="prod_Code"    expr="prodCode"/> 
+               <set name="stl_Dat"      expr="stlDate"/>  
+               <set name="stl_Amt"      expr="totStlAmt"/> 
+               <set name="stl_Fee"      expr="totStlFee"/> 
+               <set name="stl_Sts"      value="0"/>                       <!--0 待结算  1 已结算-->
+               
+               <!--登记商户产品结算汇总表-->
+               <do func="InsertRecord">
+                  <para name="TblNam"  value="merProStlTot" />
+               </do>
+               <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <do func="RollBackWork"/>  
+                 <continue/>
+               </if>
+               
+            </foreach>
+            
+            <!--汇总商户结算总金额-->
+            <do func="ReadRecord" >
+               <para name="SqlCmd" sql="SelMerTotAmt"/>
+            </do>
+            <if condition="#RetCod==2">
+               <set name="RspCod"    value="01002"/>
+               <set name="RspMsg"    value="没有可结算金额！"/>
+               <do func="RollBackWork"/>  
+               <continue/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <do func="RollBackWork"/>  
+               <continue/>
+            </elseif>
+            
+            <set name="TOT_ORD_AMT"   expr="totStlAmt"/>                        <!--订单总金额-->
+            <set name="TOT_TXN_FEE"   expr="totStlFee"/>                        <!--交易手续费-->
+            <set name="STL_AMT"       expr="SUBAMT(TOT_ORD_AMT,TOT_TXN_FEE)"/>  <!--应结算金额-->
+            
+            <if condition="DOUBLECMP(STL_AMT,2,'0')">
+               <set name="RspCod"              value="08056"/>
+               <set name="RspMsg"              value="没有可结算金额！"/>
+               <do func="RollBackWork"/>  
+               <continue/>
+            </if>
+            
+            <!--检查商户账户金额是否足够结算-->
+            <if condition="DOUBLECMP(cashfroz,1,STL_AMT)">
+               <set name="MsgTyp"              value="E"/>
+               <set name="RspCod"              value="02990"/>
+               <set name="RspMsg"              value="商户账户余额不足！"/>
+               <do func="RollBackWork"/>  
+               <continue/>
+            </if>
+
+            <!--获取序号 -->
+            <do func="GetSeqNoNew"  >
+               <para name="TblNam"   value="stpseqrec"/>
+               <para name="KeyNam"   value="KeyNam"/>
+               <para name="KeyVal"   expr="STRCAT('ARP_BANK_PAY_STL','SEQ_NO')"/>
+               <para name="SeqNam"   value="KeyVal"/>
+               <para name="Len"      value="8"/>
+               <para name="Circle"   value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09001"/>
+               <set name="RspMsg"    value="获取序号错误"/>
+               <do func="RollBackWork"/>  
+               <continue/>
+            </if>
+
+            <set name="BATCH_NO"        expr="STRCAT(GETDATE(),KeyVal)"/>           <!--批次号-->
+            <set name="MER_NO"          expr="CUST_ID"/>                            <!--商户号-->
+            <set name="REC_BANK_NAME"   expr="DEPOSIT_BANK_BRCH_NAME"/>             <!--收款银行名称-->
+            <set name="REC_STL_AC_NO"   expr="CUST_STL_BANK_AC_NO"/>                <!--收款结算账号-->
+            <set name="REC_NAME"        expr="CUST_BANK_DEPOSIT_NAME"/>             <!--收款人名称-->
+            <set name="PAY_STL_STATUS"  value="0"/>                                 <!--付款结算状态 0-待处理；2-付款成功；3-付款失败；-->
+            <set name="TX_OPER_ID"      expr="OPERID"/>                             <!--记录生成操作员-->
+            <set name="TX_DATE"         expr="GETDATE()"/>                          <!--记录生成日期-->
+            <set name="TX_TIME"         expr="GETDATETIME('HHMISS')"/>              <!--记录生成时间-->
+            
+            <!--登记商户结算信息-->
+            <do func="InsertRecord" >
+               <para name="TblNam"   value="ARP_BANK_PAY_STL" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <do func="RollBackWork"/>  
+               <continue/>
+            </if>
+            
+            <!--冻结商户结算金额 -->
+            <quote name="Acc"/>
+            
+            <!--更新商户结算明细信息-->
+            <do func="ExecSql" >
+              <para name="SqlCmd"  sql="UpdPrdOrdInf" />
+            </do>
+            <if condition="#RetCod==2">
+              <set name="RspMsg"        value="没有结算信息"/>
+            </if>
+            <elseif condition="#RetCod!=0">
+              <set name="RspCod"        value="09999"/>
+              <set name="RspMsg"        value="系统错误"/>
+              <do func="RollBackWork"/>  
+              <continue/>
+            </elseif>
+            
+            <!--更新商户产品结算汇总信息-->
+            <do func="ExecSql" >
+              <para name="SqlCmd"  sql="UpdPrdStlInf" />
+            </do>
+            <if condition="#RetCod==2">
+              <set name="RspMsg"        value="没有结算信息"/>
+            </if>
+            <elseif condition="#RetCod!=0">
+              <set name="RspCod"        value="09999"/>
+              <set name="RspMsg"        value="系统错误"/>
+              <do func="RollBackWork"/>  
+              <continue/>
+            </elseif>
+            
+            <!--更新上一结算日-->
+            <set name="LAST_SET_DAY"    expr="stlDate"/>     <!--上一结算日-->
+            <do func="ExecSql" >
+              <para name="SqlCmd"  sql="UpdCusStlInf" />
+            </do>
+            <if condition="#RetCod!=0">
+              <set name="RspCod"        value="09999"/>
+              <set name="RspMsg"        value="系统错误"/>
+              <do func="RollBackWork"/>  
+              <continue/>
+            </if>
+            
+            <set name="RspCod"          value="00000"/>
+            <do func="CommitWork"/> 
+         </foreach>
+         
+         <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+            <set name="RspMsg"              value="交易成功"/>
+         </if>
+         <else>
+            <set name="RspMsg"              value="交易失败"/>
+         </else>
+         
+      </process>
+   </transaction>
+   
+   <transaction code="601011" desc="商户自动结算-不是统一结算周期">
+      <sql name="QryCusSigStlRec"><!-- 查询客户签约信息表中-结算信息-->
+         SELECT c.CUST_ID,c.CUST_BANK_DEPOSIT_NAME,c.DEPOSIT_BANK_BRCH_NAME,c.CUST_STL_BANK_AC_NO,c.BANK_REL_NO
+           FROM STPMERSIG a,STPPROINF b,STPMERINF c
+          WHERE a.PROD_CODE=b.PROD_CODE and a.MER_NO=c.CUST_ID and a.sign_sts='1' and c.STL_PERIOD_FLG='1' 
+                and ROUND(TO_NUMBER(#{stlDate} - a.LAST_SET_DAY)) &gt;= b.CUST_SET_FREY
+      </sql>
+      <sql name="QryProStlRec"><!-- 查询指定客户下的可结算产品信息-->
+         SELECT a.PROD_CODE,b.CUST_SET_PERIOD,nvl(b.CUST_SET_FREY,0) CUST_SET_FREY,a.LAST_SET_DAY
+           FROM STPMERSIG a,STPPROINF b,STPMERINF c
+          WHERE a.PROD_CODE=b.PROD_CODE and a.MER_NO=c.CUST_ID and a.sign_sts='1' and c.STL_PERIOD_FLG='1' 
+                and ROUND(TO_NUMBER(#{stlDate} - a.LAST_SET_DAY)) &gt;= b.CUST_SET_FREY and a.mer_no=#{CUST_ID}
+      </sql>
+      <sql name="QryCusInf"><!-- 查询客户信息-->
+         SELECT CUST_STATUS FROM StpCusInf WHERE CUST_ID=#{CUST_ID}
+      </sql>
+      <sql name="QryAccInf"><!-- 查询客户账户信息-->
+         SELECT a.AC_STATUS,a.MIN_STL_BALANCE,a.LIST_STS_FLG,a.BR_NO,a.AC_TYPE,a.PAY_AC_NO,a.cash_ac_bal-a.froz_balance as cashfroz
+           FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b 
+          WHERE a.PAY_AC_NO=b.PAY_AC_NO AND b.CUST_ID=#{CUST_ID} AND a.AC_TYPE='02'
+      </sql>
+      <sql name="QryPrdOrdInf1"><!-- 查询商户对应产品的结算明细信息-->
+         SELECT nvl(SUM(a.ordAmt-nvl(a.fee,0)),0) totStlAmt,nvl(SUM(nvl(a.fee,0)),0) totTxnFee,nvl(SUM(a.ordAmt),0) totOrdAmt,count(*) totPrd
+           FROM ARP_BANK_REC_STL a,STPPRDINF b
+          WHERE a.PrdOrdNo = b.PrdOrdNo and a.merno=b.merno and b.OrdStatus='01' and b.prodcode=#{PROD_CODE}
+                and a.merNo=#{CUST_ID} AND a.orderTime &lt;=#{END_DATE}||#{END_TIME} AND a.batNo is null
+      </sql>
+      <sql name="UpdPrdOrdInf1"><!-- 更新商户结算明细信息 批次号-->
+         UPDATE ARP_BANK_REC_STL
+            SET batNo=#{BATCH_NO}
+          WHERE merNo=#{CUST_ID} AND orderTime &lt;=#{END_DATE}||#{END_TIME} AND batNo is null 
+                AND PrdOrdNo= (SELECT a.PrdOrdNo FROM stpprdinf a,ARP_BANK_REC_STL b WHERE a.PrdOrdNo=b.PrdOrdNo AND a.merno=b.merno 
+                                      AND a.merNo=#{CUST_ID} AND a.prodcode=#{PROD_CODE} AND a.OrdStatus='01' 
+                                      AND a.orderTime &lt;=#{END_DATE}||#{END_TIME} AND b.batNo is null)
+      </sql>
+      <sql name="UpdCusStlInf1"><!-- 更新商户签约信息表 上一结算日 -->
+         UPDATE STPMERSIG
+            SET LAST_SET_DAY=#{LAST_SET_DAY}
+          WHERE mer_no=#{CUST_ID} and prod_code=#{PROD_CODE}
+      </sql>
+      <sql name="selTotAmt"><!-- 查询商户累计结算额-->
+         SELECT MER_NO,sum(TOT_ORD_AMT) FROM ARP_BANK_PAY_STL WHERE MER_NO=#{CUST_ID} 
+      </sql>  
+      <process>
+         <!--对商户不是统一结算周期的各产品进行结算 -->
+         <do func="QueryInGroup" >
+            <para name="SqlCmd"     sql="QryCusSigStlRec" />
+            <para name="RecordName" value="SigRec" />
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"    value="08055"/>
+            <set name="RspMsg"    value="无客户结算信息"/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         
+         <foreach name="SigRec" iterator="#SigRec">  
+            <set name="USERID"                    expr="#SigRec.CUST_ID"/>
+            <set name="CUST_ID"                   expr="#SigRec.CUST_ID"/> 
+            <set name="CUST_STL_BANK_AC_NO"       expr="#SigRec.CUST_STL_BANK_AC_NO"/>    <!--结算银行账号-->
+            <set name="CUST_BANK_DEPOSIT_NAME"    expr="#SigRec.CUST_BANK_DEPOSIT_NAME"/> <!--银行账户户名-->
+            <set name="DEPOSIT_BANK_BRCH_NAME"    expr="#SigRec.DEPOSIT_BANK_BRCH_NAME"/> <!--开户银行网点名称-->
+            
+            <!--查询指定商户可结算的产品信息-->
+            <do func="QueryInGroup" >
+               <para name="SqlCmd"     sql="QryProStlRec" />
+               <para name="RecordName" value="ProRec" />
+            </do>
+            <if condition="#RetCod==2">
+               <set name="RspCod"    value="08055"/>
+               <set name="RspMsg"    value="无符合条件的产品结算信息"/>
+               <continue/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <continue/>
+            </elseif>
+            
+            <!--客户状态检查-->
+            <quote name="usrChk"/>    
+            <!--客户账户信息检查-->
+            <quote name="accChk"/>
+            
+            <set name="STL_AMT"      value="0"/>                     <!--结算金额--> 
+            <set name="TOTAL_AMT"    value="0"/>                     <!--结算总金额-->
+            <set name="TOTAL_COUNT"  value="0"/>                     <!--结算总笔数-->
+            
+            <!--获取序号 -->
+            <do func="GetSeqNoNew"  >
+               <para name="TblNam"   value="stpseqrec"/>
+               <para name="KeyNam"   value="KeyNam"/>
+               <para name="KeyVal"   expr="STRCAT('ARP_BANK_PAY_STL','SEQ_NO')"/>
+               <para name="SeqNam"   value="KeyVal"/>
+               <para name="Len"      value="8"/>
+               <para name="Circle"   value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09001"/>
+               <set name="RspMsg"    value="获取序号错误"/>
+               <continue/>
+            </if>
+            <set name="BATCH_NO"     expr="STRCAT(GETDATE(),KeyVal)"/>           <!--批次号-->
+            
+            <foreach name="ProRec" iterator="#ProRec">
+               <set name="CUST_SET_PERIOD"           expr="#ProRec.CUST_SET_PERIOD"/>        <!--结算周期 D 按天-->
+               <set name="CUST_SET_FREY"             expr="#ProRec.CUST_SET_FREY"/>          <!--结算频率-->
+               <set name="LAST_SET_DAY"              expr="#ProRec.LAST_SET_DAY"/>           <!--上一结算日--> 
+               <set name="PROD_CODE"                 expr="#ProRec.PROD_CODE"/>              <!--产品编号--> 
+               
+               <set name="OPERID"       value="system"/>        <!--系统-->
+               <set name="END_DATE"     expr="CALCDATE(GETDATE(),'-','d',CUST_SET_FREY)"/>   <!--减去结算频率n-->
+               <set name="END_TIME"     expr="235959"/>
+               
+               <!--查询商户结算明细总金额-->
+               <do func="ReadRecord" >
+                  <para name="SqlCmd" sql="QryPrdOrdInf1"/>
+               </do>
+               <if condition="#RetCod!=0">
+                  <set name="MsgTyp"    value="E"/>
+                  <set name="RspCod"    value="09999"/>
+                  <set name="RspMsg"    value="系统错误"/>
+                  <continue/>
+               </if>
+               
+               <if condition="DOUBLECMP(totStlAmt,2,'0')">
+                  <set name="RspCod"              value="08056"/>
+                  <set name="RspMsg"              value="没有可结算金额！"/>
+                  <continue/>
+               </if>
+               
+               <set name="STL_AMT"                expr="ADDAMT(STL_AMT,totStlAmt)"/>                     <!--结算总金额--> 
+               <set name="TOTAL_AMT"              expr="ADDAMT(TOTAL_AMT,totOrdAmt)"/>                   <!--订单总金额-->
+               <set name="TOTAL_COUNT"            expr="ADD(TOTAL_COUNT,totPrd)"/>                       <!--结算总笔数-->
+               
+               <!--更新商户清算明细信息-->
+               <do func="ExecSql" >
+                 <para name="SqlCmd"  sql="UpdPrdOrdInf1" />
+               </do>
+               <if condition="#RetCod==2">
+                 <set name="RspMsg"        value="没有结算信息"/>
+               </if>
+               <elseif condition="#RetCod!=0">
+                 <set name="RspCod"        value="09999"/>
+                 <set name="RspMsg"        value="系统错误"/>
+                 <continue/>
+               </elseif>
+               
+               <!--更新上一结算日-->
+               <set name="LAST_SET_DAY"    expr="stlDate"/>     <!--上一结算日-->
+               <do func="ExecSql" >
+                 <para name="SqlCmd"  sql="UpdCusStlInf1" />
+               </do>
+               <if condition="#RetCod!=0">
+                 <set name="RspCod"        value="09999"/>
+                 <set name="RspMsg"        value="系统错误"/>
+                 <continue/>
+               </if>
+               
+            </foreach>
+
+            <!--检查商户账户金额是否足够结算-->
+            <if condition="DOUBLECMP(cashfroz,1,STL_AMT)">
+               <set name="MsgTyp"              value="E"/>
+               <set name="RspCod"              value="02990"/>
+               <set name="RspMsg"              value="商户账户余额不足！"/>
+               <continue/>
+            </if>    
+            
+            <!--计算交易手续费totTxnFee？？？-->
+            <quote name="calTxnFee"/>
+            
+            <set name="MER_NO"          expr="CUST_ID"/>                            <!--商户号-->
+            <set name="STL_AMT"         expr="STL_AMT"/>                            <!--结算金额-->
+            <set name="TOT_ORD_AMT"     expr="TOTAL_AMT"/>                          <!--订单总金额-->
+            <set name="TOT_TXN_FEE"     expr="totTxnFee"/>                          <!--交易手续费-->
+            <set name="REC_BANK_NAME"   expr="DEPOSIT_BANK_BRCH_NAME"/>             <!--收款银行名称-->
+            <set name="REC_STL_AC_NO"   expr="CUST_STL_BANK_AC_NO"/>                <!--收款结算账号-->
+            <set name="REC_NAME"        expr="CUST_BANK_DEPOSIT_NAME"/>             <!--收款人名称-->
+            <set name="PAY_STL_STATUS"  value="0"/>                                 <!--付款结算状态 0-待处理；2-付款成功；3-付款失败；-->
+            <set name="TX_OPER_ID"      expr="OPERID"/>                             <!--记录生成操作员-->
+            <set name="TX_DATE"         expr="GETDATE()"/>                          <!--记录生成日期-->
+            <set name="TX_TIME"         expr="GETDATETIME('HHMISS')"/>              <!--记录生成时间-->
+            
+            <!--登记商户结算信息-->
+            <do func="InsertRecord" >
+               <para name="TblNam"  value="ARP_BANK_PAY_STL" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <continue/>
+            </if>
+            
+            <!--冻结商户结算金额 -->
+            <quote name="Acc"/>
+            
+            <set name="RspCod"          value="00000"/>
+         </foreach> 
+      </process>
+   </transaction>
+   
+   <transaction code="601013" desc="商户自动结算-内部账户划款">
+      <sql name="QryMerStlRec">
+         select PAY_STL_STATUS from ARP_BANK_PAY_STL where BATCH_NO=#{BATCH_NO} and MER_NO=#{CUST_ID}
+      </sql>
+      <sql name="UpdMerStlRec">
+         update ARP_BANK_PAY_STL set PAY_STL_STATUS='2' where BATCH_NO=#{BATCH_NO} and MER_NO=#{CUST_ID}
+      </sql>
+      <sql name="QryMerAccInfo01">
+         SELECT a.AC_STATUS as AC_STATUS01,c.CUST_STATUS FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b ,STPCUSINF c WHERE a.PAY_AC_NO=b.PAY_AC_NO and b.CUST_ID=c.CUST_ID and a.ac_type='01' and b.CUST_ID=#{CUST_ID}
+      </sql> 
+      <sql name="QryMerAccInfo02">
+         SELECT a.AC_STATUS as AC_STATUS02,a.PAY_AC_NO as PAY_AC_NO07,a.CASH_AC_BAL,a.FROZ_BALANCE FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b WHERE a.PAY_AC_NO=b.PAY_AC_NO and a.ac_type='02' and b.CUST_ID=#{CUST_ID}
+      </sql>
+      <sql name="SelFrzInf">
+         select PAY_AC_NO,FROZ_AMT,BIZ_CODE,STATUS,FROZ_NO from ARP_AC_FORZZ_DETAILS where BIZ_CODE=#{BATCH_NO} and STATUS='01'
+      </sql>
+      <sql name="UpdFrezInf">
+         UPDATE ARP_AC_FORZZ_DETAILS SET STATUS='00',LST_UPT_DATE=#{LST_UPT_DATE},LST_UPT_TIME=#{LST_UPT_TIME}  WHERE FROZ_NO=#{BATCH_NO}
+      </sql>
+      <process>
+         <!--校验结算数据有效性-->
+         <do func="ReadRecord" >
+            <para name="SqlCmd" sql="QryMerStlRec"/>
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"    value="01002"/>
+            <set name="RspMsg"    value="结算记录查询失败"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         
+         <!--校验商户数据有效性-->
+         <do func="ReadRecord" >
+            <para name="SqlCmd" sql="QryMerAccInfo01"/>
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"    value="01002"/>
+            <set name="RspMsg"    value="客户账户信息不存在"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         <do func="ReadRecord" >
+            <para name="SqlCmd" sql="QryMerAccInfo02"/>
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"    value="01002"/>
+            <set name="RspMsg"    value="客户账户信息不存在"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         
+         <if condition="IS_NOEQUAL_STRING(CUST_STATUS,'0')">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="客户状态异常"/>
+            <return/>
+         </if>  
+         <if condition="OR(IS_NOEQUAL_STRING(AC_STATUS01,'0'),IS_NOEQUAL_STRING(AC_STATUS02,'0'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="客户账户状态异常"/>
+            <return/>
+         </if>
+         
+         <!--账务处理 商户解冻-->
+         <quote name="SelFrzInf"/>
+         
+         <set name="PAY_AC_NO"     expr="PAY_AC_NO07"/>
+         <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+         <quote name="frezzAmt"/>
+
+         <quote name="UpdFrezz"/>
+         
+         <!--记账处理-->
+         <set name="meracc01"     expr="STRCAT(CUST_ID,'/','01','/','+','/','CNY','/',FROZ_AMT,'/','Y','/')"/>        <!--结算账户记账参数-->
+         <set name="meracc02"     expr="STRCAT(CUST_ID,'/','02','/','-','/','CNY','/',FROZ_AMT,'/','Y','/')"/>        <!--现金账户记账参数-->
+         <set name="PARAMS"       expr="STRCAT(meracc01,',',meracc02)"/>
+                      
+         <set name="prdordno"     expr="BATCH_NO"/>
+         <set name="TXN_TYP"      value="8"/>       <!-- 用途：结算-->
+         <quote name="accProcess"/>
+         <if condition="#RetCod!=0">
+            <set name="RspCod"    value="07005"/>
+            <set name="RspMsg"    value="付款失败"/>
+            <set name="DWZ_STATUS_CODE" value="300"/>
+            <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+            <do func="RollBackWork"/>
+            <return/>
+         </if>
+         
+         <!--更新结算数据-->
+         <do func="ExecSql" >
+           <para name="SqlCmd"  sql="UpdMerStlRec" />
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </if> 
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/>
+         <set name="DWZ_STATUS_CODE" value="200"/>
+         <set name="DWZ_RSP_MSG"     expr="RspMsg"/>
+      </process>
+   </transaction>
+   
+</application>

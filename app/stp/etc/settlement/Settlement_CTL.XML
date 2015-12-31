@@ -1,0 +1,951 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="OFRTSETA" code="100" log_level="DEBUG">
+   <!--公共宏文件引入-->
+   <include file="etc/public/Order_MACRO.XML"/>
+   
+   <before>
+     <set name="DWZ_ERROR_CODE"    value="300"/>
+     <set name="DWZ_SUCCESS_CODE"  value="200"/>
+     <set name="DWZ_TIME_OUT_CODE" value="301"/>
+     <do func="DumpMsg"/>
+   </before>
+
+   <after>
+     <do func="DumpMsg"/>
+   </after>
+
+   <macro name="ReadXmlCfg">
+        <do func="ReadXmlConfig" error="IGNORE">
+            <para name="FILNAM"                  value="etc/public/STP_CONFIG.XML"/>
+            <para name="NAME"                    expr="ConfigName"/>
+        </do>
+        <if condition="#RetCod==-1">
+            <set name="RspCod"                   value="08020">
+            </set>
+            <set name="RspMsg"                   value="参数错误">
+            </set>
+            <return/>
+        </if>
+        <elseif condition="#RetCod==2">
+            <set name="RspCod"                   value="08021">
+            </set>
+            <set name="RspMsg"                   value="取XML配置父节点失败">
+            </set>
+            <return/>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+            <set name="RspCod"                   value="09998">
+            </set>
+            <set name="RspMsg"                   value="系统错误">
+            </set>
+            <return/>
+        </elseif>
+   </macro>
+   
+   <transaction code="601000"  desc="获取商户开户银行信息">
+     <sql name="merchantsBank">
+       SELECT BANK_CODE,BANK_NAME,BANK_REL_NO,BANK_STATUS FROM MERACBANK   ORDER BY CRE_TIME DESC
+     </sql>
+     <process>
+       <!--检查用户登录平台是否正确-->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+          <set name="RspCod"            value="01001"/>
+          <set name="RspMsg"            value="用户登录平台不正确"/>
+          <set name="DWZ_STATUS_CODE"   value="300"/>
+          <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+          <return/>
+       </if>
+       <!-- 商户开户银行信息 -->
+       <do func="QueryInGroup"        error="IGNORE">
+          <para name="SqlCmd"          sql="merchantsBank" />
+          <para name="RecordName"      value="GRP" />
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"            value="02001"/>
+          <set name="RspMsg"            value="没有商户开户银行信息"/>
+          <set name="DWZ_STATUS_CODE"   value="300"/>
+          <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+          <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"            value="09999"/>
+          <set name="RspMsg"            value="系统错误"/>
+          <set name="DWZ_STATUS_CODE"   value="300"/>
+          <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+          <return/>
+       </elseif>
+       <set name="RspCod"               value="00000"/>
+       <set name="RspMsg"               value="交易成功"/>
+       <set name="DWZ_STATUS_CODE"      value="200"/>
+       <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+      </process>
+   </transaction>
+
+   <transaction code="601001"  desc="商户结算查询">
+    <sql name="querySettlement">
+        SELECT a.BATCH_NO,b.cust_id,TO_CHAR(to_date(a.TX_DATE,'yyyymmdd'),'yyyy-mm-dd') TX_DATE,a.REC_BANK_NAME,a.REC_STL_AC_NO,a.REC_NAME,
+               TO_CHAR( (TO_NUMBER(a.TOT_ORD_AMT))/100,'FM9999,999,999,990.00') TOT_ORD_AMT,
+               TO_CHAR(TO_NUMBER(NVL(a.TOT_TXN_FEE,0))/100,'FM9999,999,999,990.00') TOT_TXN_FEE,
+               TO_CHAR((TO_NUMBER(a.STL_AMT))/100,'FM9999,999,999,990.00') STL_AMT,
+               a.PAY_STL_STATUS,b.CUST_NAME
+          FROM ARP_BANK_PAY_STL a ,STPCUSINF b
+         WHERE a.MER_NO=b.cust_id and (b.CUST_ID like '%'||#{CUST_ID}||'%'  or ' '= #{CUST_ID}||'' )  
+               ${Qry1}  ${conf}
+         ORDER BY a.stl_date desc,a.stl_time  desc
+    </sql>
+    <sql name="selStlTot">
+        SELECT count(*) SUMCOT,TO_CHAR( (TO_NUMBER(sum(a.STL_AMT)))/100,'FM9999,999,999,990.00') SUMAMT
+          FROM ARP_BANK_PAY_STL a ,STPCUSINF b
+         WHERE a.MER_NO=b.cust_id and (b.CUST_ID like '%'||#{CUST_ID}||'%'  or ' '= #{CUST_ID}||'' )  
+               ${Qry1}  ${conf}
+    </sql>
+    <process> 
+       <!--控制按钮-->
+       <do func="GetOwnButton"/>    
+       <set name="CUST_ID"                  expr="DELBOTHSPACE(CUST_ID)"/>
+       <!-- 起始时间 -->
+       <if condition="NOT(ISNULL(DATETIME))">
+         <set name="Qry1"    expr="STRCAT('and a.STL_DATE like \'',REPALLSTR(DATETIME,'-',''),'%\'')"/>
+       </if>
+       <else>
+         <if condition="AND(ISNULL(EXP_PAY_BGN_DATE),ISNULL(EXP_PAY_END_DATE))">
+           <set name="Qry1"                   value=""/>
+         </if> 
+         <elseif condition="IS_EQUAL_STRING(EXP_PAY_BGN_DATE,EXP_PAY_END_DATE)">
+            <set name="Qry1"                  expr="STRCAT('and a.STL_DATE like \'%',EXP_PAY_BGN_DATE,'%\'')"/> 
+         </elseif> 
+         <elseif  condition="IS_NOEQUAL_STRING(EXP_PAY_BGN_DATE,EXP_PAY_END_DATE)">
+           <if condition="ISNULL(EXP_PAY_BGN_DATE)">
+              <set name="EXP_PAY_BGN_DATE"    expr="EXP_PAY_BGN_DATE"/>
+           </if> 
+           <else>
+             <set name="EXP_PAY_BGN_DATE"     expr="EXP_PAY_BGN_DATE"/>
+             <set name="Qry1"                 expr="STRCAT('and a.STL_DATE &gt;= \'',EXP_PAY_BGN_DATE,'\' ')"/> 
+           </else>
+           <if condition="ISNULL(EXP_PAY_END_DATE)">
+             <set name="EXP_PAY_END_DATE"    expr="EXP_PAY_END_DATE"/>
+           </if> 
+           <else>
+             <set name="EXP_PAY_END_DATE"     expr="EXP_PAY_END_DATE"/>
+             <set name="Qry1"                 expr="STRCAT('and a.STL_DATE &lt;= \'',EXP_PAY_END_DATE,'\' ')"/> 
+           </else>
+           
+           <if condition="AND(NOT(ISNULL(EXP_PAY_BGN_DATE)),NOT(ISNULL(EXP_PAY_END_DATE)))">
+             <set name="Qry1"                    expr="STRCAT('and a.STL_DATE between \'',EXP_PAY_BGN_DATE,'\' and \'',EXP_PAY_END_DATE,'\'')"/> 
+           </if>
+         </elseif> 
+
+       </else> 
+       
+       <!--0-待处理；2-付款成功；3-付款失败-->
+       <if condition="ISNULL(PAY_STL_STATUS)">  
+         <set name="conf"                    value=""/>
+       </if>
+       <else> 
+         <set name="conf"                    expr="STRCAT(' and a.PAY_STL_STATUS =\'' ,PAY_STL_STATUS,'\'')"/>
+       </else> 
+       <if condition="ISNULL(PageNum)">
+         <set name="PageNum"                 value="1"/>
+       </if>
+       <if condition="ISNULL(NumPerPag)">
+         <set name="NumPerPag"               value="19"/>
+       </if> 
+      
+       <do func="PagedQuery"                 error="IGNORE">
+         <para name="PageNum"                expr="PageNum"/>
+         <para name="NumPerPag"              expr="NumPerPag"/>
+         <para name="sql"                    sql="querySettlement"/>
+       </do>       
+       
+       <if condition="NOT(ISNULL(DATETIME))">
+         <set name="RSPCOD"                  value="000000"/>
+         <set name="RSPMSG"                  value="查询成功!"/>
+         <set name="DWZ_STATUS_CODE"         value="200"/>
+         <set name="DWZ_RSP_MSG"             expr="RspMsg"/>
+         <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/reportable/merseltinfo.jsp"/>
+         <return/>
+       </if>
+       <if condition="#RetCod==2">
+         <set name="SUMCOT"                  value="0"/>    
+         <set name="SUMAMT"                  value="0.00"/>   
+         <set name="TOLCNT"                  value="0"/> 
+         <set name="RspCod"                  value="01002"/>
+         <set name="RspMsg"                  value="无信息"/>
+         <set name="DWZ_STATUS_CODE"         value="300"/>
+         <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/querySettlement.jsp"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="RSPCOD"                  value="329999"/>
+         <set name="RSPMSG"                  value="查询失败!"/>
+         <set name="DWZ_STATUS_CODE"         value="300"/>
+         <set name="DWZ_RSP_MSG"             expr="RspMsg"/>
+         <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/querySettlement.jsp"/>
+         <return/>
+       </elseif>
+       
+       <!--查询结算总笔数、总金额-->
+       <do func="ReadRecord"             error="IGNORE">
+         <para name="SqlCmd"             sql="selStlTot"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="RSPCOD"              value="329999"/>
+         <set name="RSPMSG"              value="查询失败!"/>
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+       </if>
+       
+       <set name="RSPCOD"                  value="000000"/>
+       <set name="RSPMSG"                  value="查询成功!"/>
+       <set name="DWZ_STATUS_CODE"         value="200"/>
+       <set name="DWZ_RSP_MSG"             expr="RspMsg"/>
+       <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/querySettlement.jsp"/>
+    </process>
+   </transaction>
+
+   <transaction code="601002"  desc="商户结算明细查询">
+     <sql name="qryySettInf">
+         select merNo,batNo,PrdOrdNo,TO_CHAR(to_date(orderTime,'yyyymmdd'),'yyyy-mm-dd') orderTime,
+                TO_CHAR( (TO_NUMBER(ordAmt))/100,'FM9999,999,999,990.00') ordAmt,
+                TO_CHAR( (TO_NUMBER(fee))/100,'FM9999,999,999,990.00') fee ,a.prodCode,b.prod_name PRODNAME
+           from ARP_BANK_REC_STL a,STPPROINF b
+          where merNo=#{CUST_ID} and batNo=#{BATCH_NO} and a.prodCode=b.prod_code
+     </sql>
+     <sql name="querycustname">
+         SELECT  s.cust_id,s.cust_name FROM  stpcusinf s  where   s.CUST_ID=#{CUST_ID}
+     </sql>
+     <process> 
+          
+        <!--控制按钮-->
+        <do func="GetOwnButton"/>
+        
+        <if condition="ISNULL(PageNum)">
+          <set name="PageNum"              value="1"/>
+        </if>
+        <if condition="IS_EQUAL_STRING(PageNum,1)">
+          <set name="BATCH_NO"             expr="DELBOTHSPACE(BATCH_NO)"/>
+        </if>
+        <else>
+          <set name="BATCH_NO"             expr="DELBOTHSPACE(STLBATNO)"/> 
+        </else>
+        <if condition="ISNULL(NumPerPag)">
+         <set name="NumPerPag"            value="19"/>
+        </if>
+        <do func="PagedQuery"             error="IGNORE">
+          <para name="PageNum"            expr="PageNum"/>
+          <para name="NumPerPag"          expr="NumPerPag"/>
+          <para name="sql"                sql="qryySettInf"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="TOLCNT"             value="0"/>
+           <set name="RspCod"             value="219999"/>
+           <set name="RspMsg"             value="没有符合条件的数据"/>
+           <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/qrysettxq_list.jsp"/>
+           <return/>
+        </if>
+        <if condition="#RetCod!=0">
+          <set name="RSPCOD"              value="329999"/>
+          <set name="RSPMSG"              value="查询失败!"/>
+          <set name="DWZ_STATUS_CODE"     value="300"/>
+          <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+          <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/qrysettxq_list.jsp"/>
+          <return/>
+        </if>
+     
+        <do func="ReadRecord"             error="IGNORE">
+          <para name="SqlCmd"             sql="querycustname"/>
+        </do>
+        <if condition="#RetCod!=0">
+          <set name="RSPCOD"              value="329999"/>
+          <set name="RSPMSG"              value="查询失败!"/>
+          <set name="DWZ_STATUS_CODE"     value="300"/>
+          <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+          <return/>
+        </if>
+               
+        <set name="RSPCOD"              value="000000"/>
+        <set name="RSPMSG"              value="查询成功!"/>
+        <set name="DWZ_STATUS_CODE"     value="200"/>
+        <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/qrysettxq_list.jsp"/>
+     
+     </process>
+   </transaction>
+
+   <transaction code="601003"  desc="页面跳转">
+     <process>
+       <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/qrySet_list.jsp"/>
+     </process>
+   </transaction>
+ 
+   <transaction code="601099"  desc="商户结算信息导出">
+     <sql name="querySettlement">
+        SELECT a.BATCH_NO,b.cust_id,TO_CHAR(to_date(a.TX_DATE,'yyyymmdd'),'yyyy-mm-dd') TX_DATE,a.REC_BANK_NAME,a.REC_STL_AC_NO,a.REC_NAME,
+               TO_CHAR( (TO_NUMBER(a.TOT_ORD_AMT))/100,'FM9999,999,999,990.00') TOT_ORD_AMT,
+               TO_CHAR(TO_NUMBER(NVL(a.TOT_TXN_FEE,0))/100,'FM9999,999,999,990.00') TOT_TXN_FEE,
+               TO_CHAR((TO_NUMBER(a.STL_AMT))/100,'FM9999,999,999,990.00') STL_AMT,
+               decode(a.PAY_STL_STATUS , '0','等待处理'  
+                                  , '2','付款成功'  
+                                  , '3','付款失败' 
+                ) as PAY_STL_STATUS,b.CUST_NAME
+          FROM ARP_BANK_PAY_STL a ,STPCUSINF b
+         WHERE a.MER_NO=b.cust_id and (b.CUST_ID like '%'||#{CUST_ID}||'%'  or ' '= #{CUST_ID}||'' )  
+               ${Qry1}  ${conf}
+         ORDER BY a.tx_date desc,a.tx_time  desc
+     </sql>
+     <process>    
+       <set name="CUST_ID"                  expr="DELBOTHSPACE(CUST_ID)"/>
+       <!-- 起始时间 -->
+       <if condition="AND(ISNULL(EXP_PAY_BGN_DATE),ISNULL(EXP_PAY_END_DATE))">
+         <set name="Qry1"                   value=""/>
+       </if> 
+       <elseif condition="IS_EQUAL_STRING(EXP_PAY_BGN_DATE,EXP_PAY_END_DATE)">
+          <set name="Qry1"                  expr="STRCAT('and a.TX_DATE like \'%',EXP_PAY_BGN_DATE,'%\'')"/> 
+       </elseif> 
+       <elseif  condition="IS_NOEQUAL_STRING(EXP_PAY_BGN_DATE,EXP_PAY_END_DATE)">
+          <if condition="ISNULL(EXP_PAY_BGN_DATE)">
+            <set name="EXP_PAY_BGN_DATE"    expr="EXP_PAY_BGN_DATE"/>
+         </if> 
+         <else>
+           <set name="EXP_PAY_BGN_DATE"     expr="EXP_PAY_BGN_DATE"/>
+           <set name="Qry1"                 expr="STRCAT('and a.TX_DATE &gt;= \'',EXP_PAY_BGN_DATE,'\' ')"/> 
+         </else>
+         <if condition="ISNULL(EXP_PAY_END_DATE)">
+            <set name="EXP_PAY_END_DATE"    expr="EXP_PAY_END_DATE"/>
+         </if> 
+         <else>
+           <set name="EXP_PAY_END_DATE"     expr="EXP_PAY_END_DATE"/>
+           <set name="Qry1"                 expr="STRCAT('and a.TX_DATE &lt;= \'',EXP_PAY_END_DATE,'\' ')"/> 
+         </else>
+         
+         <if condition="AND(NOT(ISNULL(EXP_PAY_BGN_DATE)),NOT(ISNULL(EXP_PAY_END_DATE)))">
+         <set name="Qry1"                    expr="STRCAT('and a.TX_DATE between \'',EXP_PAY_BGN_DATE,'\' and \'',EXP_PAY_END_DATE,'\'')"/> 
+         </if> 
+
+       </elseif>  
+      
+       <!--0-待处理；2-付款成功；3-付款失败；-->
+       <if condition="ISNULL(PAY_STL_STATUS)">  
+         <set name="conf"                    value=""/>
+       </if>
+       <else> 
+         <set name="conf"                    expr="STRCAT(' and a.PAY_STL_STATUS =\'' ,PAY_STL_STATUS,'\'')"/>
+       </else> 
+       <if condition="ISNULL(PageNum)">
+         <set name="PageNum"                 value="1"/>
+       </if>
+       <if condition="ISNULL(NumPerPag)">
+         <set name="NumPerPag"               value="19"/>
+       </if>
+
+       <do func="QueryInGroup">
+         <para name="SqlCmd"              sql="querySettlement" />
+         <para name="RecordName"          value="reportList" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RspCod"               value="01002"/>
+         <set name="RspMsg"               value="无信息"/>
+         <set name="DWZ_STATUS_CODE"      value="300"/>
+         <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"               value="09999"/>
+         <set name="RspMsg"               value="系统错误" />
+         <set name="DWZ_STATUS_CODE"      value="300"/>
+         <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+         <return/>
+       </elseif>
+       
+       <!--查询成功导出文件-->
+       <do func="ReportExport" error="IGNORE">
+           <para name="Root"          value="reportList"/>
+           <para name="FileDemo"      value="settlement"/> <!--导出模板名-->
+           <para name="NameForUser"   value="settlement"/> <!--导出文件名-->
+           <para name="FilePath"      value="rptdemo"/>       <!--导出模板路径-->
+           <para name="FileToPath"    value="/dat/download"/> <!--导出目标地址-->
+           <para name="WebPath"       expr="GETCURAPPHOME()"/> 
+           <para name="params"        value="CUST_ID/CUST_NAME/TX_DATE/REC_BANK_NAME/REC_STL_AC_NO/REC_NAME/TOT_ORD_AMT/TOT_TXN_FEE/STL_AMT/PAY_STL_STATUS/BATCH_NO/"/>
+           <para name="collectParams" value=""/> <!--导出总条数，总金额如果没有传空-->
+       </do>
+       <if condition="#RetCod!=0">
+           <set name="RspCod"          value="02103"/>
+           <set name="RspMsg"          value="导出出错!"/>
+           <set name="DWZ_STATUS_CODE" value="300"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/> 
+           <return/>
+       </if>
+       
+       <!--移动文件-->
+       <set name="FILENAME"                 expr="#FILENAME"/>
+       <set name="ConfigName"               value="FtpPutPay"/>
+       <quote name="ReadXmlCfg"/>
+       <do func="MoveFile">
+           <para name="srcDir" expr="LclDir"    />
+           <para name="srcFil" expr="FILENAME"  />
+           <para name="tarDir" expr="ObjDir"    />
+       </do>
+       <if condition="#RetCod!=0"> 
+           <set name="RspCod"  value="01007"/>  
+           <set name="RspMsg"  value="移动文件错误!"/>  
+           <return/> 
+       </if>
+       
+       <set name="pos_webapps"              expr="GETSTRPOS(ObjDir,'/webapps/')"                                />
+       <set name="ObjDir"                   expr="RIGHTSTR(ObjDir,SUB(STRLEN(ObjDir),ADD(pos_webapps,8)))"      />
+       <set name="_REQUESTATTR.REDIRECTURL" expr="STRCAT('/',ObjDir,'/',FILENAME)"/>
+       <set name="RspCod"                   value="00000"/>
+       <set name="RspMsg"                   value="导出成功"/>
+       <set name="DWZ_STATUS_CODE"          value="200"/>
+       <set name="DWZ_RSP_MSG"              expr="RspMsg"/>
+     </process>
+   </transaction>
+   
+   <transaction code="601098"  desc="商户结算汇款结果处理">
+     <sql name="chkStlRes">
+        select MER_NO CUST_ID,PAY_STL_STATUS,NVL(STL_AMT,0) AS STLAMT,NVL(TOT_TXN_FEE,0) AS TOTTXNFEE,BATCH_NO,STL_DATE 
+          from ARP_BANK_PAY_STL 
+         where BATCH_NO=#{BATCH_NO} and MER_NO=#{CUST_ID}
+     </sql>
+     <sql name="selMerStlInf">
+        select CUST_STL_BANK_AC_NO,CUST_BANK_DEPOSIT_NAME,BANK_REL_NO,DEPOSIT_BANK_BRCH_NAME,COMPANY_BRIEF
+          from STPMERINF 
+         where CUST_ID=#{CUST_ID}
+     </sql>
+     <sql name="SelFrzInf">
+       select PAY_AC_NO,FROZ_AMT,BIZ_CODE,STATUS,FROZ_NO from ARP_AC_FORZZ_DETAILS where BIZ_CODE=#{BATCH_NO} and STATUS='01'
+     </sql>
+     <sql name="UpdFrezInf"><!-- 更新冻结信息-->
+        UPDATE ARP_AC_FORZZ_DETAILS SET STATUS='00',LST_UPT_DATE=#{LST_UPT_DATE},LST_UPT_TIME=#{LST_UPT_TIME},LST_UPT_OPER_ID=#{LST_UPT_OPER_ID}  WHERE FROZ_NO=#{FROZ_NO}
+     </sql>
+     <sql name="UpdMerStlSts">
+        update ARP_BANK_PAY_STL set PAY_STL_STATUS=#{PAY_STL_STATUS},PAY_STL_RESULT=#{PAY_STL_RESULT},STL_OPER_ID=#{STL_OPER_ID},STL_DATE=#{STL_DATE},STL_TIME=#{STL_TIME} 
+         where BATCH_NO=#{BATCH_NO} and MER_NO=#{CUST_ID}
+     </sql>
+      <sql name="SelUBANKNO">
+        SELECT UBANK_NO,BankNam,BANKCODE FROM StpBnkCde WHERE substr(UBANK_NO,1,3)=#{BankCode}
+      </sql>
+      <sql name="UpdBnkPay"><!--更新银行代付信息-->
+         REQUEST_SN = #{REQUEST_SN}
+      </sql>
+     <process>  
+       <if condition="IS_EQUAL_STRING(FLAG,'0')">  <!--0 页面跳转 1 导入文件并结果处理 3 单笔代付处理-->
+          <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/settlement/impStlRes.jsp"/>
+       </if>
+       <elseif condition="IS_EQUAL_STRING(FLAG,'1')">  
+         <if condition="IS_NOEQUAL_STRING(_REQUESTATTR.UPLOADFILES.FILE_UPLOAD_STATUS,'S')">
+            <if condition="IS_EQUAL_STRING(_REQUESTATTR.UPLOADFILES.FILE_UPLOAD_STATUS,'T')">
+               <set name="RspCod"            value="10005"/>   
+               <set name="RspMsg"            value="文件格式不正确"/>   
+            </if>
+            <elseif condition="IS_EQUAL_STRING(_REQUESTATTR.UPLOADFILES.FILE_UPLOAD_STATUS,'C')">
+               <set name="RspCod"            value="10006"/>   
+               <set name="RspMsg"            value="超过单个文件大小限制"/>   
+            </elseif>
+            <elseif condition="IS_EQUAL_STRING(_REQUESTATTR.UPLOADFILES.FILE_UPLOAD_STATUS,'G')">
+               <set name="RspCod"            value="10007"/>   
+               <set name="RspMsg"            value="未达到单个文件最小文件大小要求"/>   
+            </elseif>
+            <elseif condition="IS_EQUAL_STRING(_REQUESTATTR.UPLOADFILES.FILE_UPLOAD_STATUS,'F')">
+               <set name="RspCod"            value="10008"/>   
+               <set name="RspMsg"            value="失败，出现异常"/>   
+            </elseif>    
+            <set name="DWZ_STATUS_CODE"   value="300"/>
+            <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+            <return/>
+         </if>
+
+         <set name="ObjFil"   expr="_REQUESTATTR.UPLOADFILES.FILE.FILENAME"/>
+         <set name="LclFil"   expr="_REQUESTATTR.UPLOADFILES.FILE.FILEOLDNAME"/>
+         <set name="FILENAME" expr="ObjFil"/> 
+         <!--读取xml参数-->
+         <set name="ConfigName"   value="FtpPutPay"/>
+         <quote name="ReadXmlCfg"/>
+         <do func="MoveFile">
+             <para name="srcDir" expr="ObjDir"    />
+             <para name="srcFil" expr="FILENAME"  />
+             <para name="tarDir" expr="LclDir"    />
+         </do>
+         <if condition="#RetCod!=0"> 
+             <set name="RspCod"  value="01007"/>  
+             <set name="RspMsg"  value="移动文件错误!"/>  
+             <return/> 
+         </if>
+         
+         <set name="pos_webapps"       expr="GETSTRPOS(ObjDir,'/webapps/')"                                />
+         <set name="ObjDir"            expr="RIGHTSTR(ObjDir,SUB(STRLEN(ObjDir),ADD(pos_webapps,8)))"      />
+         
+         <do func="IsValidFile" error="IGNORE">
+           <para name="FilNam"  expr="STRCAT(LclDir,LclFil)"/>
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="RspCod"           value="10002"/>
+           <set name="DWZ_STATUS_CODE"  value="300" />
+           <set name="DWZ_RSP_MSG"      value="校验文件完整性失败！"/>
+           <return/>
+         </if>
+         <set name="webpath"                 expr="GETCURAPPHOME()"/>
+         
+         <!--解析文件-->
+         <do func="TDPaserXLS">
+           <para name="FileToPath"       expr="STRCAT(LclDir,LclFil)"/>
+           <para name="SkipRow"          value="2"/>
+           <para name="AbandonRow"       value="3"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="RspCod"             value="10003"/>
+            <set name="RspMsg"             value="结算打款文件解析失败"/>
+            <set name="DWZ_STATUS_CODE"    value="300" />
+            <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+            <do func="RollBackWork"/>
+            <return/>
+         </if>
+         <set name="ROW"               value="0"/>      <!-- 有效数据条数 -->
+         <set name="TOTALNUM"          expr="TOTALNUM"/><!-- 解析execl有效行数 -->
+         
+         <if condition="OR(ISNULL(TOTALNUM),IS_EQUAL_STRING(TOTALNUM,''),IS_EQUAL_STRING(TOTALNUM,'0'))">
+            <set name="RspCod"             value="10004"/>
+            <set name="RspMsg"             value="无效文件或无有效数据！"/>
+            <set name="DWZ_STATUS_CODE"    value="300" />
+            <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+            <do func="RollBackWork"/>
+            <return/>
+         </if>
+         <set name="DWZ_STATUS_CODE"         value="200" />
+         <set name="DWZ_RSP_MSG"             value="文件已成功提交，系统正在处理中，请于1-2分钟后刷新结算记录。" />
+         <do func="putresponse"/>
+         
+         <foreach name="VALUELIST"      iterator="#GRP">
+            <set name="CUST_ID"          expr="#GRP.FILED0"/>   
+            <set name="BATCH_NO"         expr="#GRP.FILED10"/> 
+            <set name="STL_AMT"          expr="#GRP.FILED8"/> 
+            <set name="RESULT"           expr="#GRP.FILED11"/>    
+            <set name="ERROR"            expr="#GRP.FILED12"/>
+            <if condition="OR(ISNULL(CUST_ID),IS_EQUAL_STRING(CUST_ID,''),ISNULL(BATCH_NO),IS_EQUAL_STRING(BATCH_NO,''),ISNULL(STL_AMT),IS_EQUAL_STRING(STL_AMT,''),ISNULL(RESULT),IS_EQUAL_STRING(RESULT,''))">
+              <set name="RspMsg"      value="无效数据，默认跳过！"/>
+              <continue/>
+            </if>
+            <!-- 检查付款结果 -->
+            <do func="ReadRecord" >
+              <para name="SqlCmd" sql="chkStlRes" />
+            </do>
+            <if condition="#RetCod==2">
+               <set name="RspCod"              value="08950"/>
+               <set name="RspMsg"              value="无此结算信息！"/>
+               <continue/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="RspCod"              value="09999"/>
+               <set name="RspMsg"              value="系统错误"/>
+               <continue/>
+            </elseif>
+            
+            <set name="TXAMT1"             expr="AMTPOWER(DELCHAR(STL_AMT,44),2)"/>
+            <set name="TXAMT"              expr="STLAMT"/>
+            <set name="ORDSTATUS"          expr="PAY_STL_STATUS"/>
+            <set name="CUST_ID"            expr="CUST_ID"/>
+            <if condition="DOUBLECMP(TXAMT1,4,TXAMT)">
+               <set name="RspMsg"          value="该订单金额被篡改，跳过！"/>
+               <continue/>
+            </if>
+            <if condition="IS_EQUAL_STRING(ORDSTATUS,'2')">
+               <set name="RspMsg"          value="该记录已结算成功，跳过！"/>
+               <continue/>
+            </if>
+            <!-- 结算成功 -->
+            <if condition="IS_EQUAL_STRING(RESULT,'2')">
+               <set name="PAY_STL_STATUS"     value="2"/>
+               <set name="PAY_STL_RESULT"     value=""/>
+               
+               <!--查询冻结记录-->
+               <quote name="SelFrzInf"/>
+               
+               <!--将扣除的结算金额解冻 并从账户里扣除-->
+               <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+               <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+               <quote name="frezzAmt"/>
+               <set name="txAmt"         expr="FROZ_AMT"/>
+               
+               <!--更新冻结状态-->
+               <quote name="UpdFrezz"/>
+               
+               <!--记账处理-->
+               <set name="usrPar"       expr="STRCAT(CUST_ID,'/','02','/','-','/','CNY','/',TXAMT,'/','Y','/')"/>  <!--商户记账参数--> 
+               <set name="pltPar"       expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',TOTTXNFEE,'/','Y','/')"/>  <!--平台账户(手续费) 记账参数-->   
+               <set name="PARAMS"       expr="STRCAT(usrPar,',',pltPar)"/>
+               <set name="TXN_TYP"      value="8"/>      <!--用途 8 结算-->
+               <set name="prdordno"     expr="BATCH_NO"/>
+               <quote name="accProcess"/>
+               <if condition="#RetCod!=0">
+                  <set name="RspCod"          value="08042"/>
+                  <set name="RspMsg"          value="记账失败"/>
+                  <do func="RollBackWork"/> 
+                  <continue/>
+               </if>
+            </if>
+            <elseif condition="IS_EQUAL_STRING(RESULT,'3')"><!-- 结算失败 -->    
+               <if condition="IS_EQUAL_STRING(ORDSTATUS,'3')">
+                  <set name="RspMsg"    value="订单状态已经是结算失败，无需更新。跳过！"/>
+                  <continue/>
+               </if>
+               <set name="PAY_STL_STATUS"     value="3"/>
+               <set name="PAY_STL_RESULT"     expr="ERROR"/>
+            </elseif>
+            <else>
+               <set name="RspMsg"       value="系统不识别该结果状态，跳过！"/>
+               <continue/>
+            </else>
+            
+            <!-- 更新结算汇款结果 -->
+            <set name="STL_OPER_ID"      expr="SESSIONS.UID"/>
+            <set name="STL_DATE"         expr="GETDATE()"/>
+            <set name="STL_TIME"         expr="GETDATETIME('HHMISS')"/>
+            <do func="ExecSql" >  
+               <para name="SqlCmd" sql="UpdMerStlSts"/>
+            </do>
+            <if condition="#RetCod==2">
+               <set name="RspMsg"    value="无符合条件记录"/>
+               <do func="RollBackWork"/>
+               <continue/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="RspMsg"    value="更新结算信息错误"/>
+               <do func="RollBackWork"/>
+               <continue/>
+            </elseif>
+               
+            <!-- 删除节点 -->
+            <delete name="BATCH_NO"/>
+            <delete name="STL_AMT"/>
+            <delete name="RESULT"/>
+            <delete name="ERROR"/>
+            <delete name="ORDSTATUS"/>
+            <delete name="CUST_ID"/>
+            <delete name="TXAMT"/>
+            <delete name="PAY_STL_STATUS"/>
+            <set name="ROW"          expr="ADD(ROW,1)"/>
+         </foreach>
+         <if condition="IS_EQUAL_STRING(ROW,'0')">
+            <set name="RspCod"             value="10004"/>
+            <set name="RspMsg"             value="无效文件或无有效数据！"/>
+            <return/>
+         </if>
+         <set name="RspCod"             value="00000"/>
+         <set name="RspMsg"             value="文件处理完成！"/>
+       </elseif>
+       <elseif condition="IS_EQUAL_STRING(FLAG,'3')"> 
+          <!--加锁，防止并发 批次号-->
+          <do func="Lock">
+             <para name="RecKey"     expr="STRCAT('601098',BATCH_NO)" />
+             <para name="AutoUnLock" value="yes" />
+          </do>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"              value="08001"/>
+             <set name="RspMsg"              value="付款处理中"/>
+             <set name="DWZ_STATUS_CODE"     value="300"/>
+             <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+             <return/>
+          </if> 
+          
+          <!--检查付款结果-->
+          <do func="ReadRecord" >
+             <para name="SqlCmd" sql="chkStlRes"/>
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"              value="08950"/>
+             <set name="RspMsg"              value="无此结算信息！"/>
+             <set name="DWZ_STATUS_CODE"     value="300"/>
+             <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+             <return/>
+          </if>
+          <elseif condition="#RetCod!=0">
+             <set name="RspCod"              value="09999"/>
+             <set name="RspMsg"              value="系统错误"/>
+             <set name="DWZ_STATUS_CODE"     value="300"/>
+             <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+             <return/>
+          </elseif>
+          
+          <if condition="IS_EQUAL_STRING(PAY_STL_STATUS,'2')">
+             <set name="RspCod"              value="03004"/>
+             <set name="RspMsg"              value="该结算记录已付款成功"/>
+             <set name="DWZ_STATUS_CODE"     value="300"/>
+             <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+             <return/> 
+          </if>
+          
+          <!--备付金通道-->
+          <if condition="1==1">
+             <!--查询银行是否扣款成功-->
+             <set name="CstPty_Py_Jrnl_No"      expr="BATCH_NO"/>    <!--查询日期类型代码 1：客户录入日期2：客户提交日期-->
+             <set name="Enqr_StDt"              expr="TX_DATE"/>     <!--查询起始日期-->
+             <if condition="ISNULL(TX_DATE)">
+                <set name="Enqr_StDt"           expr="GETDATE()"/>
+             </if>
+             <set name="Enqr_CODt"              expr="GETDATE()"/>   <!--查询截止日期-->
+             
+             <quote name="selBnkRet"/>
+          </if>
+          
+          <!--查询商户结算账户信息-->
+          <do func="ReadRecord" >
+             <para name="SqlCmd" sql="selMerStlInf"/>
+          </do>
+          <if condition="#RetCod==2">
+             <set name="RspCod"              value="01002"/>
+             <set name="RspMsg"              value="无此商户信息！"/>
+             <set name="DWZ_STATUS_CODE"     value="300"/>
+             <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+             <return/>
+          </if>
+          <elseif condition="#RetCod!=0">
+             <set name="RspCod"              value="09999"/>
+             <set name="RspMsg"              value="系统错误"/>
+             <set name="DWZ_STATUS_CODE"     value="300"/>
+             <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+             <return/>
+          </elseif> 
+          
+          <!--备付金通道-->
+          <if condition="1==1">
+            <!--组织银行所需数据-->
+            <set name="CstPty_TxnSrlNo"    expr="BATCH_NO"/>                 <!--客户方交易流水号-->      
+            <set name="CstPty_Py_Jrnl_No"  expr="BATCH_NO"/>                 <!--客户方支付流水号-->     
+            <set name="RcvPrt_DpBkNm"      expr="DEPOSIT_BANK_BRCH_NAME"/>   <!--收款方开户行名称-->          
+            <set name="RcvPrt_BnkCD"       expr="BANK_REL_NO"/>              <!--收款方联行号 他行必填--> 
+            <set name="RcvPrt_Cst_AccNo"   expr="CUST_STL_BANK_AC_NO"/>      <!--收款方客户账号-->
+            <set name="RcvPtAc_Nm"         expr="CUST_BANK_DEPOSIT_NAME"/>   <!--收款方账户名称-->
+            
+            <set name="CstPty_TxnSrlNo"    expr="GETDATETIME()"/>                 <!--客户方交易流水号-->      
+            <set name="CstPty_Py_Jrnl_No"  expr="GETDATETIME()"/>                 <!--客户方支付流水号--> 
+            <set name="RcvPrt_Cst_AccNo"   value="6214830200742095"/>        <!--test-->
+            <set name="RcvPrt_DpBkNm"      value="招商银行广州分行海珠支行"/><!--test-->
+            <set name="RcvPtAc_Nm"         value="邓昭哲"/>                  <!--test-->
+            <set name="RcvPrt_BnkCD"       value="308581002072"/>            <!--test-->
+            
+            <!--如果收款方账户名称和公司名称一致，则是对公户?????-->
+            <if condition="IS_EQUAL_STRING(CUST_BANK_DEPOSIT_NAME,COMPANY_BRIEF)">
+               <set name="RcvPtAc_CgyCd"   value="02"/>                      <!--收款方账户类别代码 01：对私；02：对公；03：银行内部户  -->
+            </if>
+            <else>
+               <set name="RcvPtAc_CgyCd"   value="01"/>                      <!--收款方账户类别代码 01：对私；02：对公；03：银行内部户  -->
+            </else>
+            
+            <set name="Rqs_Amt"            expr="STLAMT"/>                   <!--请求金额-->
+            
+            <!--如果未扣款成功调建行代付接口-->  
+            <quote name="ccbBnkPay"/>
+          </if>
+          
+          <!--建行银企直连通道-->
+          <if condition="1==2">
+            <!--获取序号 -->
+            <do func="GetSeqNo"  error="IGNORE">
+               <para name="TblNam"   value="stpseqrec"/>
+               <para name="KeyNam"   value="KeyNam"/>
+               <para name="KeyVal"   expr="STRCAT('StpBnkPay','REQUEST_SN')"/>
+               <para name="SeqNam"   value="KeyVal"/>
+               <para name="Len"      value="8"/>
+               <para name="Circle"   value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09001"/>
+               <set name="RspMsg"    value="获取序号错误"/>
+               <return/>
+            </if>
+            <set name="REQUEST_SN"   expr="STRCAT(SUBSTR(GETDATETIME(),0,8),KeyVal)"/>
+            
+            <!--读取xml参数-->
+            <set name="ConfigName"   value="StpBnkPayCfg"/>
+            <quote name="ReadXmlCfg"/>
+            
+            <set name="TXAMT"         expr="STLAMT"/>
+            <set name="PayTyp"        value="01"/><!--代发类型 00-用户提现代发 01-商户结算代发-->
+            <set name="PaySts"        value="00"/><!--00:等待处理 01:交易成功 02:交易失败-->
+            <set name="ACC_NO2"       expr="DES_ENCRYPT(CUST_STL_BANK_AC_NO)"/><!--收款账户账号-->
+            <set name="RECV_ACC_NAME" expr="CUST_BANK_DEPOSIT_NAME"/><!--收款账户户名-->
+            <set name="USEOF"         expr="USEOF1"/><!--用途-->
+            
+            <!--登记银行代付信息-->
+            <do func="InsertRecord" error="IGNORE">
+               <para name="TblNam"   value="StpBnkPay" />
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <return/>
+            </if>
+            
+            <set name="AMOUNT"        expr="AMTADDDOT(TXAMT)"/><!--代发金额-->
+            
+            <if condition="OR(IS_EQUAL_STRING(SUBSTR(BANK_REL_NO,1,3),'102'),IS_EQUAL_STRING(SUBSTR(BANK_REL_NO,1,3),'105'))"><!--建行-->
+               <set name="ThdCde"              value="6W8010"/>
+               <set name="UBANK_NO"            value="56888"/>
+               <set name="RECV_EXCHANGENO"     value="56888"/>
+               <set name="RECV_OPENACC_DEPT"   value="广东省分行"/>
+               <set name="RECV_COUNTERNO"      value="440000000"/>
+            </if>
+            <else><!--非建行-->
+               <set name="BankCode"  expr="SUBSTR(BANK_REL_NO,1,3)"/>
+               <set name="ThdCde"    value="6W8060"/>
+               <do func="ReadRecord"><!--获取超级网银联行号-->
+                 <para name="SqlCmd" sql="SelUBANKNO" />
+               </do>
+               <if condition="#RetCod!=0">
+                 <set name="RSPCOD" value="02040"/>
+                 <set name="RspMsg" value="超级网银联行号不存在，请联系系统管理"/>
+                 <return/>
+               </if>
+               
+               <set name="UBANK_NO"          expr="UBANK_NO"/><!--转入账户联行号-->
+               <set name="RECV_OPENACC_DEPT" expr="BankNam"/><!--转入账户开户机构名称-->
+            </else>
+            
+            <!--调用建行企业网银转账-->
+            <do func="CallThird" error="IGNORE">
+               <para name="channel"  value="STHDCCB1"/>
+               <para name="code"     expr="ThdCde"/>
+            </do>
+            <if condition="OR(#RetCod==1,#RetCod==10,#RetCod==-1)">
+              <if condition="ISNULL(RETURN_CODE)"><!--超时需线下业务人工处理-->
+                <set name="PaySts"       value="00"/><!--00:等待处理 01:交易成功 02:交易失败-->
+              </if>
+              <else>
+                <if condition="IS_NOEQUAL_STRING(RETURN_CODE,'000000')">
+                  <set name="PaySts"     value="02"/><!--00:等待处理 01:交易成功 02:交易失败-->
+                </if>
+                <else>
+                  <set name="PaySts"     value="01"/><!--00:等待处理 01:交易成功 02:交易失败-->
+                </else>
+              </else>
+              <set name="RETURN_CODE"  expr="RETURN_CODE"/>
+              <set name="RETURN_MSG"   expr="RETURN_MSG"/>
+            </if>
+            <elseif condition="#RetCod==0">
+              <if condition="IS_EQUAL_STRING(RETURN_CODE,'000000')">
+                <set name="PaySts"       value="01"/><!--00:等待处理 01:交易成功 02:交易失败-->
+              </if>
+              <elseif condition="IS_EQUAL_STRING(RETURN_CODE,'WLPT_Err1001')"><!--银企直连客户端与建行通讯超时-->
+                <set name="PaySts"       value="00"/><!--00:等待处理 01:交易成功 02:交易失败-->
+              </elseif>
+              <else>
+                <set name="PaySts"       value="02"/><!--00:等待处理 01:交易成功 02:交易失败-->
+              </else>
+              <set name="RETURN_CODE"   expr="RETURN_CODE"/>
+              <set name="RETURN_MSG"    expr="RETURN_MSG"/>
+            </elseif>
+            <else>
+              <set name="PaySts"         value="02"/><!--00:等待处理 01:交易成功 02:交易失败-->
+              <set name="RETURN_CODE"    expr="RETURN_CODE"/>
+              <set name="RETURN_MSG"     expr="RETURN_MSG"/>
+            </else>
+            
+            <!--更新银行代付信息-->
+            <do func="UpdateRecord" error="IGNORE">
+               <para name="TblNam"   value="StpBnkPay"/>
+               <para name="CndSts"   sql="UpdBnkPay"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <return/>
+            </if>
+            
+            <do func="CommitWork"/>
+            
+            <!-- 商户结算失败 -->
+            <if condition="IS_NOEQUAL_STRING(PaySts,'01')">
+               <set name="MsgTyp"   value="E"/>
+               <set name="RspCod"   expr="RETURN_CODE"/>
+               <set name="RspMsg"   expr="RETURN_MSG"/>
+               <set name="DWZ_STATUS_CODE" value="300"/>
+               <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+               <return/>
+            </if>
+          </if>
+          
+          <!--查询冻结记录-->
+          <quote name="SelFrzInf"/>
+          
+          <!--将扣除的结算金额解冻 并从账户里扣除-->
+          <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+          <set name="txAmt"         expr="STRCAT('-',FROZ_AMT)"/>
+          <quote name="frezzAmt"/>
+          <set name="txAmt"         expr="FROZ_AMT"/>
+          
+          <!--更新冻结状态-->
+          <quote name="UpdFrezz"/>
+          
+          <!--记账处理-->
+          <set name="usrPar"       expr="STRCAT(CUST_ID,'/','02','/','-','/','CNY','/',TXAMT,'/','Y','/')"/>  <!--商户记账参数-->
+          <set name="pltPar"       expr="STRCAT('99999900000001','/','03','/','+','/','CNY','/',TOTTXNFEE,'/','Y','/')"/>  <!--平台账户(手续费) 记账参数-->    
+          <set name="PARAMS"       expr="STRCAT(usrPar,',',pltPar)"/>
+          <set name="TXN_TYP"      value="8"/>      <!--用途 8 结算-->
+          <set name="prdordno"     expr="BATCH_NO"/>
+          <quote name="accProcess"/>
+          <if condition="#RetCod!=0">
+             <set name="RspCod"          value="08042"/>
+             <set name="RspMsg"          value="记账失败"/>
+             <set name="DWZ_STATUS_CODE" value="300"/>
+             <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+             <do func="RollBackWork"/> 
+             <return/>
+          </if>
+          
+          <!--更新结算状态-->
+          <set name="PAY_STL_STATUS"     value="2"/>
+          <set name="PAY_STL_RESULT"     value=""/>
+          <set name="STL_OPER_ID"        expr="SESSIONS.UID"/>
+          <set name="STL_DATE"           expr="GETDATE()"/>
+          <set name="STL_TIME"           expr="GETDATETIME('HHMISS')"/>
+          <do func="ExecSql" >
+            <para name="SqlCmd"  sql="UpdMerStlSts" />
+          </do>
+          <if condition="#RetCod==2">
+            <set name="RspMsg"              value="没有结算信息"/>
+            <set name="DWZ_STATUS_CODE"     value="300"/>
+            <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+            <do func="RollBackWork"/> 
+            <return/>
+          </if>
+          <elseif condition="#RetCod!=0">
+            <set name="RspCod"              value="09999"/>
+            <set name="RspMsg"              value="系统错误"/>
+            <set name="DWZ_STATUS_CODE"     value="300"/>
+            <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+            <do func="RollBackWork"/> 
+            <return/>
+          </elseif>
+       </elseif>
+       
+       <set name="RspCod"                   value="00000"/>
+       <set name="RspMsg"                   value="交易成功"/>
+       <set name="DWZ_STATUS_CODE"          value="200"/>
+       <set name="DWZ_RSP_MSG"              expr="RspMsg"/>
+     </process>
+   </transaction>
+
+   <transaction code="601016"  desc="银行费用管理修改--Ajax查询费率维护">
+     <sql name="qryFelldat">
+       SELECT fee_name,fee_code  from  FeeRate 
+     </sql>
+     <process>
+        <do func="QueryInGroup"           error="IGNORE">
+            <para name="SqlCmd"           sql="qryFelldat"/>
+            <para name="RecordName"       value="GRP"/>
+        </do>
+        <if condition="#RetCod!=0">
+          <set name="DWZ_STATUS_CODE"     value="300"/>
+          <set name="DWZ_RSP_MSG"         value="查询费率编号失败" />
+          <return/>
+        </if>
+          <set name="DWZ_STATUS_CODE"     expr="DWZ_SUCCESS_CODE"/>
+          <set name="DWZ_RSP_MSG"         value="查询费率编号成功!"/>
+          <return/>
+     </process>
+   </transaction>
+
+</application>

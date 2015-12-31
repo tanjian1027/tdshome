@@ -1,0 +1,1500 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<application name="STP" code="100" log_level="DEBUG">  
+   <!-- 公共宏文件引入 -->
+   <include file="etc/public/Userp_MACRO.XML"/>
+   <before>
+      <!--打印ETF树-->
+      <do func="DumpEtf"/>
+   </before>
+   <after>
+      <do func="DumpEtf"/>
+   </after>
+   
+   <!-- 发送短信验证码 -->
+   <macro name="sendSms" desc="发送短信验证码">
+     <do func="sendMesSwt" error="IGNORE">
+       <para name="sendUrl"              value="http://59.41.60.158:8914/TradeAppServer/user/sms.jf"/>
+       <para name="softwareSerialNo"     value="linan-jufeng"/>
+       <para name="smspassword"          value="linan-@jufeng"/>
+       <para name="SendId"               value="12"/>
+       <para name="MobNo"                expr="UsrMp"/>
+       <para name="Context"              expr="SmsContent"/>
+     </do>
+     <if condition="#RetCod!=0">
+       <set name="RspCod"               value="1003"/>
+       <set name="RspMsg"               value="短信发送失败"/>
+       <set name="DWZ_STATUS_CODE"      value="300"/>
+       <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+       <delete name="Random"/>
+       <delete name="SmsContent"/>
+       <return/>
+     </if>
+     <delete name="Random"/>
+     <delete name="SmsContent"/>
+   </macro>
+   
+   <transaction code="561134" desc="账户号变更,获取验证码">
+     <sql name="QryUsrInf"> <!--  查询用户注册数据  -->
+       SELECT * 
+       FROM STPUSRINF 
+       WHERE CUST_LOGIN=#{UsrMp}
+     </sql>
+     <sql name="DelUsrIdInfo"> <!--  删除验证表信息  -->
+       DELETE FROM STPVERIFY   WHERE VER_ID=#{UsrMp} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE}
+     </sql>
+     <sql name="InsUsrrandom"> <!--  插入用户验证信息  -->
+       INSERT INTO  STPVERIFY (VER_ID,VER_TYPE,InsTim,Random,TimeOut,SERVICE_TYPE,VER_TRAN_NO) 
+       VALUES (#{UsrMp},#{VER_TYPE}, sysdate ,#{Random},#{TimeOut},#{SERVICE_TYPE},#{TRANCODE})
+     </sql>
+     <sql name="InMsgSed"><!--  登记短信信息  -->
+       INSERT INTO STPMSGSED VALUES(#{USRMP},#{MSG_DAT},#{MSG_TIM},#{CUS_NAM},#{SMSCONTENT},'0')
+     </sql>
+     <sql name="UpdMsgSed"><!--  更新短信发送状态  -->
+       UPDATE STPMSGSED SET MSG_STS='1' WHERE PHONE=#{USRMP} AND MSG_TIM=#{MSG_TIM}
+     </sql>   
+     <process>
+       <set name="reqip" expr="GetRequestAttr('REQIP')"/>
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+
+       <!-- 检查手机号是否为空 -->
+       <set name="UsrMp"          expr="DELBOTHSPACE(UsrMp)"/>
+       <if condition="IS_EQUAL_STRING(UsrMp,'')">
+         <set name="RspCod"       value="02035"/>
+         <set name="RspMsg"       value="手机号为空"/>
+         <return/>
+       </if>
+       <set name="HRANDSTR"     expr="TOUPPER(HRANDSTR)"/>
+       <set name="RA"  expr="SESSIONS.SRA"/>
+       <if condition="IS_NOEQUAL_STRING(RA,HRANDSTR)">
+         <set name="MsgTyp"       value="E"/>
+         <set name="RspCod"       value="02035"/>
+         <set name="RspMsg"       value="验证码错误"/>
+         <return/>
+       </if>
+       <!-- 检查手机号是否已注册 -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="QryUsrInf" />
+       </do>
+       <if condition="#RetCod==0">
+         <set name="NOTE"          value="N"/>
+         <set name="RspCod"        value="02001"/>
+         <set name="RspMsg"        value="您所输入的新商物通账号已被使用"/>
+         <return/>
+       </if> 
+       <elseif condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod==2">
+         <set name="RspMsg"        value="该手机号可注册"/>
+       </elseif>
+       <else>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </else>
+
+       <!--  随机字符串长度  -->
+       <!--  随机字符: ALL 字母和数字;  NUM 数字;   STR 字母  -->
+       <!--  大小写标识: MIX 混合;   UPP 大写;   LOW 小写;  -->
+       <do expr="@TdRandom@generateMixRandom(6, 'NUM', 'LOW')"/>
+       
+       <if condition="IS_EQUAL_STRING(TimeOut,'')">
+         <set name="TimeOut"   value="10"/>
+       </if>
+       <if condition="ISNUMBER(UsrMp)">
+         <!-- 设置短信内容 -->
+         <set name="SmsContent"      expr="STRCAT('收到此条短信，说明您在申请账户号变更，每个账户号只能执行三次账户号变更，请慎重操作。手机校验码为[',Random,']，(短信验证码，请勿泄漏)请在10分钟内完成验证。')"/>
+         <set name="VER_TYPE" value="0"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </if>
+       <else>
+         <set name="TimeOut"   expr="MUL(24,60)"/>
+         <set name="VER_TYPE" value="1"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+         <!-- 设置邮箱内容 -->
+         <set name="SmsContent"      expr="STRCAT('收到此封邮件，说明您在申请账户号变更，每个账户号只能执行三次账户号变更，请慎重操作。邮箱校验码为[',Random,']，请在24小时内完成验证。')"/>
+       </else>
+       <!--  帐号变更短信验证 -->
+       <if condition="ISNULL(SERVICE_TYPE)">
+           <set name="SERVICE_TYPE" value="04"/><!--验证码服务类型 00-注册短信验证 01-修改密码短信验证 02-找回密码短信验证 03-数字证书短信验证 04-帐号变更短信验证 05-消费支付短信验证 -->
+       </if>
+       <else>
+           <set name="SERVICE_TYPE" expr="SERVICE_TYPE" />
+       </else>
+       
+       <!--  删除用户验证码表中的记录  -->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="DelUsrIdInfo" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RspMsg"        value="该用户第一次申请验证码，无记录删除"/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod==0">
+         <set name="RspMsg"        value="删除用户验证码信息成功"/>
+       </elseif>
+       <else>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </else>
+       
+       <!-- 插入用户验证表 -->
+       <set name="InsTim"          expr="GETDATETIME()"/>
+       <set name="Random"          expr="Random"/>
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="InsUsrrandom"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <do func="CommitWork"/>
+       
+       <!-- 插入短信信息 -->
+       <set name="Msg_Dat"         expr="GETDATE()"/>
+       <set name="Msg_Tim"         expr="GETDATETIME()"/>
+       <set name="Cus_Nam"         value="账号变更验证"/>
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="InMsgSed"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="RspCod"        value="01006"/>
+         <set name="RspMsg"        value="验证码发送失败"/>  <!-- 原错误提示:登记短信发送表失败 -->
+         <return/>
+       </if>
+       <do func="CommitWork"/>
+
+       <!--取公共参数配置-->
+       <set name="ConfigName"   value="SendSms"/>
+       <quote name="ReadXmlCfg"/>
+       <if condition="ISNUMBER(UsrMp)">
+       	 <!-- 发送短信 -->
+         <quote name="sendSms"/>
+       </if>
+       <else>
+         <set name="ConfigName"   value="CheckEmailNew"/>
+         <quote name="ReadXmlCfg"/>
+         
+         <set name="Email"     expr="UsrMp"/>                                                                                                                                       
+         <set name="EmResAddr" expr="SmsContent"/>
+         <do func="TdMailSendNew" error="IGNORE">
+          <para name="EmTo"       expr="Email" />
+          <para name="EmTitle"    value="账户变更" />
+          <para name="EmText"     expr="Random" />
+          <para name="EmResAddr"  expr="G_EMCOMPHTTP" />
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="发送邮件失败"/>
+           <return/>
+         </if>
+         <delete name="Random"/>
+         <delete name="SmsContent"/>
+       </else>
+
+       <!-- 更新短信发送状态 -->
+       <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="UpdMsgSed" />
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="RspCod"       value="08517"/>
+          <set name="RspMsg"       value="修改发送状态失败"/>
+          <return/>
+       </if>
+      
+       <set name="MsgTyp"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>
+    </process>
+   </transaction>
+   
+   <transaction code="561124" desc="账户号变更">
+     <sql name="UpdUsrLoginName"> <!--  登记手机信息  -->
+       UPDATE STPUSRINF 
+       SET CUST_LOGIN=#{NEWUSRMP},USR_MOBILE=#{USR_MOBILE} 
+       WHERE CUST_ID=#{usrid}
+     </sql>
+     <sql name="UpdUsrLoginName2"> <!--  登记手机信息  -->
+       UPDATE STPUSRINF 
+       SET CUST_LOGIN=#{NEWUSRMP},usr_email=#{usr_email} ,email_status='0'
+       WHERE CUST_ID=#{usrid}
+     </sql>
+     <sql name="DelUsrIdInfo"> <!--  删除验证表信息  -->
+       DELETE FROM STPVERIFY  WHERE VER_ID=#{NEWUSRMP} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE}
+     </sql>   
+     <sql name="QryUsrIdverifycode"> <!--  查询用户注册验证码信息  -->
+       SELECT ROUND(TO_NUMBER(sysdate - InsTim) * 24 * 60) timdif,TimeOut,InsTim,Random,VER_TYPE
+       FROM STPVERIFY 
+       WHERE VER_ID=#{NEWUSRMP} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE} ORDER BY InsTim DESC
+     </sql>
+     <sql name="QryUsrInf"> <!--  查询用户注册数据  -->
+       SELECT USR_STATUS
+       FROM STPUSRINF  
+       WHERE  cust_id =#{usrid} 
+     </sql> 
+     <sql name="chkCrdNo">
+       select cust_id from STPCUSINF where cust_id=#{UsrId} and cust_cred_type =#{UCardType} and cust_cred_no = #{UCardNo}
+     </sql>
+     <sql name="QryAltLog"> <!--  查询用户变更记录  -->
+       SELECT  ALT_NUM AS ALTNUM
+       FROM STPALTLOG
+       WHERE CUST_ID=#{UsrId} 
+     </sql>
+     <sql name="UpdAltLog"> <!--  更新用户变更记录  -->
+        CUST_ID=#{UsrId} 
+     </sql>
+     <sql name="chkPayPwd">
+        SELECT CUST_ID from arp_ac_cust_rel where password=#{CHAPAYPWD} and CUST_ID=#{UsrId}
+     </sql>
+     <process>
+       <!-- 判断登录平台 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       
+       <!-- 判断用户是否登录 -->
+       <set name="UsrId"          expr="SESSIONS.USRID"/>
+       <if condition="IS_EQUAL_STRING(UsrId,'')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户未登录或登录失效"/>
+         <return/>
+       </if>
+       <!-- 验证验证码是否正确 -->
+       <set name="SRATMP"         expr="SESSIONS.SRA"/>
+       <if condition="IS_NOEQUAL_STRING(TOUPPER(CTmpRand),SRATMP)">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02980"/>
+         <set name="RspMsg"        value="验证码错误"/>
+         <return/>
+       </if>
+       
+       <!-- 检查手机号是否为空 -->
+       <set name="NEWUSRMP"          expr="DELBOTHSPACE(NEWUSRMP)"/>
+       <if condition="IS_EQUAL_STRING(NEWUSRMP,'')">
+         <set name="RspCod"       value="02035"/>
+         <set name="RspMsg"       value="新手机号为空"/>
+         <return/>
+       </if>
+       
+       <if condition="ISNUMBER(NEWUSRMP)">
+         <set name="VER_TYPE" value="0"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </if>
+       <else>
+         <set name="VER_TYPE" value="1"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </else>
+       <!--  帐号变更短信验证 -->
+       <if condition="ISNULL(SERVICE_TYPE)">
+           <set name="SERVICE_TYPE" value="04"/><!--验证码服务类型 00-注册短信验证 01-修改密码短信验证 02-找回密码短信验证 03-数字证书短信验证 04-帐号变更短信验证 05-消费支付短信验证 -->
+       </if>
+       <else>
+           <set name="SERVICE_TYPE" expr="SERVICE_TYPE" />
+       </else>
+       <!--  查询校验码  -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="QryUsrIdverifycode" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RspCod"        value="2004"/>
+         <set name="RspMsg"        value="该用户未申请校验码"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <!--超时时间判断,timdif：为距离现在间隔多少分钟，timeout：超时时间-->
+       <if condition="INTCMP(timdif,6,timeout)">
+        <set name="RspCod" value="02005" />
+        <set name="RspMsg" value="校验码已失效,请重新获取校验码" />
+        <return />
+       </if>
+       <!-- 比较校验码 -->
+       <if condition="IS_NOEQUAL_STRING(CHARANDSTR,Random)">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02006"/>
+         <set name="RspMsg"        value="校验码输入错误"/>
+         <return/>
+       </if> 
+       <delete name="Random"/>
+       
+       <!-- 支付密码输入判断 -->
+       <if condition="IS_EQUAL_STRING(ChaPayPwd,'')">
+         <set name="RspCod"        value="02005"/>
+         <set name="RspMsg"        value="支付密码不可为空"/>
+         <return/>
+       </if>
+       
+       <!-- 查询用户信息 -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUsrInf" />
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="该用户不存在"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="系统错误，请稍后再试"/>
+         <return/>
+       </elseif>
+       <set name="UCARDNO"          expr="DES_ENCRYPT(UCARDNO)" />
+       <!-- 检测证件信息 -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="chkCrdNo" />
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="证件号码错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="系统错误，请稍后再试"/>
+         <return/>
+       </elseif>
+       
+       <!-- 查询用户变更信息 -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryAltLog" />
+       </do>
+       <if condition="#RetCod==0">
+         <set name="AltFlag"       value="1"/>  <!-- 修改记录 -->
+         <if condition="INTCMP(AltNum,5,3)">  
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09997"/>
+           <set name="RspMsg"        value="用户不可再次变更"/>
+           <return/>
+         </if>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="RspMsg"        value="用户可变更"/>
+         <set name="AltFlag"       value="0"/> <!-- 插入记录 -->
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="系统错误，请稍后再试"/>
+         <return/>
+       </elseif>
+         
+       <if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="认证未通过"/>
+         <return/>
+       </if>
+       
+       <!-- 密码转密 -->
+       <set name="pw"  expr="CHAPAYPWD"/>
+       <quote name="getInputPwd"/>
+        
+       <set name="CHAPAYPWD"         expr="newPwd"/>
+       <!-- 验证用户支付密码 -->
+       <quote name="chkPayPwdM"/>
+       <if condition="ISNUMBER(NEWUSRMP)">
+           <set name="USR_MOBILE" expr="NEWUSRMP"/>
+           <!-- 修改用户信息表 -->
+           <do func="ExecSql" error="IGNORE">
+             <para name="SqlCmd" sql="UpdUsrLoginName"/>
+           </do>
+           <if condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="09999"/>
+             <set name="RspMsg"        value="系统错误"/>
+             <return/>
+           </if>
+       </if>
+       <else>
+           <set name="usr_email" expr="NEWUSRMP"/>
+           <!-- 修改用户信息表 -->
+           <do func="ExecSql" error="IGNORE">
+             <para name="SqlCmd" sql="UpdUsrLoginName2"/>
+           </do>
+           <if condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="09999"/>
+             <set name="RspMsg"        value="系统错误"/>
+             <return/>
+           </if>
+       </else>
+       <set name="Alter_Type"      expr="ALTERTYPE"/>
+       <set name="Alter_Msg"       expr="ALTERMSG"/>
+       <set name="CUST_ID"         expr="UsrId"/>
+       <set name="ALT_ADM"         expr="UsrId"/>
+       <set name="Alt_Date"      expr="GETDATETIME('YYYYMMDD')"/>
+       <set name="Alt_Time"      expr="GETDATETIME('HHMISS')"/>
+       <switch expr="AltFlag">
+         <case value="0">
+           <set name="Alt_Num"    value="1"/>
+           <do func="InsertRecord"   error="IGNORE">
+             <para name="TblNam"  value="stpaltlog" />
+           </do>
+           <if condition="#RetCod==3">
+              <set name="RspCod"    value="09996"/>
+              <set name="RspMsg"    value="数据库主键冲突"/>
+              <return/>
+           </if>
+           <elseif condition="#RetCod!=0">
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <return/>
+           </elseif>
+           <break/>
+         </case>
+         <case value="1">
+           <set name="Alt_Num"    expr="ADD(AltNum,1)"/>
+           <do func="UpdateRecord"      error="IGNORE">
+             <para name="TblNam"        value="stpaltlog"/>
+             <para name="CndSts"        sql="UpdAltLog"/>
+           </do>
+           <if condition="#RetCod==-1">
+             <set name="MsgTyp"         value="E"/>
+             <set name="RspCod"         value="09999"/>
+             <set name="RspMsg"         value="系统忙，请稍后再试！"/>
+             <return/>
+           </if>
+           <elseif condition="#RetCod==2">
+             <set name="MsgTyp"         value="E"/>
+             <set name="RspCod"         value="02009"/>
+             <set name="RspMsg"         value="更新状态失败！"/>
+             <return/>
+           </elseif>
+           <elseif condition="#RetCod!=0">
+             <set name="MsgTyp"         value="E"/>
+             <set name="RspCod"         value="09997"/>
+             <set name="RspMsg"         value="系统错误，请稍后再试或联系客服"/>
+             <return/>
+           </elseif>
+           <break/>
+         </case>
+       </switch>
+       
+       <!--  防止数据库保存验证码数据量过大，交易成功后即删除用户验证码信息  -->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd"  sql="DelUsrIdInfo" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="N"/>
+         <set name="RspCod"        value="00000"/>
+         <set name="RspMsg"        value="未找到验证码登记信息"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <set name="signFlag"        value="0"/><!-- 0：成功 1：失败 -->
+       <set name="MsgTyp"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>
+
+     </process>
+   </transaction>
+   
+   <transaction code="561130" desc="用户信息修改">
+     <sql name="QryUsrIdInf"> <!--  查询用户注册信息 add by zhangh  -->
+       SELECT  u.CUST_LOGIN,u.USR_EMAIL AS OEMAIL,u.EMAIL_STATUS,c.cust_name as oldCustName
+         FROM  STPUSRINF u,stpcusinf c
+        WHERE u.CUST_ID=#{USRID} and u.CUST_ID = c.CUST_ID
+     </sql>
+     <sql name="UpdUsrInf"> <!--  修改用户信息  -->
+        CUST_ID=#{USRID}
+     </sql>
+     <sql name="UpdUsrAut"> <!--  修改用户信息  -->
+       UPDATE  STPUSRAUT 
+       SET U_NAME=#{USER_NAME} 
+       WHERE CUST_ID=#{USRID}
+     </sql>
+     <process>
+       <!--  检测用户登录平台：0001：用户  -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+        
+       <!--  检测用户名是否为空  -->
+       <set name="UsrMp1"          expr="DELBOTHSPACE(USRID)"/>
+       <if condition="IS_EQUAL_STRING(UsrMp1,'')"> 
+         <set name="RspCod"        value="02035"/>
+         <set name="RspMsg"        value="手机号不能为空"/>
+         <return/>
+       </if>
+       
+       <!--  检测用户是否存在  -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUsrIdInf" />
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="用户信息不存在"/>
+         <return/>
+       </if>
+       
+       <!--  检测邮箱是否为空  -->
+       <set name="Email1"          expr="DELBOTHSPACE(EMAIL)"/>
+       <if condition="IS_NOEQUAL_STRING(OEMAIL,Email1)">
+         <if condition="IS_EQUAL_STRING(EMAIL_STATUS,'1')">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="02008"/>
+           <set name="RspMsg"        value="您的邮箱已经验证,请刷新后再试"/>
+           <return/>
+         </if>
+       </if>
+       
+       <if condition="IS_EQUAL_INT(STRLEN(BIRTHDAY),10)">
+          <set name="BIRTHDAY"     expr="FMTDATE(BIRTHDAY,4,0)"/>
+       </if>
+       
+       <if condition="IS_NOEQUAL_STRING(user_name,oldCustName)">
+         <set name="CUST_NAME"         expr="USER_NAME"/>
+         <do func="UpdateRecord" error="IGNORE"> 
+            <para name="TblNam"        value="StpCusInf"/>
+            <para name="CndSts"        sql="UpdUsrInf"/>
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </if>  
+       </if>
+       
+       <set name="USR_EMAIL"         expr="EMAIL"/>   
+       <set name="EMAIL_STATUS"      expr="EMAIL_STATUS"/>
+       <set name="USR_FAX"           expr="FAX"/>
+       <set name="USR_ADDRESS"       expr="ADDRESS"/>
+       <set name="USR_ZIP"           expr="ZIP"/>
+       <set name="USR_JOB"           expr="JOB"/>
+       <set name="USR_MOBILE"        expr="MOBILE"/>
+       <set name="USR_TELNUM"        expr="TELNUM"/>
+       <set name="USR_BIRTHDAY"      expr="BIRTHDAY"/>
+       <set name="USR_GENDER"        expr="GENDER"/>
+       <set name="NATION"            expr="NATION"/>
+       <!-- 修改用户信息 -->
+       <do func="UpdateRecord" error="IGNORE"> 
+          <para name="TblNam"        value="StpUsrInf"/>
+          <para name="CndSts"        sql="UpdUsrInf"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>  
+       
+       <set name="SESSIONS.USRNAME"  expr="USER_NAME"/>
+       <set name="MsgTyp"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>
+     </process>
+   </transaction>
+   
+   <transaction code="561123" desc="绑定邮箱-邮箱验证">
+     <sql name="QryUsrIdInf"> <!--  查询用户注册信息  -->
+       SELECT  CUST_ID 
+       FROM   STPUSRINF 
+       WHERE CUST_LOGIN=#{UsrMp}
+     </sql>
+     <sql name="QryUsrIdverifycode"> <!--  查询用户注册验证码信息  -->
+       SELECT ROUND(TO_NUMBER(sysdate - InsTim) * 24 * 60) timdif,TimeOut,VER_TYPE,InsTim,Random 
+       FROM STPVERIFY 
+       WHERE VER_ID=#{Email} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE} ORDER BY InsTim DESC
+     </sql>
+     <sql name="DelUsrIdInfo"> <!--  删除验证表信息  -->
+       DELETE FROM STPVERIFY  
+       WHERE VER_ID=#{email} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE}
+     </sql>
+     <sql name="UpdUsrInfEmail"><!--  更新邮箱状态  -->
+       UPDATE STPUSRINF 
+       SET EMAIL_STATUS=#{STATE} 
+       WHERE CUST_ID=#{CUST_ID}
+     </sql>
+     <process>
+       <do func="DumpEtf"/>
+
+       <!--  检测用户登录平台：0001：用户  -->
+       <set name="_REQUESTATTR.FORWARDURL"       value="/html/email/emailfai.jsp"/> 
+       <set name="SYSCOD"    expr="a"/>
+       <set name="USRMP"    expr="b"/>
+       <set name="EMAIL"    expr="c"/>
+       <set name="RANDSTR"    expr="d"/>
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       
+       <!--  检测用户名是否为空  -->
+       <set name="UsrMp1"          expr="DELBOTHSPACE(USRMP)"/>
+       <if condition="IS_EQUAL_STRING(UsrMp1,'')"> 
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02042"/>
+         <set name="RspMsg"        value="用户名不能为空"/>
+         <set name="RspMsg"        value="连接失效或已经经过验证，请重新获取验证码"/>
+         <return/>
+       </if>
+       
+       <!--  检测用户是否存在  -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUsrIdInf" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="用户信息不存在"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+         <return/>
+       </elseif>
+       
+       <!--  检测邮箱是否为空  -->
+       <set name="Email1"          expr="DELBOTHSPACE(EMAIL)"/>
+       <if condition="IS_EQUAL_STRING(Email1,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02046"/>
+         <set name="RspMsg"        value="邮箱不能为空"/>
+         <return/>
+       </if>
+       
+       <if condition="ISNUMBER(Email1)">
+         <set name="VER_TYPE" value="0"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </if>
+       <else>
+         <set name="VER_TYPE" value="1"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </else>
+       <!--  帐号变更短信验证 -->
+       <if condition="ISNULL(SERVICE_TYPE)">
+           <set name="SERVICE_TYPE" value="04"/><!--验证码服务类型 00-注册短信验证 01-修改密码短信验证 02-找回密码短信验证 03-数字证书短信验证 04-帐号变更短信验证 05-消费支付短信验证 -->
+       </if>
+       <else>
+           <set name="SERVICE_TYPE" expr="SERVICE_TYPE" />
+       </else>
+       <!--  查询用户申请的验证记录  -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="QryUsrIdverifycode" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="该用户未申请验证码"/>
+         <set name="RspMsg"        value="连接失效或已经经过验证，请重新获取验证码"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <!--超时时间判断,timdif为距离现在间隔多少分钟，timeout超时时间-->
+       <if condition="INTCMP(timdif,6,timeout)">
+         <set name="RspCod"        value="02005"/>
+         <set name="RspMsg"        value="验证码已失效,请重新获取验证码"/>
+         <return/>
+       </if>
+       <!--  判断验证码是否正确  -->
+       <if condition="IS_NOEQUAL_STRING(RandStr,Random)">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02006"/>
+         <set name="RspMsg"        value="校验码错误，请重新输入。"/>
+         <return/>
+       </if>
+       <delete name="Random"/>
+       <!--  更改邮箱状态  -->
+       <set name="state"           value="1"/>
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd"  sql="UpdUsrInfEmail" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02087"/>
+         <set name="RspMsg"        value="更新邮箱状态失败"/>
+         <return/>
+       </elseif>
+
+       <!--  删除用户邮箱验证记录  -->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd"  sql="DelUsrIdInfo" />
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"        value="N"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02088"/>
+         <set name="RspMsg"        value="删除验证码记录失败"/>
+         <return/>
+       </elseif>
+       <set name="_REQUESTATTR.FORWARDURL"       value="/html/email/emailsuc.jsp"/> 
+       <set name="MsgTyp"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>
+     </process>
+   </transaction>
+   
+   <transaction code="561129" desc="绑定邮箱-验证申请">
+     <sql name="QryUsrIdInf"> <!--  查询用户注册信息  -->
+       SELECT  CUST_LOGIN,USR_EMAIL,EMAIL_STATUS,CUST_NAME
+       FROM   STPUSRINF ,(select CUST_NAME from StpCusInf where cust_id=#{USRID})
+       WHERE CUST_ID=#{USRID}
+     </sql>
+     <sql name="DelUsrIdInfo"> <!--  删除验证表信息  -->
+       DELETE FROM STPVERIFY  WHERE VER_ID=#{EMAIL} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE}
+     </sql>
+     <sql name="InsUsrrandom"> <!--  插入用户验证信息  --> 
+       INSERT INTO  STPVERIFY (VER_ID,VER_TYPE,InsTim,Random,TimeOut,SERVICE_TYPE,VER_TRAN_NO) 
+       VALUES (#{EMAIL},#{VER_TYPE}, sysdate ,#{Random},#{TimeOut},#{SERVICE_TYPE},#{TRANCODE}) 
+     </sql> 
+     <process>
+        
+       <!--  检测用户登录平台：0001：用户  -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       
+       <!--  检测用户名是否为空  -->
+       <set name="UsrMp1"          expr="DELBOTHSPACE(USRID)"/>
+       <if condition="IS_EQUAL_STRING(UsrMp1,'')"> 
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02035"/>
+         <set name="RspMsg"        value="手机号为空"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+         <return/>
+       </if>
+       
+       <!--  检测用户是否存在  -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUsrIdInf" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="用户信息不存在"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+         <return/>
+       </elseif>
+       
+       <if condition="IS_EQUAL_STRING(TimeOut,'')">
+          <set name="TimeOut" value="10" />
+       </if>
+       <if condition="ISNUMBER(EMAIL)">
+          <set name="Email1"          expr="DELBOTHSPACE(USR_EMAIL)"/>
+          <set name="VER_TYPE"        value="0"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </if>
+       <else>
+          <set name="Email1"          expr="DELBOTHSPACE(EMAIL)"/>
+          <set name="VER_TYPE"        value="1"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+          <set name="TimeOut"         expr="MUL(24,60)" />
+       </else>
+       <!--  检测邮箱是否为空  --> 
+       <if condition="IS_EQUAL_STRING(Email1,'')">
+          <set name="MsgTyp"        value="E"/>
+          <set name="RspCod"        value="02046"/>
+          <set name="RspMsg"        value="邮箱不能为空"/>
+          <return/>
+       </if>
+
+       <!-- 邮箱是否已经验证 -->
+       <if condition="IS_EQUAL_STRING(EMAIL_STATE,'1')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02089"/>
+         <set name="RspMsg"        value="邮箱已经验证成功"/>
+         <return/>
+       </if>
+       <set name="EMAIL"          expr="DELBOTHSPACE(EMAIL1)"/>
+       
+       <!--  验证 -->
+       <if condition="ISNULL(SERVICE_TYPE)">
+           <set name="SERVICE_TYPE" value="04"/><!--验证码服务类型 00-注册短信验证 01-修改密码短信验证 02-找回密码短信验证 03-数字证书短信验证 04-帐号变更短信验证 05-消费支付短信验证 -->
+       </if>
+       <else>
+           <set name="SERVICE_TYPE" expr="SERVICE_TYPE" />
+       </else>
+       
+       <!--  删除已有验证码申请信息  -->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd"  sql="DelUsrIdInfo" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="N"/>
+         <set name="RspCod"        value="00000"/>
+         <set name="RspMsg"        value="未找到验证码登记信息"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <!--  随机字符串长度  -->
+       <!--  随机字符: ALL 字母和数字;  NUM 数字;   STR 字母  -->
+       <!--  大小写标识: MIX 混合;   UPP 大写;   LOW 小写;  -->
+       <do expr="@TdRandom@generateMixRandom(6, 'NUM', 'LOW')"/>
+       
+       <set name="ConfigName"   value="CheckEmailNew"/>
+       <quote name="ReadXmlCfg"/>
+       
+       <set name="USRMP"   expr="USRMP"/>                                                                                                                                       
+       <set name="checkUrl"      expr="STRCAT(G_VALURL,'561123.tran?a=0001&amp;b=',CUST_LOGIN,'&amp;c=',EMAIL,'&amp;d=',Random)"/> 
+       <set name="G_VALURL"      expr="checkUrl"/>
+       <!--  发送邮件至指定邮箱  -->
+       <set name="first"         expr="SUBSTR(CUST_LOGIN,1,4)"/>
+       <set name="reLog"         expr="STRCAT(SUBSTR(CUST_LOGIN,1,4),'*******')"/>
+       <do func="TdMailSendNew" error="IGNORE">
+           <para name="EmTo"       expr="Email" />
+           <para name="EmTitle"    value="注册" />
+           <para name="EmText"     value="欢迎" />
+           <para name="EmResAddr"  expr="G_EMCOMPHTTP" />
+           <para name="EmerchantOper"    value="usr" />
+           <para name="EmerchantId"      value="" />
+        </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="发送邮件失败"/>
+         <return/>
+       </if>
+       <set name="TimeOut"    value="1440"/>
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="InsUsrrandom"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>     
+       <do func="CommitWork"/>
+       <delete name="Random"/>
+       <set name="MsgTyp"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>
+       
+     </process>
+   </transaction>
+   
+   <transaction code="561133" desc="修改邮箱">
+     <sql name="QryUsrIdInf"> <!--  查询用户注册信息  -->
+       SELECT password FROM ARP_AC_CUST_REL WHERE CUST_ID IN (SELECT cust_id FROM STPUSRINF WHERE CUST_ID=#{USRID})
+     </sql>
+     <sql name="UpdUsrEmail"> <!--  更新用户邮箱  -->
+       CUST_ID=#{USRID}
+     </sql> 
+     <process>
+       <!--  检测用户登录平台：0001：用户  -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       
+       <!--  检测用户是否登录  -->
+       <set name="USRID"   expr="SESSIONS.USRID"/>   
+       <if condition="ISNULL(USRID)">
+          <set name="MsgTyp"        value="E"/>
+          <set name="RspCod"        value="02035"/>
+          <set name="RspMsg"        value="用户未登录或已失效，请重新登录"/>
+          <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+          <return/>
+       </if>
+       
+       <!--  检测邮箱是否为空  -->      
+       <set name="Email1"          expr="DELBOTHSPACE(EMAIL)"/>
+       <if condition="IS_EQUAL_STRING(Email1,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02046"/>
+         <set name="RspMsg"        value="邮箱不能为空"/>
+         <return/>
+       </if>
+       
+       <!--  检测新邮箱是否为空  -->      
+       <set name="NEWEMAIL1"          expr="DELBOTHSPACE(NEWEMAIL)"/>
+       <if condition="IS_EQUAL_STRING(NEWEMAIL1,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02046"/>
+         <set name="RspMsg"        value="新邮箱不能为空"/>
+         <return/>
+       </if>
+       
+       <set name="PAYPWD"           expr="payPwdForEmail"/>
+       <!--  检测支付密码是否为空  -->      
+       <set name="PAYPWD1"          expr="DELBOTHSPACE(PAYPWD)"/>
+       <if condition="IS_EQUAL_STRING(PAYPWD1,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02046"/>
+         <set name="RspMsg"        value="支付密码不可以为空"/>
+         <return/>
+       </if>
+       
+       <!--  检测用户是否存在  -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUsrIdInf" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="用户信息不存在"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+         <return/>
+       </elseif>
+       
+       <!-- 转密 --> 
+       <set name="pw"  expr="PAYPWD"/>
+       <quote name="getInputPwd"/>  
+       <set name="PAYPWD"         expr="NewPwd"/>
+       
+       <!-- 检测支付密码是否为空 -->
+       <if condition="IS_NOEQUAL_STRING(password,PAYPWD)">
+         <set name="RspCod"        value="01009"/>
+         <set name="RspMsg"        value="支付密码错误"/>
+         <return/>
+       </if>
+        
+       <!-- 更新邮箱 -->
+       <set name="USR_EMAIL"     expr="NewEmail"/>
+       <set name="EMAIL_STATUS"    value="0"/>
+       <do func="UpdateRecord" error="IGNORE"> 
+          <para name="TblNam"        value="STPUSRINF"/>
+          <para name="CndSts"        sql="UpdUsrEmail"/>
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"         value="E"/>
+         <set name="RspCod"         value="09999"/>
+         <set name="RspMsg"         value="系统忙，请稍后再试！"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="MsgTyp"         value="E"/>
+         <set name="RspCod"         value="02009"/>
+         <set name="RspMsg"         value="更新邮箱失败！"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"         value="E"/>
+         <set name="RspCod"         value="09997"/>
+         <set name="RspMsg"         value="系统错误，请稍后再试或联系客服"/>
+         <return/>
+       </elseif>
+      
+       
+       <set name="MsgTyp"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>
+     </process>
+   </transaction>
+   
+   <transaction code="561125" desc="用户账户号变更次数查询" >    
+     <sql name="QryUsrAtl"><!-- 用户账户号变更次数查询 -->
+       SELECT ALT_NUM AS ALTNUM FROM STPALTLOG WHERE CUST_ID=#{UsrId}
+     </sql>
+     <process>
+       <set name="AltFlag"       value="0"/>  <!-- 变更标识 -->
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       <set name="USRMP"  expr="SESSIONS.USRMP"/>
+       <!-- 判断用户是否登录 -->
+       <set name="USRID"           expr="SESSIONS.USRID"/>
+       <if condition="IS_EQUAL_STRING(USRID,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02035"/>
+         <set name="RspMsg"        value="用户ID为空"/>
+         <set name="RspMsg"        value="请重新登录"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+         <return/>
+       </if>
+       
+       <!-- 查询用户更改次数 --> 
+       <do func="ReadRecord"       error="IGNORE">
+         <para name="SqlCmd"       sql="QryUsrAtl" />
+       </do> 
+       <if condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="RspMsg"        value="该用户无变更次数"/>
+       </elseif>
+       <elseif condition="#RetCod==0">
+         <!-- 判断次数 -->
+         <if condition="INTCMP(ALTNUM,5,3)">
+           <set name="MsgTyp"        value="N"/>
+           <set name="AltFlag"       value="1"/>
+           <set name="RspCod"        value="02083"/>
+           <set name="RspMsg"        value="用户已经自助变更3次以上，不可再次变更"/>
+           <return/>
+         </if>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+        
+       <set name="MsgTyp"        value="N"/>
+       <set name="RspCod"        value="00000"/>
+       <set name="RspMsg"        value="用户可变更"/> 
+     </process>
+   </transaction>
+   
+   <transaction code="accountChange" desc="账户号变更"><!-- 原561124 -->
+     <sql name="UpdUsrLoginName"> <!--  登记手机信息  -->
+       UPDATE STPUSRINF 
+       SET CUST_LOGIN=#{phone},USR_MOBILE=#{phone} 
+       WHERE CUST_ID=#{usrid}
+     </sql>
+     <sql name="UpdUsrLoginName2"> <!--  登记手机信息  -->
+       UPDATE STPUSRINF 
+       SET CUST_LOGIN=#{phone},usr_email=#{usr_email} ,email_status='0'
+       WHERE CUST_ID=#{usrid}
+     </sql>
+     <sql name="DelUsrIdInfo"> <!--  删除验证表信息  -->
+       DELETE FROM STPVERIFY  WHERE VER_ID=#{phone} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE}
+     </sql>   
+     <sql name="QryUsrIdverifycode"> <!--  查询用户注册验证码信息  -->
+       SELECT ROUND(TO_NUMBER(sysdate - InsTim) * 24 * 60) timdif,TimeOut,InsTim,Random,VER_TYPE
+       FROM STPVERIFY 
+       WHERE VER_ID=#{phone} AND VER_TYPE=#{VER_TYPE} and SERVICE_TYPE=#{SERVICE_TYPE} ORDER BY InsTim DESC
+     </sql>
+     <sql name="QryUsrInf"> <!--  查询用户注册数据  -->
+       SELECT USR_STATUS
+       FROM STPUSRINF  
+       WHERE  cust_id =#{usrid} 
+     </sql> 
+     <sql name="chkCrdNo">
+       select cust_id from STPCUSINF where cust_id=#{UsrId} and cust_cred_type =#{UCardType} and cust_cred_no = #{UCardNo}
+     </sql>
+     <sql name="QryAltLog"> <!--  查询用户变更记录  -->
+       SELECT  ALT_NUM AS ALTNUM
+       FROM STPALTLOG
+       WHERE CUST_ID=#{UsrId} 
+     </sql>
+     <sql name="UpdAltLog"> <!--  更新用户变更记录  -->
+        CUST_ID=#{UsrId} 
+     </sql>
+     <sql name="chkPayPwd">
+        SELECT CUST_ID from arp_ac_cust_rel where password=#{CHAPAYPWD} and CUST_ID=#{UsrId}
+     </sql>
+     <process>
+     	 <if condition="IS_EQUAL_STRING(FLAG,'N')">
+         <set name="RspCod"   value="00000" />
+         <set name="RspMsg"   value="页面跳转成功" />
+         <set name="LOGNAM"   expr="LOGNAM" />
+         <set name="USERNAM"  expr="USERNAM" />
+         <set name="PAGE"     value="/account/upaccountsuccess.jsp" />
+         <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('html/', SESSIONS.LANGUAGE, PAGE)" />
+         <return/>
+       </if>
+       <!-- 判断登录平台 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       
+       <!-- 判断用户是否登录 -->
+       <set name="UsrId"          expr="SESSIONS.USRID"/>
+       <if condition="IS_EQUAL_STRING(UsrId,'')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户未登录或登录失效"/>
+         <return/>
+       </if>
+       
+        <!-- 检查手机号是否为空 -->
+       <set name="UsrMp"          expr="DELBOTHSPACE(phone)"/>
+       <if condition="IS_EQUAL_STRING(UsrMp,'')">
+         <set name="RspCod"       value="02035"/>
+         <set name="RspMsg"       value="手机号为空"/>
+         <return/>
+       </if>
+       
+       <set name="HRANDSTR"     expr="TOUPPER(verifycode)"/>
+       <set name="RA"  expr="SESSIONS.SRA"/>
+       <if condition="IS_NOEQUAL_STRING(RA,HRANDSTR)">
+         <set name="MsgTyp"       value="E"/>
+         <set name="RspCod"       value="02035"/>
+         <set name="RspMsg"       value="验证码错误"/>
+         <return/>
+       </if>
+       
+       <if condition="ISNUMBER(phone)">
+         <set name="VER_TYPE" value="0"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </if>
+       <else>
+         <set name="VER_TYPE" value="1"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </else>
+       <!--  帐号变更短信验证 -->
+       <if condition="ISNULL(SERVICE_TYPE)">
+           <set name="SERVICE_TYPE" value="04"/><!--验证码服务类型 00-注册短信验证 01-修改密码短信验证 02-找回密码短信验证 03-数字证书短信验证 04-帐号变更短信验证 05-消费支付短信验证 -->
+       </if>
+       <else>
+           <set name="SERVICE_TYPE" expr="SERVICE_TYPE" />
+       </else>
+       <!--  查询校验码  -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="QryUsrIdverifycode" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RspCod"        value="2004"/>
+         <set name="RspMsg"        value="该用户未申请校验码"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <!--超时时间判断,timdif：为距离现在间隔多少分钟，timeout：超时时间-->
+       <if condition="INTCMP(timdif,6,timeout)">
+        <set name="RspCod" value="02005" />
+        <set name="RspMsg" value="校验码已失效,请重新获取校验码" />
+        <return />
+       </if>
+       <!-- 比较校验码 -->
+       <set name="CHARANDSTR"        expr="checkcode"/>
+       <if condition="IS_NOEQUAL_STRING(CHARANDSTR,Random)">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02006"/>
+         <set name="RspMsg"        value="校验码输入错误"/>
+         <return/>
+       </if> 
+       <delete name="Random"/>
+       
+       <!-- 支付密码输入判断 -->
+       <set name="ChaPayPwd"       expr="ChaPayPwd"/>
+       <if condition="IS_EQUAL_STRING(ChaPayPwd,'')">
+         <set name="RspCod"        value="02007"/>
+         <set name="RspMsg"        value="支付密码不可为空"/>
+         <return/>
+       </if>
+       
+       <!-- 查询用户信息 -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUsrInf" />
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="该用户不存在"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="系统错误，请稍后再试"/>
+         <return/>
+       </elseif>
+       
+       <!--if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="认证未通过，不可变更账号名！"/>
+         <return/>
+       </if-->
+       
+       <!-- 检测证件信息 -->
+       <set name="UCardType"    expr="IDTYPECOD"/>
+       <set name="UCardNo"      expr="DES_ENCRYPT(USERNO)"/>
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="chkCrdNo" />
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="证件号码错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="系统错误，请稍后再试"/>
+         <return/>
+       </elseif>
+       
+       <!-- 查询用户变更信息 -->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryAltLog" />
+       </do>
+       <if condition="#RetCod==0">
+         <set name="AltFlag"       value="1"/>  <!-- 修改记录 -->
+         <!--if condition="INTCMP(AltNum,5,3)">  
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09997"/>
+           <set name="RspMsg"        value="用户不可再次变更"/>
+           <return/>
+         </if-->
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="RspMsg"        value="用户可变更"/>
+         <set name="AltFlag"       value="0"/> <!-- 插入记录 -->
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09997"/>
+         <set name="RspMsg"        value="系统错误，请稍后再试"/>
+         <return/>
+       </elseif>
+         
+       <!-- 密码转密 -->
+       <set name="pw"  expr="CHAPAYPWD"/>
+       <quote name="getInputPwd"/>
+        
+       <set name="CHAPAYPWD"         expr="newPwd"/>
+       <!-- 验证用户支付密码 -->
+       <quote name="chkPayPwdM"/>
+       
+       <if condition="ISNUMBER(phone)">
+           <set name="USR_MOBILE" expr="phone"/>
+           <!-- 修改用户信息表 -->
+           <do func="ExecSql" error="IGNORE">
+             <para name="SqlCmd" sql="UpdUsrLoginName"/>
+           </do>
+           <if condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="09999"/>
+             <set name="RspMsg"        value="系统错误"/>
+             <return/>
+           </if>
+       </if>
+       <else>
+           <set name="usr_email" expr="phone"/>
+           <!-- 修改用户信息表 -->
+           <do func="ExecSql" error="IGNORE">
+             <para name="SqlCmd" sql="UpdUsrLoginName2"/>
+           </do>
+           <if condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="09999"/>
+             <set name="RspMsg"        value="系统错误"/>
+             <return/>
+           </if>
+       </else>
+       <set name="Alter_Type"      expr="ALTERTYPE"/>
+       <set name="Alter_Msg"       expr="ALTERMSG"/>
+       <set name="CUST_ID"         expr="UsrId"/>
+       <set name="ALT_ADM"         expr="UsrId"/>
+       <set name="Alt_Date"      expr="GETDATETIME('YYYYMMDD')"/>
+       <set name="Alt_Time"      expr="GETDATETIME('HHMISS')"/>
+       <switch expr="AltFlag">
+         <case value="0">
+           <set name="Alt_Num"    value="1"/>
+           <do func="InsertRecord"   error="IGNORE">
+             <para name="TblNam"  value="stpaltlog" />
+           </do>
+           <if condition="#RetCod==3">
+              <set name="RspCod"    value="09996"/>
+              <set name="RspMsg"    value="数据库主键冲突"/>
+              <return/>
+           </if>
+           <elseif condition="#RetCod!=0">
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <return/>
+           </elseif>
+           <break/>
+         </case>
+         <case value="1">
+           <set name="Alt_Num"    expr="ADD(AltNum,1)"/>
+           <do func="UpdateRecord"      error="IGNORE">
+             <para name="TblNam"        value="stpaltlog"/>
+             <para name="CndSts"        sql="UpdAltLog"/>
+           </do>
+           <if condition="#RetCod==-1">
+             <set name="MsgTyp"         value="E"/>
+             <set name="RspCod"         value="09999"/>
+             <set name="RspMsg"         value="系统忙，请稍后再试！"/>
+             <return/>
+           </if>
+           <elseif condition="#RetCod==2">
+             <set name="MsgTyp"         value="E"/>
+             <set name="RspCod"         value="02009"/>
+             <set name="RspMsg"         value="更新状态失败！"/>
+             <return/>
+           </elseif>
+           <elseif condition="#RetCod!=0">
+             <set name="MsgTyp"         value="E"/>
+             <set name="RspCod"         value="09997"/>
+             <set name="RspMsg"         value="系统错误，请稍后再试或联系客服"/>
+             <return/>
+           </elseif>
+           <break/>
+         </case>
+       </switch>
+       
+       <!--  防止数据库保存验证码数据量过大，交易成功后即删除用户验证码信息  -->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd"  sql="DelUsrIdInfo" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="N"/>
+         <set name="RspCod"        value="00000"/>
+         <set name="RspMsg"        value="未找到验证码登记信息"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <set name="signFlag"        value="0"/><!-- 0：成功 1：失败 -->
+       <set name="NEWLOGIN"        expr="phone"/>
+       <set name="MsgTyp"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"         value="交易成功"/>
+     </process>
+   </transaction>
+   
+   <transaction code="accChangeQuery" desc="用户账户号变更次数查询" >   <!-- 原561125 --> 
+     <sql name="QryUsrAtl"><!-- 用户账户号变更次数查询 -->
+       SELECT ALT_NUM AS ALTNUM FROM STPALTLOG WHERE CUST_ID=#{UsrId}
+     </sql>
+     <process>
+       <set name="AltFlag"       value="0"/>  <!-- 变更标识 -->
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       <set name="USRMP"  expr="SESSIONS.USRMP"/>
+       <!-- 判断用户是否登录 -->
+       <set name="USRID"           expr="SESSIONS.USRID"/>
+       <if condition="IS_EQUAL_STRING(USRID,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02035"/>
+         <set name="RspMsg"        value="用户ID为空"/>
+         <set name="RspMsg"        value="请重新登录"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+         <return/>
+       </if>
+       
+       <!-- 查询用户更改次数 --> 
+       <do func="ReadRecord"       error="IGNORE">
+         <para name="SqlCmd"       sql="QryUsrAtl" />
+       </do> 
+       <if condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==2">
+         <set name="RspMsg"        value="该用户无变更次数"/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+        
+       <set name="MsgTyp"        value="N"/>
+       <set name="RspCod"        value="00000"/>	
+       <set name="RspMsg"        value="用户可变更"/> 
+       <set name="_REQUESTATTR.FORWARDURL" 		expr="STRCAT('/html/', SESSIONS.LANGUAGE, '/account/updateaccount.jsp')" />
+     </process>
+   </transaction>
+   
+</application>

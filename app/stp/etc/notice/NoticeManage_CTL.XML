@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="utf-8"?>
+<application name="OFRTNOTICE" code="100" log_level="DEBUG">
+
+  <before>
+    <set name="DWZ_ERROR_CODE"    value="300" />
+    <set name="DWZ_SUCCESS_CODE"  value="200" />
+    <set name="DWZ_TIME_OUT_CODE" value="301" />
+    <set name="NumPerPag"         value="19" />
+    <do func="DumpMsg" />
+  </before>
+  <after>
+    <do func="DumpMsg" />
+  </after>
+  
+  <transaction code="823950"    desc="公告查询">
+    <sql name="qrynotice">
+      select Notice_ID ,Notice_Title ,Notice_Content , Notice_Status ,Notice_ADD_OPER, 
+             to_char(to_date(Notice_ADD_DATE, 'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as Notice_ADD_DATE,
+                 Notice_UPD_OPER, to_char(to_date(Notice_UPD_DATE, 'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as Notice_UPD_DATE
+        from Notice 
+       where Notice_Status like '%${NoticeStatus}%' and (Notice_Title like '%${Notice_Title}%'  ${froOr}) ${dateSql}
+       order by notice_id desc
+    </sql>
+    <process> 
+       <set name="dateSql"            value=""/>
+       <set name="froOr"              value=""/>
+       <set name="APP_DATE_STA_B1"    expr="APP_DATE_STA_B"/>
+       <set name="APP_DATE_STA_E1"    expr="APP_DATE_STA_E"/>
+       <if condition="IS_EQUAL_STRING(Notice_Title,'')">
+          <set name="Notice_Title"    value=""/>
+          <set name="froOr"           value=" or Notice_Title is null"/>
+       </if> 
+       <set name="NoticeStatus"       expr="Notice_Status"/>
+       <if condition="IS_EQUAL_STRING(Notice_Status,'')">
+          <set name="Notice_Status"    value="0"/>
+          <set name="NoticeStatus"    value="0"/>
+       </if>
+       <if condition="IS_EQUAL_STRING(Notice_Status,'-1')">
+          <set name="Notice_Status"    value="-1"/>
+          <set name="NoticeStatus"    value=""/>
+       </if>
+       <if condition="INTCMP(STRLEN(APP_DATE_STA_B),6,8)">
+          <set name="APP_DATE_STA_B"    expr="FMTDATE(APP_DATE_STA_B,4,0)"/>
+       </if>       
+       <if condition="INTCMP(STRLEN(APP_DATE_STA_E),6,8)">
+          <set name="APP_DATE_STA_E"    expr="FMTDATE(APP_DATE_STA_E,4,0)"/>
+       </if>  
+       <if condition="IS_NOEQUAL_STRING(APP_DATE_STA_B,'')">
+          <set name="dateSql"    expr="STRCAT(dateSql,' and subStr(Notice_UPD_DATE,1,8) &gt;=',APP_DATE_STA_B)"/>
+       </if>
+       <if condition="IS_NOEQUAL_STRING(APP_DATE_STA_E,'')">
+          <set name="dateSql"    expr="STRCAT(dateSql,' and subStr(Notice_UPD_DATE,1,8)  &lt;=',APP_DATE_STA_E)"/>
+       </if> 
+       
+       <if condition="ISNULL(PAGENUM)">
+          <set name="PAGENUM"       value="1"/>
+       </if>
+       <if condition="ISNULL(NUMPERPAGE)">
+          <set name="NUMPERPAGE"    expr="NumPerPag"/>
+       </if>
+       <!-- 查询商户信息 -->
+       <do func="PagedQuery" error="ignore">
+         <para name="PageNum"    expr="PAGENUM"/>
+         <para name="NumPerPag"  expr="NUMPERPAGE"/>
+         <para name="Sql"        sql="qrynotice"/>
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"    value="01002"/>
+          <set name="RspMsg"    value="没有符合条件的记录"/> 
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"    value="09999"/>
+          <set name="RspMsg"    value="数据库操作错误"/> 
+       </elseif>
+       <else>
+          <set name="RspCod"    value="00000"/> 
+       </else>
+       
+       <delete name="FROOR"/>
+       <set name="APP_DATE_STA_B"    expr="APP_DATE_STA_B1"/>
+       <set name="APP_DATE_STA_E"    expr="APP_DATE_STA_E1"/>
+       <if condition="IS_NOEQUAL_STRING(FLAG,'1')">
+          <set name="_REQUESTATTR.FORWARDURL"   value="/WEB-INF/html/notice/pos_notice.jsp"/> 
+       </if>
+    </process>
+  </transaction>
+  
+  <transaction code="823951"    desc="公告跳转">
+    <sql name="searchnotice">
+      select Notice_ID,Notice_Title ,Notice_Content , Notice_Status ,Notice_ADD_OPER,Notice_ADD_DATE,Notice_UPD_OPER,Notice_UPD_DATE from  Notice  where notice_id=#{notice_id}
+    </sql> 
+    <process> 
+      <if condition="IS_EQUAL_STRING(pagNext,'upd')"><!-- 修改 -->  
+         <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="searchnotice" />
+         </do>
+         <if condition="#RetCod==2">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="01002"/>
+            <set name="RspMsg"        value="没有符合条件的记录"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod==-1">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="数据库操作错误"/>
+            <return/>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="09998"/>
+            <set name="RspMsg"        value="系统错误"/>
+            <return/>
+         </elseif> 
+         <set name="_REQUESTATTR.FORWARDURL"   value="/WEB-INF/html/notice/pos_notice_update.jsp"/> 
+      </if>
+      <elseif condition="IS_EQUAL_STRING(pagNext,'add')"><!-- 添加 --> 
+         <set name="_REQUESTATTR.FORWARDURL"   value="/WEB-INF/html/notice/pos_notice_add.jsp"/> 
+      </elseif>
+      <else>
+         <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="searchnotice" />
+         </do>
+         <if condition="#RetCod==2">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="01002"/>
+            <set name="RspMsg"        value="没有符合条件的记录"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod==-1">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="数据库操作错误"/>
+            <return/>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="09998"/>
+            <set name="RspMsg"        value="系统错误"/>
+            <return/>
+         </elseif>
+         <set name="_REQUESTATTR.FORWARDURL"   value="/WEB-INF/html/notice/pos_notice.jsp"/> 
+      </else>
+      <set name="RspCod"     value="00000"/>
+      <set name="RspMsg"     value="交易成功"/>
+    </process>
+  </transaction>
+  
+  <transaction code="823952"    desc="公告修改">
+    <sql name="updnotice">
+        UPDATE Notice SET Notice_Title =#{Notice_Title} ,Notice_Content=#{Notice_Content},Notice_Status =#{Notice_Status},
+                          Notice_UPD_OPER=#{Notice_UPD_OPER},Notice_UPD_DATE=#{Notice_UPD_DATE}
+         WHERE notice_id =#{notice_id}
+    </sql>
+    <process>    
+       <set name="Notice_UPD_OPER" expr="SESSIONS.UID"/>
+       <set name="Notice_UPD_DATE" expr="GETDATETIME()"/>
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd"  sql="updnotice" />
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"          value="01002"/>
+          <set name="RspMsg"          value="没有符合条件的记录"/>
+          <set name="notifyresult"    value="1"/>
+          <set name="DWZ_STATUS_CODE" value="300"/>
+          <set name="DWZ_RSP_MSG"     expr="RspMsg"/>
+          <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"          value="09998"/>
+          <set name="RspMsg"          value="系统错误"/>
+          <set name="notifyresult"    value="1"/>
+          <set name="DWZ_STATUS_CODE" value="300"/>
+          <set name="DWZ_RSP_MSG"     expr="RspMsg"/>
+          <return/>
+       </elseif>  
+       <set name="RspCod"             value="00000"/>
+       <set name="RspMsg"             value="修改成功"/>
+       <set name="DWZ_STATUS_CODE"    value="200"/>
+       <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+       <set name="DWZ_CALLBACK_TYPE"  value="forward"/>
+       <set name="DWZ_FORWARD_URL"    value="823950.stp?menu_id=050417" />
+    </process>
+  </transaction>
+  
+  <transaction code="823953"    desc="公告添加">
+    <sql name="addnotice">
+        INSERT INTO Notice(notice_id,Notice_Title,Notice_Content,Notice_Status,Notice_ADD_OPER,Notice_ADD_DATE,Notice_UPD_OPER,Notice_UPD_DATE) 
+        VALUES(#{Notice_Id},#{Notice_Title},#{Notice_Content},#{Notice_Status},#{Notice_ADD_OPER},#{Notice_ADD_DATE},#{Notice_UPD_OPER},#{Notice_UPD_DATE})
+    </sql>
+    <process>  
+       <set name="Notice_ADD_OPER" expr="SESSIONS.UID"/>
+       <set name="Notice_UPD_OPER" expr="Notice_ADD_OPER"/>
+       <set name="Notice_ADD_DATE" expr="GETDATETIME()"/>
+       <set name="Notice_UPD_DATE" expr="Notice_ADD_DATE"/>
+      
+       <do func="GetSeqNo"  error="IGNORE">
+          <para name="TblNam" value="stpseqrec"/>
+          <para name="KeyNam" value="KeyNam"/>
+          <para name="KeyVal" expr="STRCAT('Notice','NoticeId')"/>
+          <para name="SeqNam" value="KeyVal"/>
+          <para name="Len"    value="8"/>
+          <para name="Circle" value="1"/>
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="MsgTyp"    value="E"/>
+          <set name="RspCod"    value="09001"/>
+          <set name="RspMsg"    value="获取序号错误"/>
+          <return/>
+       </if>
+       <set name="Notice_Id"    expr="STRCAT('NO',KeyVal)"></set>
+      
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd"  sql="addnotice" />
+       </do>
+       <if condition="#RetCod==2">
+          <set name="RspCod"          value="01002"/>
+          <set name="RspMsg"          value="没有符合条件的记录"/>
+          <set name="notifyresult"    value="1"/>
+          <set name="DWZ_STATUS_CODE" value="300"/>
+          <set name="DWZ_RSP_MSG"     expr="RspMsg"/>
+          <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+          <set name="RspCod"          value="06003"/>
+          <set name="RspMsg"          value="添加公告信息错误"/>
+          <set name="notifyresult"    value="1"/>
+          <set name="DWZ_STATUS_CODE" value="300"/>
+          <set name="DWZ_RSP_MSG"     expr="RspMsg"/>
+          <return/>
+       </elseif>  
+       <set name="RspCod"             value="00000"/>
+       <set name="RspMsg"             value="公告添加成功"/>
+       <set name="DWZ_STATUS_CODE"    value="200"/>
+       <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+       <set name="DWZ_CALLBACK_TYPE"  value="forward"/>
+       <set name="DWZ_FORWARD_URL"    value="823950.stp?menu_id=050417" />
+    </process>
+  </transaction>
+  
+  <transaction code="823954" log_switch="1" desc="删除公告">
+     <sql name="deletenotice">
+        delete from notice where  notice_id=#{notice_id}
+     </sql>
+     <process>
+        <foreach name="IDS" iterator="#tmp">
+           <set name="notice_id"  expr="#tmp"/>
+           <do func="ExecSql" error="IGNORE">
+              <para name="SqlCmd" sql="deletenotice"/>
+           </do>
+        </foreach>
+        <if condition="#RetCod!=-1">
+           <set name="RSPCOD"            value="00000"/>
+           <set name="RspMsg"            value="删除成功!"/>
+           <set name="DWZ_STATUS_CODE"   expr="200"/>
+           <set name="DWZ_CALLBACK_TYPE" value="forward"/>
+           <set name="DWZ_FORWARD_URL"   value="823950.stp"/>
+           <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+           <return/>
+        </if>
+        <else>
+           <set name="RSPCOD"             value="329999"/>
+           <set name="RspMsg"             value="删除信息失败!"/>
+           <set name="DWZ_STATUS_CODE"    expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_CALLBACK_TYPE"  value="forward"/>
+           <set name="DWZ_FORWARD_URL"    value="823950.stp"/>
+           <set name="DWZ_RSP_MSG"        expr="RSPMSG"/>
+           <return/>
+        </else>
+
+     </process>
+  </transaction>
+  
+  <transaction code="823955" log_switch="1" desc="公共详情">
+     <sql name="selnotice">
+        select notice_content,notice_title from notice where  notice_id=#{notice_id}
+     </sql>
+     <process>
+         <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="selnotice" />
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="系统错误"/>
+            <return/>
+         </if>
+         <set name="RspCod"             value="00000"/>
+         <set name="RspMsg"             value="交易成功"/>
+     </process>
+  </transaction>
+</application>

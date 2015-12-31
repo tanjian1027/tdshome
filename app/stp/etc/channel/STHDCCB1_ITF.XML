@@ -1,0 +1,348 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="STHDCCB1" log_level="INFO" timeout="300" >
+   
+  <macro name="RequestHeader" desc="请求头">
+    <writeelement name="REQUEST_SN"   expr="REQUEST_SN"   desc="请求序列码，只可以使用数字"/>
+    <writeelement name="CUST_ID"      expr="BNK_CUST_ID"  desc="客户号"/>
+    <writeelement name="USER_ID"      expr="USER_ID"      desc="操作员号"/>
+    <writeelement name="PASSWORD"     expr="PASSWORD"     desc="密码"/>
+    <writeelement name="TX_CODE"      expr="CCBTX_CODE"   desc="交易码"/>
+    <writeelement name="LANGUAGE"     value="CN"          desc="语言"/>  
+  </macro>
+  
+  <macro name="ResponseHeader" desc="响应头">
+    <readelement name="REQUEST_SN"    expr="REQUEST_SN"     desc="请求序列码"/>
+    <readelement name="BNK_CUST_ID"   expr="CUST_ID"        desc="客户号"/>
+    <readelement name="TX_CODE"       expr="TX_CODE"        desc="交易码"/>
+    <readelement name="RETURN_CODE"   expr="RETURN_CODE"    desc="返回码"/>
+    <readelement name="RETURN_MSG"    expr="RETURN_MSG"     desc="返回码说明"/>
+    <readelement name="LANGUAGE"      expr="LANGUAGE"       desc="语言"/>
+  </macro>
+  
+  
+  <transaction code="6W8010" desc="行内自动转帐交易" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W8010"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="PAY_ACCNO"          expr="DES_DECRYPT(ACC_NO1)"   desc="转出账户号"/>
+          <writeelement name="RECV_ACCNO"         expr="DES_DECRYPT(ACC_NO2)"   desc="转入账户号"/>
+          <writeelement name="RECV_UBANKNO"       expr="UBANK_NO"               desc="转入账户联行号"/>
+          <writeelement name="RECV_ACC_NAME"      expr="RECV_ACC_NAME"          desc="转入账户名称"/>
+          <writeelement name="CHK_RECVNAME"       expr="CHK_RECVNAME"           desc="行内转账收款账户户名校验 1:校验 0：不校验"/>
+          <writeelement name="RECV_OPENACC_DEPT"  expr="RECV_OPENACC_DEPT"      desc="转入账户开户机构名称"/>
+          <writeelement name="RECV_EXCHANGENO"    expr="RECV_EXCHANGENO"        desc="转入账户交换号"/>
+          <writeelement name="RECV_COUNTERNO"     expr="RECV_COUNTERNO"         desc="转入账户会计柜台机构号"/>
+          <writeelement name="AMOUNT"             expr="AMOUNT"                 desc="金额 Decimal(16,2)"/>
+          <writeelement name="CUR_TYPE"           expr="CUR_TYPE"               desc="币种"/>
+          <writeelement name="USEOF"              expr="USEOF"                  desc="用途"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <quote name="ResponseHeader"/>
+      <readelement name="TX_INFO">
+        <readelement name="CREDIT_NO"           expr="CREDIT_NO"      desc="凭证号"/>
+        <readelement name="DEAL_TYPE"           expr="DEAL_TYPE"      desc="处理方式"/>
+        <readelement name="VALID_CODE"          expr="VALIDATE_CODE"  desc="验证码"/>
+      </readelement>
+    </unpack>
+  </transaction>
+  
+  
+  <transaction code="6W8060" desc="跨行实时转账" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W8060"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="TRAN_TYPE"          expr="TRAN_TYPE"              desc="交易类型 0-建行转他行,预留标志位，以后可扩展"/>
+          <writeelement name="PAY_ACCNO"          expr="DES_DECRYPT(ACC_NO1)"   desc="转出账号"/>
+          <writeelement name="RECV_ACCNO"         expr="DES_DECRYPT(ACC_NO2)"   desc="转入账号"/>
+          <writeelement name="RECV_ACC_NAME"      expr="RECV_ACC_NAME"          desc="转入账户名"/>
+          <writeelement name="RECV_UBANKNO"       expr="UBANK_NO"               desc="转入账户联行号 TRAN_TYPE=0时，必须输入 "/>
+          <writeelement name="RECV_OPENACC_DEPT"  expr="RECV_OPENACC_DEPT"      desc="转入账户开户机构名称 TRAN_TYPE=0时，必须输入 "/>
+          <writeelement name="AMOUNT"             expr="AMOUNT"                 desc="金额 Decimal(16,2)"/>
+          <writeelement name="CUR_TYPE"           expr="CUR_TYPE"               desc="币种"/>
+          <writeelement name="USEOF"              expr="USEOF"                  desc="用途"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <quote name="ResponseHeader"/>
+      <readelement name="TX_INFO">
+        <readelement name="CREDIT_NO"           expr="CREDIT_NO"        desc="凭证号"/>
+        <readelement name="DEAL_TYPE"           expr="DEAL_TYPE"        desc="处理方式"/>
+        <readelement name="FEEAMT"              expr="AMTPOWER(FEE,2)"  desc="手续费"/>
+        <readelement name="VALID_CODE"          expr="VALID_CODE"       desc="验证码"/>
+      </readelement>
+    </unpack>
+  </transaction>
+  
+  
+  <transaction code="6W1303" desc="单笔代发代扣交易" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W1303"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="ACC_NO"       expr="DES_DECRYPT(ACC_NO1)"  desc="本方企业账户"/>
+          <writeelement name="BILL_CODE"    expr="BILL_CODE"             desc="代发代扣编号"/>
+          <writeelement name="ACC_NO2"      expr="DES_DECRYPT(ACC_NO2)"  desc="对方账户"/>
+          <writeelement name="OTHER_NAME"   expr="OTHER_NAME"            desc="对方姓名"/>
+          <writeelement name="AMOUNT"       expr="AMOUNT"                desc="金额 Decimal(16,2)"/>
+          <writeelement name="USEOF_CODE"   expr="USEOF"                 desc="用途编号"/>
+          <writeelement name="FLOW_FLAG"    expr="FLOW_FLAG"             desc="网银审批标识：空或0.不需审批  1.网银审批"/>
+          <writeelement name="UBANK_NO"     expr="UBANK_NO"              desc="收款账户支付系统行号"/>
+          <writeelement name="REM1"         expr="REM1"                  desc="备注1"/>
+          <writeelement name="REM2"         expr="REM2"                  desc="备注2"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <quote name="ResponseHeader"/>
+      <readelement name="TX_INFO">
+        <readelement name="CREDIT_NO"           expr="CREDIT_NO"          desc="凭证号"/>
+        <readelement name="INDIVIDUAL_NAME1"    expr="INDIVIDUAL_NAME1"   desc="自定义输出名称1"/>
+        <readelement name="INDIVIDUAL1"         expr="INDIVIDUAL1"        desc="自定义输出内容1"/>
+        <readelement name="INDIVIDUAL_NAME2"    expr="INDIVIDUAL_NAME2"   desc="自定义输出名称2"/>
+        <readelement name="INDIVIDUAL2"         expr="INDIVIDUAL2"        desc="自定义输出内容2"/>
+        <readelement name="REM1"                expr="REM1"               desc="备注1"/>
+        <readelement name="REM2"                expr="REM2"               desc="备注2"/>
+      </readelement>
+    </unpack>
+  </transaction>
+  
+  
+  <transaction code="6W2100" desc="全国批量代发代扣交易" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W2100"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="BILL_CODE"      expr="BILL_CODE"    desc="代发代扣编号"/>
+          <writeelement name="BILLDESC"       expr="BILLDESC"     desc="代发代扣项目名称"/>
+          <writeelement name="BILL_FLAG"      expr="BILL_FLAG"    desc="代发代扣标志"/>
+          <writeelement name="USEOF_CODE"     expr="USEOF_CODE"   desc="用途编号"/>
+          <writeelement name="USE"            expr="USE"          desc="用途"/>
+          <writeelement name="SEND_FILE"      expr="SEND_FILE"    desc="代发代扣文件名"/>
+          <writeelement name="ORI_FILE"       expr="ORI_FILE"     desc="原文件名"/>
+          <writeelement name="ACC_NO"         expr="ACC_NO"       desc="账号"/>
+          <writeelement name="AMOUNT"         expr="AMOUNT"       desc="总金额"/>
+          <writeelement name="COUNT"          expr="COUNT"        desc="总笔数"/>
+          <writeelement name="FLOW_FLAG"      expr="FLOW_FLAG"    desc="网银审批标识"/>
+          <writeelement name="ASYN_FLAG"      expr="ASYN_FLAG"    desc="异步处理标识"/>
+          <writeelement name="SIGN_INFO"      expr="SIGN_INFO"    desc="签名信息"/>
+          <writeelement name="SIGNCERT"       expr="SIGNCERT"     desc="签名CA信息"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <quote name="ResponseHeader"/>
+      <readelement name="TX_INFO">
+        <readelement name="CREDIT_NO"         expr="CREDIT_NO"        desc="凭证号"/>
+        <readelement name="SUCCESS_AMOUNT"    expr="SUCCESS_AMOUNT"   desc="交易总金额"/>
+        <readelement name="SUCCESS_NUM"       expr="SUCCESS_NUM"      desc="交易总笔数"/>
+      </readelement>
+    </unpack>
+  </transaction>
+  
+  
+  <transaction code="6W2102" desc="全国代发代扣文件上传" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W2102"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="SEND_FILE"      expr="SEND_FILE"    desc="上传文件名"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+        <quote name="ResponseHeader"/>
+        <readelement name="TX_INFO">
+          <readelement name="SEND_FILE"   expr="SEND_FILE"    desc="网银上传文件名"/>
+          <readelement name="ORI_FILE"    expr="ORI_FILE"     desc="原文件名"/>
+        </readelement>
+    </unpack>
+  </transaction>
+  
+  
+  <transaction code="6W2104" desc="全国批量代发代扣结果明细查询" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W2104"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="REQUEST_SN1"    expr="REQUEST_SN1"    desc="原请求序列号"/>
+          <writeelement name="START_PAGE"     expr="START_PAGE"     desc="起始页次  整数>0,不填默认查询第一页"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+        <quote name="ResponseHeader"/>
+        <readelement name="TX_INFO">
+          <readelement name="F_STATUS"           expr="F_STATUS"         desc="处理结果状态  0：处理失败  1：处理完成  2：处理中 3：网银审批中"/>
+          <readelement name="F_MSG"              expr="F_MSG"            desc="处理结果信息  "/>
+          <readelement name="FILE_S"             expr="FILE_S"           desc="成功明细文件名  处理结果状态为1时可用"/>
+          <readelement name="FILE_F"             expr="FILE_F"           desc="失败明细文件名  处理结果状态为1时可用"/>
+          <readelement name="FILE_A"             expr="FILE_A"           desc="全部明细文件名  处理结果状态为1时可用"/>
+          <readelement name="TOTAL_AMOUNT"       expr="TOTAL_AMOUNT"     desc="交易总金额  "/>
+          <readelement name="TOTAL_NUM"          expr="TOTAL_NUM"        desc="交易总笔数  "/>
+          <readelement name="CUR_PAGE"           expr="CUR_PAGE"         desc="当前页次  整数>0"/>
+          <readelement name="PAGE_COUNT"         expr="PAGE_COUNT"       desc="总页次  整数>0"/>
+          <readelement name="NEXT_OPERID"        expr="NEXT_OPERID"      desc="下级复核员代码  状态为3时可用，若有多个下级复核员，编号用逗号分隔"/>
+          <readelement name="SUCCESS_AMOUNT"     expr="SUCCESS_AMOUNT"   desc="交易成功总金额  "/>
+          <readelement name="SUCCESS_NUM"        expr="SUCCESS_NUM"      desc="交易成功总笔数  "/>
+          <readelement name="SUCCESS_LIST">
+            <readgroupelement name="SUCCESS_DETAIL">
+              <readelement name="OID"                expr="OID"              desc="序列号  "/>
+              <readelement name="RECV_ACCNO"         expr="RECV_ACCNO"       desc="收款帐号  "/>
+              <readelement name="RECV_ACCNAME"       expr="RECV_ACCNAME"     desc="收款帐号名称  "/>
+              <readelement name="AMOUNT"             expr="AMOUNT"           desc="金额  "/>
+              <readelement name="USEOF"              expr="USEOF"            desc="用途  "/>
+              <readelement name="FILE_MEMO1"         expr="FILE_MEMO1"       desc="备注1  "/>
+              <readelement name="FILE_MEMO2"         expr="FILE_MEMO2"       desc="备注2  "/>
+              <readelement name="STATUS"             expr="STATUS"           desc="单据状态  0：失败  1：成功  3：不确定"/>
+              <readelement name="REMARK"             expr="REMARK"           desc="失败原因  状态为0、3时返回"/>
+              <readelement name="PAY_ACCNO"          expr="PAY_ACCNO"        desc="付款帐号  "/>
+              <readelement name="PAY_ACCNAME"        expr="PAY_ACCNAME"      desc="付款帐号名称  "/>
+              <readelement name="UBANK_NO"           expr="UBANK_NO"         desc="收款账户支付系统联行号  大小额跨行代发交易用到"/>
+              <readelement name="UBANK_NAME"         expr="UBANK_NAME"       desc="收款账户开户行名称  大小额跨行代发交易用到"/>
+            </readgroupelement>
+          </readelement>
+          <readelement name="FAIL_AMOUNT"        expr="FAIL_AMOUNT"      desc="交易失败总金额  "/>
+          <readelement name="FAIL_NUM"           expr="FAIL_NUM"         desc="交易失败总笔数  "/>
+          <readelement name="FAIL_LIST">
+            <readgroupelement name="FAIL_DETAIL">
+              <readelement name="OID"                expr="OID"              desc="序列号  "/>
+              <readelement name="RECV_ACCNO"         expr="RECV_ACCNO"       desc="收款帐号  "/>
+              <readelement name="RECV_ACCNAME"       expr="RECV_ACCNAME"     desc="收款帐号名称  "/>
+              <readelement name="AMOUNT"             expr="AMOUNT"           desc="金额  "/>
+              <readelement name="USEOF"              expr="USEOF"            desc="用途  "/>
+              <readelement name="FILE_MEMO1"         expr="FILE_MEMO1"       desc="备注1  "/>
+              <readelement name="FILE_MEMO2"         expr="FILE_MEMO2"       desc="备注2  "/>
+              <readelement name="STATUS"             expr="STATUS"           desc="单据状态  0：失败  1：成功"/>
+              <readelement name="REMARK"             expr="REMARK"           desc="失败原因  状态为0、3时返回"/>
+              <readelement name="PAY_ACCNO"          expr="PAY_ACCNO"        desc="付款帐号  "/>
+              <readelement name="PAY_ACCNAME"        expr="PAY_ACCNAME"      desc="付款帐号名称  "/>
+              <readelement name="UBANK_NO"           expr="UBANK_NO"         desc="收款账户支付系统联行号  大小额跨行代发交易用到"/>
+              <readelement name="UBANK_NAME"         expr="UBANK_NAME"       desc="收款账户开户行名称  大小额跨行代发交易用到"/>
+            </readgroupelement>
+          </readelement>
+          <readelement name="UNCERTAIN_LIST">
+            <readgroupelement name="UNCERTAIN_DETAIL">
+              <readelement name="UNCERTAIN_AMOUNT"   expr="UNCERTAIN_AMOUNT" desc="不确定总金额  不确定结果只对大小额跨行交易有效"/>
+              <readelement name="UNCERTAIN_NUM"      expr="UNCERTAIN_NUM"    desc="不确定总笔数  不确定结果只对大小额跨行交易有效"/>
+              <readelement name=""                   expr=""             desc="  "/>
+              <readelement name="OID"                expr="OID"              desc="序列号  "/>
+              <readelement name="RECV_ACCNO"         expr="RECV_ACCNO"       desc="收款帐号  "/>
+              <readelement name="RECV_ACCNAME"       expr="RECV_ACCNAME"     desc="收款帐号名称  "/>
+              <readelement name="AMOUNT"             expr="AMOUNT"           desc="金额  "/>
+              <readelement name="USEOF"              expr="USEOF"            desc="摘要  "/>
+              <readelement name="FILE_MEMO1"         expr="FILE_MEMO1"       desc="备注1  "/>
+              <readelement name="FILE_MEMO2"         expr="FILE_MEMO2"       desc="备注2  "/>
+              <readelement name="STATUS"             expr="STATUS"           desc="单据状态  0：失败 1：成功 3：不确定"/>
+              <readelement name="REMARK"             expr="REMARK"           desc="失败原因  状态为0、3时返回"/>
+              <readelement name="PAY_ACCNO"          expr="PAY_ACCNO"        desc="付款帐号  "/>
+              <readelement name="PAY_ACCNAME"        expr="PAY_ACCNAME"      desc="付款帐号名称  "/>
+              <readelement name="UBANK_NO"           expr="UBANK_NO"         desc="收款账户支付系统联行号  大小额跨行代发交易用到"/>
+              <readelement name="UBANK_NAME"         expr="UBANK_NAME"       desc="收款账户开户行名称  大小额跨行代发交易用到"/>
+            </readgroupelement>
+          </readelement>
+        </readelement>
+    </unpack>
+  </transaction>
+  
+  
+  <transaction code="6WY101" desc="一点接入活期账户明细查询" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W2104"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="ACCNO1"             expr="ACCNO1"         desc="帐号"/>
+          <writeelement name="STARTDATE"          expr="STARTDATE"      desc="开始时间"/>
+          <writeelement name="ENDDATE"            expr="ENDDATE"        desc="结束时间"/>
+          <writeelement name="BARGAIN_FLAG"       expr="BARGAIN_FLAG"   desc="交易方向"/>
+          <writeelement name="CHECK_ACC_NO"       expr="CHECK_ACC_NO"   desc="对方账户"/>
+          <writeelement name="CHECK_ACC_NAME "    expr="CHECK_ACC_NAME" desc="对方帐户名称"/>
+          <writeelement name="REMARK"             expr="REMARK"         desc="摘要"/>
+          <writeelement name="LOW_AMT"            expr="LOW_AMT"        desc="最小金额"/>
+          <writeelement name="HIGH_AMT"           expr="HIGH_AMT"       desc="最大金额"/>
+          <writeelement name="PAGE"               expr="PAGE"           desc="起始页  查询页次，整数>0"/>
+          <writeelement name="POSTSTR"            expr="POSTSTR"        desc="定位串  第一次查询为空"/>
+          <writeelement name="TOTAL_RECORD"       expr="TOTAL_RECORD"   desc="每页记录数  默认为10，大于0小于等于200，后续查询时的输入值，必须与首次查询设定的值相等"/>
+          <writeelement name="DET_NO"             expr="DET_NO"         desc="活存帐户明细号  此明细号用于快速查询某条记录以后的明细数据(可参考返回报文DET_NO填写此值)"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+        <quote name="ResponseHeader"/>
+        <readelement name="TX_INFO">
+          <readelement name="ACCNO1"         expr="ACCNO1"       desc="本方账号"/>
+          <readelement name="CURR_COD"       expr="CURR_COD"     desc="币种"/>
+          <readelement name="ACC_NAME"       expr="ACC_NAME"     desc="本方账号名称"/>
+          <readelement name="ACC_ORGAN"      expr="ACC_ORGAN"    desc="本方账号开户机构"/>
+          <readelement name="ACC_STATE"      expr="ACC_STATE"    desc="本方账号状态  正常、冻结、部分冻结等"/>
+          <readelement name="INTR"           expr="INTR"         desc="利率  对存款账户为利率"/>
+          <readelement name="TOTAL_PAGE"     expr="TOTAL_PAGE"   desc="总页次"/>
+          <readelement name="PAGE"           expr="PAGE"         desc="当前页次"/>
+          <readelement name="POSTSTR"        expr="POSTSTR"      desc="定位串  说明：例如返回定位串2010012110797991203_AP2+50+11+20+ “+50+11+20+”50是总的记录数，11是本次交易返回的第一条记录数，20是本次交易返回的最后一条记录数。"/>
+          <readelement name="FLAG"           expr="FLAG"         desc="是否可生成标识位  0 可生成 ，1 未可生成"/>
+          <readelement name="FILE_LOCSTR"    expr="FILE_LOCSTR"  desc="生成文件定位串"/>
+          <readelement name="DETAILLIST">
+            <readgroupelement name="DETAIL">
+              <readelement name="TRANDATE"     expr="TRANDATE"     desc="交易日期"/>
+              <readelement name="TRANTIME"     expr="TRANTIME"     desc="交易时间"/>
+              <readelement name="CRE_TYP"      expr="CRE_TYP"      desc="凭证种类"/>
+              <readelement name="CRE_NO"       expr="CRE_NO"       desc="凭证号码"/>
+              <readelement name="MESSAGE"      expr="MESSAGE"      desc="摘要"/>
+              <readelement name="AMT"          expr="AMT"          desc="发生额  为借方发生额或贷方发生额"/>
+              <readelement name="AMT1"         expr="AMT1"         desc="余额"/>
+              <readelement name="FLAG1"        expr="FLAG1"        desc="借贷标志"/>
+              <readelement name="ACCNO2"       expr="ACCNO2"       desc="对方账号  对方账号"/>
+              <readelement name="ACC_NAME1"    expr="ACC_NAME1"    desc="对方户名  对方账户名称"/>
+              <readelement name="FLAG2"        expr="FLAG2"        desc="交易钞汇标志  0－钞户 1－汇户"/>
+              <readelement name="TRAN_FLOW"    expr="TRAN_FLOW"    desc="交易流水号"/>
+              <readelement name="BFLOW"        expr="BFLOW"        desc="企业支付流水号"/>
+              <readelement name="DET_NO"       expr="DET_NO"       desc="活存帐户明细号"/>
+              <readelement name="DET"          expr="DET"          desc="备注"/>
+            </readgroupelement>
+          </readelement>
+        </readelement>
+    </unpack>
+  </transaction>
+  
+  
+  <transaction code="6W0100" desc="余额查询交易" >
+    <pack>
+      <set name="CCBTX_CODE"    value="6W0100"/>
+      <writeelement name="TX">
+        <quote name="RequestHeader"/>
+        <writeelement name="TX_INFO">
+          <writeelement name="ACC_NO"   expr="ACC_NO"   desc="帐户号"/>
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+        <quote name="ResponseHeader"/>
+        <readelement name="TX_INFO">
+          <readelement name="ACC_NO"          expr="ACC_NO"           desc="帐户号"/>
+          <readelement name="BALANCE"         expr="BALANCE"          desc="余额"/>
+          <readelement name="BALANCE1"        expr="BALANCE1"         desc="可用余额"/>
+          <readelement name="INTEREST"        expr="INTEREST"         desc="帐户利息"/>
+          <readelement name="INTEREST_RATE"   expr="INTEREST_RATE"    desc="帐户利率"/>
+          <readelement name="ACC_STATUS"      expr="ACC_STATUS"       desc="账户状态"/>
+          <readelement name="RESV_NAME1"      expr="RESV_NAME1"       desc="分行自定义输出名称1"/>
+          <readelement name="RESV1"           expr="RESV1"            desc="分行自定义输出内容1"/>
+          <readelement name="RESV_NAME2"      expr="RESV_NAME2"       desc="分行自定义输出名称2"/>
+          <readelement name="RESV2"           expr="RESV2"            desc="分行自定义输出内容2"/>
+          <readelement name="REM1"            expr="REM1"             desc="备注1"/>
+          <readelement name="REM2"            expr="REM2"             desc="备注2"/>
+        </readelement>
+    </unpack>
+  </transaction>
+  
+</channel>

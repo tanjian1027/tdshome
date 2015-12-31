@@ -1,0 +1,719 @@
+<?xml version="1.0" encoding="utf-8"?>
+<application name="OFRTDICR" code="100" log_level="DEBUG">
+  <before>
+     <set name="DWZ_ERROR_CODE"     value="300" />
+     <set name="DWZ_SUCCESS_CODE"   value="200" />
+     <set name="NumPerPag"          value="19" />
+     <do func="GetOwnButton" />
+     <do func="DumpMsg" />
+  </before>
+  <after>
+    <do func="DumpMsg" />
+    <if condition="IS_EQUAL_STRING(RSPCOD,'00000')">
+       <set name="DWZ_STATUS_CODE" expr="DWZ_SUCCESS_CODE" />
+    </if>
+    <else>
+       <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE" />
+    </else>
+    <set name="DWZ_RSP_MSG"     expr="RSPMSG" />
+  </after>
+  
+  <!--查询费率信息-->
+  <macro name="qryFeeList">
+     <do func="QueryInGroup" error="IGNORE">
+        <para name="SqlCmd"                    sql="qryFeeList" />
+        <para name="RecordName"                value="GETFEE"/>
+     </do>
+     <if condition="#RetCod==2">
+        <set name="RSPCOD"                      value="01002"/>
+        <set name="RSPMSG"                      value="没有费率信息"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"                      value="09999"/>
+        <set name="RSPMSG"                      value="系统错误"/>
+        <return/>
+     </elseif>  
+     <set name="RSPCOD"                      value="00000"/>
+     <set name="RSPMSG"                      value="交易成功"/>
+  </macro>
+  
+  <!--查询产品信息-->
+  <macro name="qryProList">
+     <do func="QueryInGroup" error="IGNORE">
+        <para name="SqlCmd"                    sql="qryProList" />
+        <para name="RecordName"                value="GETPRO"/>
+     </do>
+     <if condition="#RetCod==2">
+        <set name="RSPCOD"                      value="01002"/>
+        <set name="RSPMSG"                      value="没有产品信息"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"                      value="09999"/>
+        <set name="RSPMSG"                      value="系统错误"/>
+        <return/>
+     </elseif> 
+     <set name="RSPCOD"                      value="00000"/>
+     <set name="RSPMSG"                      value="交易成功"/>
+  </macro>
+
+  <transaction code="qryPkg" desc="套餐维护查询">
+    <sql name="qryPkgInf">
+      select pkg_code,pkg_name,b.prod_name,pkg_type,TO_CHAR(to_number(pre_amt)/100,'FM9999,999,999,990.00') as pre_amt,
+             TO_CHAR(to_number(txn_flow)/100,'FM9999,999,999,990.00') as txn_flow,serv_period
+        from STPPKGINF a,STPPROINF b
+       where a.prod_code=b.prod_code ${tj}
+      order by a.last_upd_date , a.last_upd_time,pkg_code
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/list_pack.jsp" />
+     
+      <!-- 套餐代码 -->
+      <if condition="AND(NOT(ISNULL(PKG_CODE)),IS_NOEQUAL_STRING(PKG_CODE,''))">
+        <set name="tj" expr="STRCAT(tj,' and PKG_CODE = \'', PKG_CODE ,'\'')" />
+      </if>
+      <!-- 套餐名称 -->
+      <set name="tj" expr="STRCAT(tj,' and PKG_NAME like \'%' ,PKG_NAME,'%\'')" />
+      
+      <!-- 产品名称 -->
+      <set name="tj" expr="STRCAT(tj,' and PROD_NAME like \'%' ,PROD_NAME,'%\'')" />
+      
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum"   value="1" />
+      </if>
+      <if condition="ISNULL(NumPerPag)">
+        <set name="NumPerPag" expr="NumPerPag" />
+      </if>
+      <!--查询套餐信息-->
+      <do func="PagedQuery" error="IGNORE">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="sql"       sql="qryPkgInf" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"          value="01002" />
+        <set name="RSPMSG"          value="无符合条件的记录" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"          value="09999" />
+        <set name="RSPMSG"          value="系统错误" />
+        <return />
+      </elseif>
+      <set name="RSPCOD"          value="00000" />
+      <set name="RSPMSG"          value="交易成功" />
+     
+    </process>
+  </transaction>
+  
+  <transaction code="addPkg" desc="套餐添加">
+    <sql name="chkPkg">
+      select pkg_name from STPPKGINF where pkg_name=#{pkg_name}
+    </sql>
+    <sql name="qryFeeList"><!-- 查询费率信息 -->
+      SELECT FEE_CODE,FEE_NAME FROM  FEERATE 
+    </sql>
+    <sql name="qryProList"><!-- 查询产品信息 -->
+      SELECT PROD_CODE,PROD_NAME FROM  STPPROINF 
+    </sql>
+    <process>
+      
+      <!--添加跳转页面-->
+      <if condition="IS_EQUAL_STRING(PD,'0')">
+        <!--查询费率信息-->
+        <quote name="qryFeeList"/>
+        
+        <!--查询产品信息-->
+        <quote name="qryProList"/>
+        
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/add_pack.jsp" />
+        <return/>
+      </if>
+      
+      <!--检查套餐名称是否存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="chkPkg" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RSPCOD"   value="02039" />
+        <set name="RSPMSG"   value="该套餐已经存在,请重新输入" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=2">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <if condition="OR(IS_EQUAL_STRING(pre_amt,'0'),IS_EQUAL_STRING(pre_amt,''))">
+          <set name="RspCod"               value="02106"/>
+          <set name="RspMsg"               value="预付费金额不能为0，请重新输入！"/>
+          <set name="DWZ_STATUS_CODE"      value="300" />
+          <set name="DWZ_RSP_MSG"          expr="RSPMSG" />
+          <return/>
+      </if>
+      
+      <if condition="OR(IS_EQUAL_STRING(txn_flow,'0'),IS_EQUAL_STRING(txn_flow,''))">
+          <set name="RspCod"               value="02106"/>
+          <set name="RspMsg"               value="交易流量不能为0，请重新输入！"/>
+          <set name="DWZ_STATUS_CODE"      value="300" />
+          <set name="DWZ_RSP_MSG"          expr="RSPMSG" />
+          <return/>
+      </if>
+      
+      <!-- 获取序列编号  -->
+      <do func="GetSeqNo"  error="IGNORE">
+        <para name="TblNam" value="stpseqrec"/>
+        <para name="KeyNam" value="KeyNam"/>
+        <para name="KeyVal" value="STPPKGINF_PKG_CODE"/>
+        <para name="SeqNam" value="KeyVal"/>
+        <para name="Len"    value="8"/>
+        <para name="Circle" value="1"/>
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod"          value="09001"/>
+        <set name="RspMsg"          value="生成序列号错误"/>
+        <set name="DWZ_STATUS_CODE" value="300"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if> 
+      
+      <!--插入套餐信息表-->
+      <set name="pkg_code"      expr="STRCAT('TC',KeyVal)"/>
+      <set name="pre_amt"       expr="AMTPOWER(pre_amt,2)"/>
+      <set name="txn_flow"      expr="AMTPOWER(txn_flow,2)"/>
+      <set name="create_date"   expr="GETDATE()"/>
+      <set name="create_time"   expr="GETDATETIME('HHMISS')"/>
+      <set name="create_user"   expr="SESSIONS.UID"/>
+      <do func="InsertRecord" error="IGNORE">
+         <para name="TblNam"  value="STPPKGINF" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <return/>
+      </if> 
+      
+      <set name="RSPCOD"            value="00000" />
+      <set name="RSPMSG"            value="交易成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="qryPkg.stp" />
+    </process>
+  </transaction>
+  
+  <transaction code="selPkg" desc="套餐详情查询">
+    <sql name="selPkgInf">
+      select pkg_code,pkg_name,b.prod_name,(case when pkg_type='0' then '单笔阶梯费率' else '包量套餐费率' end) as pkg_type,fee_code,serv_period,
+             TO_CHAR(to_number(pre_amt)/100,'FM9999,999,999,990.00') as pre_amt,TO_CHAR(to_number(txn_flow)/100,'FM9999,999,999,990.00') as txn_flow,
+             To_Char(to_date(a.create_date||a.create_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as create_time,a.create_user,
+             To_Char(to_date(a.last_upd_date||a.last_upd_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as last_upd_time,a.last_upd_user
+      from STPPKGINF a,STPPROINF b
+      where a.prod_code=b.prod_code and pkg_code=#{pkg_code}
+    </sql>
+    <sql name="queryFeeRatez">
+      select fee_code,fee_name,ccy,(case when cal_mode='0' then '定额收费' when cal_mode='1' then '按比例收费' else '未知' end) as cal_mode,
+             (case when multi_section_mode='0' then '不套档' when multi_section_mode='1' then '套档' when multi_section_mode='2' then '分段累计' else '未知' end) as multi_section_mode,
+             TO_CHAR(to_number(max_fee)/100,'FM9999,999,999,990.00') as max_fee,TO_CHAR(to_number(min_fee)/100,'FM9999,999,999,990.00') as min_fee,
+             TO_CHAR(to_number(start_cal_amt)/100,'FM9999,999,999,990.00') as start_cal_amt 
+      from FeeRate 
+      where fee_code=#{FEE_CODE}
+    </sql>
+    <sql name="queryFeeSections">
+      select seq_no , fee_code,TO_CHAR(to_number(max_amt)/100,'FM9999,999,999,990.00') as max_amt,TO_CHAR(to_number(fee_amt)/100,'FM9999,999,999,990.00') as fee_amt,TO_CHAR(to_number(fee_ratio)/100,'FM9999,999,999,990.00') as fee_ratio 
+      from FeeSection 
+      where fee_code=#{FEE_CODE}
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/detail_pack.jsp" />
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="selPkgInf" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"   value="01002" />
+        <set name="RSPMSG"   value="没有此产品信息" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!--查询费率信息-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="queryFeeRatez" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD" value="01002" />
+        <set name="RSPMSG" value="没有费率档次信息!" />
+        <set name="COUNT"  value="0" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return/>
+      </elseif>
+      
+      <!--查询关联的费率档次信息-->
+      <do func="QueryInGroup" error="IGNORE">
+        <para name="SqlCmd" sql="queryFeeSections" />
+        <para name="RecordName" value="BIZ_LST" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD" value="01002" />
+        <set name="RSPMSG" value="没有费率档次信息!" />
+        <set name="COUNT"  value="0" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD" value="09999" />
+        <set name="RSPMSG" value="系统错误" />
+        <return />
+      </elseif>
+      <set name="RspCod"    value="00000"/>
+      <set name="RspMsg"    value="交易成功"/>
+    </process>
+  </transaction>
+  
+  <transaction code="editPkg" desc="套餐修改">
+    <sql name="qryFeeList"><!-- 查询费率信息 -->
+      SELECT FEE_CODE,FEE_NAME FROM  FEERATE 
+    </sql>
+    <sql name="qryProList"><!-- 查询产品信息 -->
+      SELECT PROD_CODE,PROD_NAME FROM  STPPROINF 
+    </sql>
+    <sql name="selPkgInf">
+      select pkg_code,pkg_name,PROD_CODE,pkg_type,fee_code,serv_period,
+             TO_CHAR(to_number(pre_amt)/100,'FM9999,999,999,990.00') as pre_amt,TO_CHAR(to_number(txn_flow)/100,'FM9999,999,999,990.00') as txn_flow,
+             To_Char(to_date(create_date||create_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as create_time,create_user,
+             To_Char(to_date(last_upd_date||last_upd_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as last_upd_time,last_upd_user
+      from STPPKGINF   
+      where pkg_code=#{pkg_code}
+    </sql>
+    <sql name="chkPkg">
+      select pkg_code from STPPKGINF where pkg_code=#{PKG_CODE}
+    </sql>
+    <sql name="updPkg">
+      update STPPKGINF set pkg_name=#{pkg_name},prod_code=#{prod_code},pre_amt=#{pre_amt},txn_flow=#{txn_flow},fee_code=#{fee_code},serv_period=#{serv_period},
+             last_upd_date=#{last_upd_date},last_upd_time=#{last_upd_time},last_upd_user=#{last_upd_user}
+       where pkg_code=#{pkg_code}
+    </sql>
+    <process>
+      <!--添加跳转页面-->
+      <if condition="IS_EQUAL_STRING(PD,'0')">
+        <!--查询费率信息-->
+        <quote name="qryFeeList"/>
+        
+        <!--查询产品信息-->
+        <quote name="qryProList"/>
+        
+        <!--查询套餐信息回显-->
+        <do func="ReadRecord" error="IGNORE">
+          <para name="SqlCmd" sql="selPkgInf" />
+        </do>
+        <if condition="#RetCod!=0">
+          <set name="RSPCOD"   value="09999" />
+          <set name="RSPMSG"   value="系统错误" />
+          <return />
+        </if>
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/upd_pack.jsp" />
+        <return/>
+      </if>
+      
+      <!--检查套餐代码是否存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="chkPkg" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"   value="02039" />
+        <set name="RSPMSG"   value="该套餐代码不存在,请重新输入" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!--更新套餐信息-->
+      <set name="pre_amt"         expr="AMTPOWER(DELCHAR(pre_amt,44),2)"/>
+      <set name="txn_flow"        expr="AMTPOWER(DELCHAR(txn_flow,44),2)"/>
+      <set name="last_upd_date"   expr="GETDATE()"/>
+      <set name="last_upd_time"   expr="GETDATETIME('HHMISS')"/>
+      <set name="last_upd_user"   expr="SESSIONS.UID"/>
+      <do func="ExecSql" error="ignore">
+          <para name="SqlCmd" sql="updPkg" />
+      </do>
+      <if condition="#RetCod!=0">
+          <set name="RspCod"           value="09999"/>
+          <set name="RspMsg"           value="系统错误"/>
+          <set name="DWZ_STATUS_CODE"  value="300"/>
+          <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+          <return/>
+      </if>
+      
+      <set name="RspCod"            value="00000"/>
+      <set name="RspMsg"            value="交易成功"/>
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="qryPkg.stp" />
+    </process>
+  </transaction>
+    
+  <transaction code="delPkg" desc="套餐删除">
+    <sql name="delPkg">
+      delete from STPPKGINF where pkg_code=#{PKG_CODE}
+    </sql>
+    <sql name="chkPkg">
+      select pkg_code from STPPKGINF where pkg_code=#{PKG_CODE}
+    </sql>
+    <process>
+      
+      <!--检查套餐代码是否存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="chkPkg" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"   value="01002" />
+        <set name="RSPMSG"   value="该套餐代码不存在,请重新输入" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!--删除套餐信息-->
+      <do func="ExecSql" error="ignore">
+          <para name="SqlCmd" sql="delPkg" />
+      </do>
+      <if condition="#RetCod!=0">
+          <set name="RspCod"    value="09999"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <return/>
+      </if>
+      <set name="RspCod"            value="00000"/>
+      <set name="RspMsg"            value="交易成功"/>
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="qryPkg.stp" />
+    </process>
+  </transaction>
+  
+  <transaction code="qryProd" desc="产品维护查询">
+    <sql name="qryProdInf">
+      select prod_code,prod_name,prod_class,prod_type,coll_mode,prod_flag,CUST_SET_FREY
+        from stpproinf a
+       where 1=1 ${tj}
+       order by prod_class,last_upd_date , last_upd_time
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/list_prod.jsp" />
+      <!-- 产品代码 -->
+      <if condition="AND(NOT(ISNULL(prod_code)),IS_NOEQUAL_STRING(prod_code,''))">
+        <set name="tj" expr="STRCAT(tj,' and prod_code = \'', prod_code ,'\'')" />
+      </if>
+      <!-- 产品名称 -->
+      <set name="tj" expr="STRCAT(tj,' and prod_name like \'%' ,prod_name,'%\'')" />
+      
+      <if condition="ISNULL(PageNum)">
+        <set name="PageNum"   value="1" />
+      </if>
+      <if condition="ISNULL(NumPerPag)">
+        <set name="NumPerPag" expr="NumPerPag" />
+      </if>
+      <!--查询套餐信息-->
+      <do func="PagedQuery" error="IGNORE">
+        <para name="PageNum"   expr="PageNum" />
+        <para name="NumPerPag" expr="NumPerPag" />
+        <para name="sql"       sql="qryProdInf" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"          value="01002" />
+        <set name="RSPMSG"          value="无符合条件的记录" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"          value="09999" />
+        <set name="RSPMSG"          value="系统错误" />
+        <return />
+      </elseif>
+      <set name="RSPCOD"          value="00000" />
+      <set name="RSPMSG"          value="交易成功" />
+     
+    </process>
+  </transaction>
+  
+  <transaction code="addProd" desc="产品添加">
+    <sql name="chkProd">
+      select prod_name from STPPROINF where prod_name=#{prod_name}
+    </sql>
+    <process>
+      
+      <!--添加跳转页面-->
+      <if condition="IS_EQUAL_STRING(PD,'0')">
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/add_prod.jsp" />
+        <return/>
+      </if>
+      
+      <!--检查产品名称是否存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="chkProd" />
+      </do>
+      <if condition="#RetCod==0">
+        <set name="RSPCOD"   value="02039" />
+        <set name="RSPMSG"   value="该产品已经存在,请重新输入" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=2">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!-- 获取序列编号  -->
+      <do func="GetSeqNo"  error="IGNORE">
+        <para name="TblNam" value="stpseqrec"/>
+        <para name="KeyNam" value="KeyNam"/>
+        <para name="KeyVal" value="STPPROINF_PROD_CODE"/>
+        <para name="SeqNam" value="KeyVal"/>
+        <para name="Len"    value="8"/>
+        <para name="Circle" value="1"/>
+      </do>
+      <if condition="#RetCod!=0">
+        <set name="RspCod"          value="09001"/>
+        <set name="RspMsg"          value="生成序列号错误"/>
+        <set name="DWZ_STATUS_CODE" value="300"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if> 
+      
+      <!--插入产品信息表-->
+      <set name="prod_code"     expr="STRCAT('CP',KeyVal)"/>
+      <set name="create_date"   expr="GETDATE()"/>
+      <set name="create_time"   expr="GETDATETIME('HHMISS')"/>
+      <set name="create_user"   expr="SESSIONS.UID"/>
+      <do func="InsertRecord" error="IGNORE">
+         <para name="TblNam"  value="STPPROINF" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <return/>
+      </if> 
+      
+      <set name="RSPCOD"            value="00000" />
+      <set name="RSPMSG"            value="交易成功" />
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="qryProd.stp" />
+    </process>
+  </transaction>
+  
+  <transaction code="selProd" desc="产品详情查询">
+    <sql name="selProdInf">
+      select prod_code,prod_name,prod_class,prod_type,prod_flag,coll_mode,cust_set_period,cust_set_frey,
+             To_Char(to_date(create_date||create_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as create_time,create_user,
+             To_Char(to_date(last_upd_date||last_upd_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as last_upd_time,last_upd_user
+      from STPPROINF a
+      where prod_code=#{prod_code}
+    </sql>
+    <sql name="qryPkgInf">
+      select pkg_name,case when pkg_type='0' then '单笔阶梯费率' else '包量套餐' end pkg_type,
+             TO_CHAR(to_number(pre_amt)/100,'FM9999,999,999,990.00') as pre_amt,
+             TO_CHAR(to_number(txn_flow)/100,'FM9999,999,999,990.00') as txn_flow,serv_period,
+             case when pkg_type='0' then '单笔阶梯费率' else '包量套餐' end pkg_type
+        from STPPKGINF 
+       where prod_code=#{prod_code}
+    </sql>
+    <process>
+      <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/detail_prod.jsp" />
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="selProdInf" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"   value="01002" />
+        <set name="RSPMSG"   value="没有此产品信息" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!--查询关联的套餐信息-->
+      <do func="QueryInGroup" error="IGNORE">
+        <para name="SqlCmd" sql="qryPkgInf" />
+        <para name="RecordName" value="PKG_LST" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD" value="01002" />
+        <set name="RSPMSG" value="没有套餐信息!" />
+        <set name="COUNT"  value="0" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD" value="09999" />
+        <set name="RSPMSG" value="系统错误" />
+        <return />
+      </elseif>
+      
+      <set name="RspCod"    value="00000"/>
+      <set name="RspMsg"    value="交易成功"/>
+    </process>
+  </transaction>
+  
+  <transaction code="editProd" desc="产品修改">
+    <sql name="selProdInf">
+      select a.prod_code,a.prod_name,a.prod_class,a.prod_type,a.prod_flag,a.coll_mode,a.cust_set_period,a.cust_set_frey,
+             To_Char(to_date(a.create_date||a.create_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as create_time,a.create_user,
+             To_Char(to_date(a.last_upd_date||a.last_upd_time,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss') as last_upd_time,a.last_upd_user
+      from STPPROINF a
+      where prod_code=#{prod_code}
+    </sql>
+    <sql name="chkProd">
+      select prod_code from STPPROINF where prod_code=#{prod_code}
+    </sql>
+    <sql name="updProd">
+      update STPPROINF set prod_name=#{prod_name},prod_class=#{prod_class},prod_type=#{prod_type},prod_flag=#{prod_flag},cust_set_frey=#{cust_set_frey},
+             last_upd_date=#{last_upd_date},last_upd_time=#{last_upd_time},last_upd_user=#{last_upd_user}
+       where prod_code=#{prod_code}
+    </sql>
+    <process>
+      <!--添加跳转页面-->
+      <if condition="IS_EQUAL_STRING(PD,'0')">
+        
+        <!--查询产品信息回显-->
+        <do func="ReadRecord" error="IGNORE">
+          <para name="SqlCmd" sql="selProdInf" />
+        </do>
+        <if condition="#RetCod!=0">
+          <set name="RSPCOD"   value="09999" />
+          <set name="RSPMSG"   value="系统错误" />
+          <return />
+        </if>
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/productMng/upd_prod.jsp" />
+        <return/>
+      </if>
+      
+      <!--检查产品代码是否存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="chkProd" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"   value="01002" />
+        <set name="RSPMSG"   value="该产品信息不存在,请重新输入" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!--更新套餐信息-->
+      <set name="last_upd_date"   expr="GETDATE()"/>
+      <set name="last_upd_time"   expr="GETDATETIME('HHMISS')"/>
+      <set name="last_upd_user"   expr="SESSIONS.UID"/>
+      <do func="ExecSql" error="ignore">
+          <para name="SqlCmd" sql="updProd" />
+      </do>
+      <if condition="#RetCod!=0">
+          <set name="RspCod"           value="09999"/>
+          <set name="RspMsg"           value="系统错误"/>
+          <set name="DWZ_STATUS_CODE"  value="300"/>
+          <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+          <return/>
+      </if>
+      
+      <set name="RspCod"            value="00000"/>
+      <set name="RspMsg"            value="交易成功"/>
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="qryProd.stp" />
+    </process>
+  </transaction>
+    
+  <transaction code="delProd" desc="产品删除">
+    <sql name="delProd">
+      delete from STPPROINF where prod_code=#{prod_code}
+    </sql>
+    <sql name="chkProd">
+      select prod_code from STPPROINF where prod_code=#{prod_code}
+    </sql>
+    <process>
+      
+      <!--检查产品代码是否存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="chkProd" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"   value="01002" />
+        <set name="RSPMSG"   value="该产品信息不存在,请重新输入" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!--删除产品信息-->
+      <do func="ExecSql" error="ignore">
+          <para name="SqlCmd" sql="delProd" />
+      </do>
+      <if condition="#RetCod!=0">
+          <set name="RspCod"    value="09999"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <return/>
+      </if>
+      <set name="RspCod"            value="00000"/>
+      <set name="RspMsg"            value="交易成功"/>
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="qryProd.stp" />
+    </process>
+  </transaction>
+  
+  <transaction code="editProdSts" desc="产品上架/下架">
+    <sql name="chkProd">
+      select prod_code from STPPROINF where prod_code=#{prod_code}
+    </sql>
+    <sql name="updProd">
+      update STPPROINF set prod_flag=#{prod_flag},
+             last_upd_date=#{last_upd_date},last_upd_time=#{last_upd_time},last_upd_user=#{last_upd_user}
+       where prod_code=#{prod_code}
+    </sql>
+    <process>
+      <!--检查产品代码是否存在-->
+      <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="chkProd" />
+      </do>
+      <if condition="#RetCod==2">
+        <set name="RSPCOD"   value="01002" />
+        <set name="RSPMSG"   value="该产品代码不存在,请重新输入" />
+        <return />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RSPCOD"   value="09999" />
+        <set name="RSPMSG"   value="系统错误" />
+        <return />
+      </elseif>
+      
+      <!--更新产品上架状态信息-->
+      <set name="last_upd_date"   expr="GETDATE()"/>
+      <set name="last_upd_time"   expr="GETDATETIME('HHMISS')"/>
+      <set name="last_upd_user"   expr="SESSIONS.UID"/>
+      <do func="ExecSql" error="ignore">
+          <para name="SqlCmd" sql="updProd" />
+      </do>
+      <if condition="#RetCod!=0">
+          <set name="RspCod"    value="09999"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <return/>
+      </if>
+      <set name="RspCod"            value="00000"/>
+      <set name="RspMsg"            value="交易成功"/>
+      <set name="DWZ_CALLBACK_TYPE" value="forward" />
+      <set name="DWZ_FORWARD_URL"   value="qryProd.stp" />
+    </process>
+  </transaction>
+
+</application>

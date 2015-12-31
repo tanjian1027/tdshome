@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<!DOCTYPE configure SYSTEM "configure.dtd">
+<configure>
+
+   <put name="serverId" type="String">800000</put>
+
+   <put name="RemoteThreadPoolInitSize" type="Integer">50</put><!-- 远程接入服务线程池初始容量   默认50-->
+   <put name="RemoteThreadPoolMaxSize" type="Integer">300</put><!--  远程接入服务线程池最大线程数量 默认150-->
+   <put name="RemoteThreadPoolQueueSize" type="Integer">20</put><!-- 远程接入服务线程池队列容量 默认50-->
+
+ 
+   <set type="tangdi.service.SqnService">
+      <new class="tangdi.service.SqnService"></new>
+   </set>
+
+   <set type='javax.sql.DataSource'>
+      <new class='org.apache.commons.dbcp.BasicDataSource'>
+         <set name='driverClassName'>oracle.jdbc.driver.OracleDriver</set>
+         <set name='url'>jdbc:oracle:thin:@192.168.0.91:1521:orcl</set>
+         <set name='username'>paytest</set>
+         <set name='password'>Asdf1234</set>
+         <set name='maxActive'>200</set>
+         <set name='initialSize'>50</set>
+         <set name='maxWait'>30000</set>
+
+      </new>
+   </set>
+  
+   <set type="tangdi.rpc.Server">
+      <new class="tangdi.rpc.msgpack.MsgPackServer">
+         <set name="host">127.0.0.1</set>
+         <set name="port">60000</set>
+         <call name="listen"></call>
+      </new>
+   </set>
+
+   <put name="RemoteThreadPoolQueueSize" type="Integer">20</put>
+
+   <set type="tangdi.db.dialect.Dialect">
+       <new class="tangdi.db.dialect.Oracle10gDialect"></new>
+   </set>
+
+</configure>

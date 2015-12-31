@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<application name="STP" code="100" log_level="DEBUG">           
+   <!--交易日志-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   
+   <!-- 交易前处理 -->
+   <before>
+     <set name="TermCode"   expr="_REQUESTATTR.REQIP"/>
+     <do expr="@tangdi.engine.context.Msg@dump()"/>
+   </before>
+
+   <!-- 交易后处理 -->
+   <after>
+      <do expr="@tangdi.engine.context.Msg@dump()"/>
+   </after>
+   
+   <transaction code="DigitalCertificateQuery" desc="数字证书信息查询">
+     <sql name="QryInf"> <!--  查询数字证书信息  -->
+        select a.cust_id as CUST_ID,a.cust_name as CUSTNAME, b.usr_mobile as USRMOBILE,c.dn as DN 
+        						from stpcusinf a left join  stpusrinf b on a.cust_id = b.cust_id 
+        									left join cust_certinf c on a.cust_id = c.cust_id 
+        where a.cust_id =#{USRID}
+     </sql> 
+     <process>
+     	  <!--检查用户登录平台是否正确 -->
+        <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+          <set name="MsgTyp" value="E" />
+          <set name="RspCod" value="01001" />
+          <set name="RspMsg" value="用户登录平台错误" />
+          <return />
+        </if>
+        <if condition="ISNULL(SESSIONS.USRMP)">
+          <set name="MsgTyp" value="E" />
+          <set name="RspCod" value="01002" />
+          <set name="RspMsg" value="您还没有登录，请先登录！" />
+          <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+          <return />
+        </if>
+
+        <set name="USRID" expr="SESSIONS.USRID" />
+          
+        <do func="ReadRecord"       error="ignore">
+          <para name="SqlCmd"       sql="QryInf" /> 
+        </do>
+        <if condition="#RetCod!=0"> 
+          <set name="MsgTyp"        value="E"/>
+          <set name="RspCod"        value="09999"/>
+          <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+          <return/>
+        </if>
+        <!-- 随机待定 -->
+        <set name="RspCod"          value="00000"/>
+        <set name="RspMsg"          value="交易成功"/>      
+     </process>
+   </transaction>
+   
+   <transaction code="queryEnumValue" desc="查询枚举值">
+    <sql name="sqlSel">
+    	select ENM_DAT_OPT,ENM_DAT_DES from LYXDICENM where ENM_EN_NAM = #{ENM_EN_NAM} and ENM_DAT_OPT &gt; 1
+    </sql>
+    <sql name="sqlSels">
+    	select ENM_DAT_OPT,ENM_DAT_DES from LYXDICENM where ENM_EN_NAM = #{ENM_EN_NAM} 
+    </sql>
+    <process>
+      <set name="ENM_EN_NAM" expr="ENM_EN_NAM" />
+      <if condition="IS_EQUAL_STRING(ENM_EN_NAM,'OPER_WHY')">
+         <do func="QueryInGroup">
+           <para name="SqlCmd" sql="sqlSel" />
+           <para name="RecordName" value="PROGRP" />
+           <para name="RecNum" value="PRONUM" />
+         </do>
+      </if>
+      <else>
+         <do func="QueryInGroup">
+           <para name="SqlCmd" sql="sqlSels" />
+           <para name="RecordName" value="PROGRP" />
+           <para name="RecNum" value="PRONUM" />
+         </do>
+      </else>
+      <if condition="#RetCod==2">
+        <set name="RspCod" value="080004" />
+        <set name="RspMsg" value="未查到数据" />
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod" value="080005" />
+        <set name="RspMsg" value="系统繁忙,请稍后重试" />
+        <return />
+      </elseif>
+      <set name="RspCod" value="000000" />
+      <set name="RspMsg" value="查询本地证书成功" />
+    </process>
+  </transaction>
+</application>

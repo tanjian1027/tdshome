@@ -1,0 +1,385 @@
+import  com.tangdi.risk.^rule.*
+import  com.tangdi.risk.common.*
+import  com.tangdi.risk.common.Tools
+import  com.tangdi.risk.common.CalcData
+import  com.tangdi.risk.common.RcsDefault
+import  java.math.*
+import  java.util.*
+import tangdi.engine.context.Log
+
+global String sParamDate //该变量名称不能修改  在方法中有引用
+
+def ExceptTran setExceTranAttr(ExceptTran exTran,User user){ 
+	exTran.setRULE_CODE(ruleID)
+	exTran.setUSER_CODE(user.USER_CODE)
+	exTran.setREGDT_DAY(sParamDate.replaceAll("-", "").replaceAll("/", ""))
+	exTran.setENTITY_TYPE(RcsDefault::ENTITY_TYPE_0)
+    exTran.setEXCEPT_TRAN_FLAG(RcsDefault::EXCEPT_TRAN_FLAG_0)
+    return exTran
+}
+
+rule "Rule_Before_01" "预处理添加属性"
+   	//配置规则内置属性 
+    salience = 10
+    enable   = true
+when 
+    user:User()
+then
+
+    var sDate                         = getFormatDate(sParamDate)
+    var sPreDate                   = getDayByVal(sDate,-1)
+    var sPreWeekFirstDate  = getPreWeekFirstDay(sDate)
+    var sPreWeekLastDate   = getPreWeekLastDay(sDate)
+    var sPreMonthFirstDate = getPreMonthFirstDay(sDate)
+    var sPreMonthLastDate  = getPreMonthLastDay(sDate) 
+    
+    var sAmountPreDate                 = getAmountByDateRange(user,sPreDate,sPreDate)
+    var sAmountPreWeek                = getAmountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate)
+    var sAmountRefundPreWeek   = getAmountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate,"8")
+    var sAmountPreMonth              = getAmountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate)
+    var sAmountRefundPreMonth = getAmountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate,"8")
+    var sCountPreWeek                   = getCountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate)
+    var sCountRefundPreWeek      = getCountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate,"8")
+    var sCountPreMonth                 = getCountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate)
+    var sCountRefundPreMonth    = getCountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate,"8")
+    
+    user.setAttrVal("ALL_AMOUNT_PRE_DAY"              ,sAmountPreDate)
+    user.setAttrVal("ALL_AMOUNT_PRE_WEEK"           ,sAmountPreWeek)
+    user.setAttrVal("REFUND_AMOUNT_PRE_WEEK"   ,sAmountRefundPreWeek)
+    user.setAttrVal("ALL_AMOUNT_PRE_MONTH"        ,sAmountPreMonth)
+    user.setAttrVal("REFUND_AMOUNT_PRE_MONTH",sAmountRefundPreMonth)
+    user.setAttrVal("ALL_COUNT_PRE_WEEK"              ,sCountPreWeek)
+    user.setAttrVal("REFUND_COUNT_PRE_WEEK"      ,sCountRefundPreWeek)
+    user.setAttrVal("ALL_COUNT_PRE_MONTH"           ,sCountPreMonth)
+    user.setAttrVal("REFUND_COUNT_PRE_MONTH"   ,sCountRefundPreMonth)
+end
+
+rule "Rule0001" "单笔异常交易金额>={X}"
+    //自定义参数
+    param double X 
+ when
+     user:User()
+ then
+	var exTran = new ExceptTran
+	exTran     = setExceTranAttr(exTran,user)
+	var sDate =getDayByValCross(sParamDate)     //liulin  20150413 当日统计的是上一日的数据，所以传前一天数据，本周本月则是传当天日期
+	
+	var serialList            = getSerialListByDate(user,sDate,1) 
+	for(serialRecord : serialList){
+		var dTemp = Double::parseDouble(serialRecord.TRAN_AMT)
+		if(dTemp>=X){
+			var exTranDetail = new ExceptTranDetail
+			exTranDetail.setTRAN_CODE(serialRecord.ID)
+			exTran.getDetailList.add(exTranDetail)  
+		}
+	}
+	if(exTran.getDetailList.size>0){
+		//info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	}
+end
+
+rule "Rule0002" "当日累计交易金额>={X}"
+    //自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	var exTran = new ExceptTran
+	exTran     = setExceTranAttr(exTran,user)
+	//var sDate                          = getFormatDate(sParamDate)
+	var	sDate=getDayByValCross(sParamDate)   
+	 //liulin  20150410 当日统计的是上一日的数据，所以传前一天数据，本周本月则是传当天日期
+	var sAmount = getAmountByDateRange(user,sDate,sDate)
+	var dAmount = Double::parseDouble(sAmount)
+	// liulin 2015/04/09 start
+	var serialList            = getSerialListByDate(user,sDate,1) 
+	
+	if(dAmount>X){
+	   for(serialRecord : serialList){
+			   var exTranDetail = new ExceptTranDetail
+			   exTranDetail.setTRAN_CODE(serialRecord.ID)
+			   exTran.getDetailList.add(exTranDetail)
+	   }
+	// liulin 2015/04/09 end
+	   //info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	}
+end
+
+rule "Rule0003" "当日累计交易笔数>={X}"
+    //自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	var exTran = new ExceptTran
+	exTran     = setExceTranAttr(exTran,user)
+	//var sDate                          = getFormatDate(sParamDate)
+	var	sDate=getDayByValCross(sParamDate)    
+	//liulin  20150410 当日统计的是上一日的数据，所以传前一天数据，本周本月则是传当天日期
+	var sCount = getCountByDateRange(user,sDate,sDate)
+	var dCount = Double::parseDouble(sCount)
+	// liulin 2015/04/09 start
+	var serialList            = getSerialListByDate(user,sDate,1) 
+	
+	if(dCount>=X){
+	  for(serialRecord : serialList){
+			 var exTranDetail = new ExceptTranDetail
+			 exTranDetail.setTRAN_CODE(serialRecord.ID)
+			 exTran.getDetailList.add(exTranDetail)
+	  }
+	// liulin 2015/04/09 end
+	  //info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	}
+end
+
+rule "Rule0004" "上周累计交易金额>={X}" 
+   	//自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	var exTran = new ExceptTran
+	exTran     = setExceTranAttr(exTran,user)
+	
+	var sDate                          = getFormatDate(sParamDate)
+	var sPreWeekFirstDate  = getPreWeekFirstDay(sDate)
+    var sPreWeekLastDate   = getPreWeekLastDay(sDate)
+	var sAmount                    = getAmountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate)
+	var dAmount                   = Double::parseDouble(sAmount)
+	// liulin 2015/04/09 start
+	var serialList            = getSerialListByDate(user,sPreWeekFirstDate,sPreWeekLastDate)
+	 
+	if(dAmount>=X){
+	 for(serialRecord : serialList){
+			 var exTranDetail = new ExceptTranDetail
+			 exTranDetail.setTRAN_CODE(serialRecord.ID)
+			 exTran.getDetailList.add(exTranDetail)
+	  }
+	// liulin 2015/04/09 end
+		//info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	}
+end
+
+
+rule "Rule0005" "上周累计交易笔数>={X}"  
+   	//自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	var exTran = new ExceptTran
+	exTran     = setExceTranAttr(exTran,user)
+	
+	var sDate                          = getFormatDate(sParamDate)
+	var sPreWeekFirstDate  = getPreWeekFirstDay(sDate)
+    var sPreWeekLastDate   = getPreWeekLastDay(sDate)
+	var sCount                       = getCountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate)
+	var dCount                       = Double::parseDouble(sCount)
+	// liulin 2015/04/09 start
+	var serialList            = getSerialListByDate(user,sPreWeekFirstDate,sPreWeekLastDate)
+	 
+	if(dCount>=X){
+	  for(serialRecord : serialList){
+			 var exTranDetail = new ExceptTranDetail
+			 exTranDetail.setTRAN_CODE(serialRecord.ID)
+			 exTran.getDetailList.add(exTranDetail)
+	  }
+	// liulin 2015/04/09 end
+		//info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	}
+end
+
+
+rule "Rule0006" "上月累计交易金额>={X}"
+   	//自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	var exTran = new ExceptTran
+	exTran     = setExceTranAttr(exTran,user)
+	
+	var sDate                          = getFormatDate(sParamDate)
+	var sPreMonthFirstDate = getPreMonthFirstDay(sDate)
+    var sPreMonthLastDate  = getPreMonthLastDay(sDate)
+  var sAmount                    = getAmountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate)
+	var dAmount                   = Double::parseDouble(sAmount)
+	
+	// liulin 2015/04/09 start
+	var serialList            = getSerialListByDate(user,sPreMonthFirstDate,sPreMonthLastDate)  
+	 
+	if(dAmount>=X){
+	  for(serialRecord : serialList){
+			 var exTranDetail = new ExceptTranDetail
+			 exTranDetail.setTRAN_CODE(serialRecord.ID)
+			 exTran.getDetailList.add(exTranDetail)
+	  }
+  // liulin 2015/04/09 end
+		//info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	}
+end
+
+rule "Rule0007" "上月累计交易笔数>={X}"
+    //自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	var exTran = new ExceptTran
+	exTran     = setExceTranAttr(exTran,user)
+	//sParamDate
+	var sDate                          = getFormatDate(sParamDate)  
+	var sPreMonthFirstDate = getPreMonthFirstDay(sDate)
+    var sPreMonthLastDate  = getPreMonthLastDay(sDate)
+  var sCount                       = getCountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate)
+	var dCount                       = Double::parseDouble(sCount)
+	
+	// liulin 2015/04/09 start
+	var serialList            = getSerialListByDate(user,sPreMonthFirstDate,sPreMonthLastDate)
+	 
+	if(dCount>=X){
+	  for(serialRecord : serialList){
+			 var exTranDetail = new ExceptTranDetail
+			 exTranDetail.setTRAN_CODE(serialRecord.ID)
+			 exTran.getDetailList.add(exTranDetail)
+	  }
+  // liulin 2015/04/09 end
+		//info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	}
+end
+
+rule "Rule0008" "上周累计退款金额>={X}"
+    //自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	
+	var sDate                          = getFormatDate(sParamDate)
+	var sPreWeekFirstDate  = getPreWeekFirstDay(sDate)
+    var sPreWeekLastDate   = getPreWeekLastDay(sDate)
+	var sAmount                    = getAmountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate,"8")
+	var dAmount                   = Double::parseDouble(sAmount)
+	// liulin 2015/04/09 start
+	var listExcept            = getListExcepByUserNTimes(user,sPreWeekFirstDate,sPreWeekLastDate,X,"8")
+	 
+	if(dAmount>=X){
+	    for(exTran1 : listExcept){
+		    var exTran = setExceTranAttr(exTran1,user)
+	  // liulin 2015/04/09 end
+		   //info("----开始inset--")
+	 	   insert(exTran)
+	 	  //info("----结束inset--") 
+	 	 }
+	}
+end
+
+rule "Rule0009" "上周累计退款笔数>={X}"
+   	//自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	
+	var sDate                          = getFormatDate(sParamDate)
+	var sPreWeekFirstDate  = getPreWeekFirstDay(sDate)
+    var sPreWeekLastDate   = getPreWeekLastDay(sDate)
+	var sCount                       = getCountByDateRange(user,sPreWeekFirstDate,sPreWeekLastDate,"8")
+	var dCount                       = Double::parseDouble(sCount)
+	// liulin 2015/04/09 start
+	var listExcept            = getListExcepByUserSumNTimes(user,sPreWeekFirstDate,sPreWeekLastDate,X,"8")
+	 
+	if(dCount>=X){
+	    for(exTran1 : listExcept){
+		    var exTran = setExceTranAttr(exTran1,user)
+	  // liulin 2015/04/09 end
+		//info("----开始inset--")
+	 	insert(exTran)
+	 	//info("----结束inset--")
+	 	}
+	}
+end
+
+rule "Rule0010" "上月累计退款金额>={X}"
+    //自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	
+	var sDate                          = getFormatDate(sParamDate)
+	var sPreMonthFirstDate = getPreMonthFirstDay(sDate)
+    var sPreMonthLastDate  = getPreMonthLastDay(sDate)
+	var sAmount                    = getAmountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate,"8")
+	var dAmount                   = Double::parseDouble(sAmount)
+	// liulin 2015/04/09 start
+	var listExcept            = getListExcepByUserNTimes(user,sPreMonthFirstDate,sPreMonthLastDate,X,"8")
+	 
+	if(dAmount>=X){
+	    for(exTran1 : listExcept){
+		    var exTran = setExceTranAttr(exTran1,user)
+	 // liulin 2015/04/09 end
+		    //info("----开始inset--")
+	 	    insert(exTran)
+	 	    //info("----结束inset--")
+	  }
+	}
+end
+
+rule "Rule0011" "上月累计退款笔数>={X}"
+    //自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	
+	var sDate                          = getFormatDate(sParamDate)
+	var sPreMonthFirstDate = getPreMonthFirstDay(sDate)
+    var sPreMonthLastDate  = getPreMonthLastDay(sDate)
+	var sCount                       = getCountByDateRange(user,sPreMonthFirstDate,sPreMonthLastDate,"8")
+	var dCount                       = Double::parseDouble(sCount)
+	// liulin 2015/04/09 start
+	var listExcept            = getListExcepByUserSumNTimes(user,sPreMonthFirstDate,sPreMonthLastDate,X,"8")
+	 
+	if(dCount>=X){
+	  for(exTran1 : listExcept){
+		    var exTran = setExceTranAttr(exTran1,user)
+	  // liulin 2015/04/09 end
+		   //info("----开始inset--")
+	  	 insert(exTran)
+	 	   //info("----结束inset--")
+	 	}
+	}
+end
+
+rule "Rule0012" "用户在同一商户当日累计交易金额>={X}"
+    //自定义参数
+    param Double X 
+ when
+     user:User()
+ then
+	//var sDate      = getFormatDate(sParamDate)
+	var	sDate=getDayByValCross(sParamDate)  
+  //liulin  20150410 当日统计的是上一日的数据，所以传前一天数据，本周本月则是传当天日期
+	var listExcept = getListExcepMerSumAmountByDateRange(user,sDate,sDate,X)
+	for(exTran1 : listExcept){
+		var exTran = setExceTranAttr(exTran1,user)
+		//info("----开始inset--")
+		insert(exTran)
+		//info("----结束inset--")
+	}
+end

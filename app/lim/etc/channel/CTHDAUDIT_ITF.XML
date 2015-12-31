@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<channel name="BANK" log_level="INFO">
+	
+    <transaction code="568321" desc="接收请求数据交易码">
+        <unpack>
+            <item name="operid"              length="20"                        expr="DELBOTHSPACE(operid)"     />
+            <item name="remoteip"            length="15"                        expr="DELBOTHSPACE(remoteip)"   />
+            <item name="recid"               length="20"                        expr="DELBOTHSPACE(recid)"      />
+            <item name="headerlen"           length="10"                        expr="DELBOTHSPACE(headerlen)"  />
+            <item name="header"              length="DELBOTHSPACE(headerlen)"                                   />
+            <item name="bodylen"             length="10"                        expr="DELBOTHSPACE(bodylen)"    />
+            <item name="body"                length="DELBOTHSPACE(bodylen)"     expr="DELBOTHSPACE(body)"       />
+        </unpack>
+        <pack>
+            <switch expr="RspCod">
+                <default>
+                    <item name="RSPCOD"      length="6"          desc=""/>
+                    <item name="RSPMSG"      length="20"         desc=""/>
+                    <break/>
+                </default>         
+            </switch>
+        </pack>
+    </transaction>
+  
+    <transaction code="568322" desc="接收返回数据交易码">
+        <unpack>
+            <item name="recid"               length="20"                        expr="DELBOTHSPACE(recid)"    />
+            <item name="reclength"           length="10"                        expr="DELBOTHSPACE(reclength)"/>
+            <item name="result"              length="DELBOTHSPACE(reclength)"/>
+        </unpack>
+        <pack>
+            <switch expr="RspCod">
+                <default>
+                    <item name="RSPCOD"      length="6"          desc=""/>
+                    <item name="RSPMSG"      length="20"         desc=""/>
+                    <break/>
+                </default>         
+            </switch>
+        </pack>
+    </transaction>
+    
+    <transaction code="568325" desc="过滤操作交易">
+        <unpack>
+            <item name="account"             length="20"                        expr="DELBOTHSPACE(account)"/>
+            <item name="userId"              length="20"                        expr="DELBOTHSPACE(userId)"/>
+            <item name="random"              length="15"                        expr="DELBOTHSPACE(random)"/>
+            <item name="checkCode"           length="20"                        expr="DELBOTHSPACE(checkCode)"/>
+        </unpack>
+        <pack>
+            <item name="logStuats"           length="6"                         expr="DELBOTHSPACE(logStuats)"/> <!--1 是正常登录状态  0异常登录-->
+        </pack>
+    </transaction>
+    
+    <transaction code="568326" desc="过滤操作交易">
+        <unpack>
+            <item name="account"             length="20"                        expr="DELBOTHSPACE(account)"/>
+            <item name="userId"              length="20"                        expr="DELBOTHSPACE(userId)"/>
+            <item name="systemId"            length="15"                        expr="DELBOTHSPACE(systemId)"/>
+        </unpack>
+        <pack>
+            <item name="logStuats"           length="6"                         expr="DELBOTHSPACE(logStuats)"/> <!--1 是正常登录状态  0异常登录-->
+        </pack>
+    </transaction> 
+</channel>

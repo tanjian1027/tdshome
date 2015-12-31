@@ -1,0 +1,205 @@
+/*
+ * 默认的job 都是主要作业,加上secondary的为次要作业
+ */
+ 
+ /*
+ * 系统日切
+ */
+job SysDatChg{
+	info("系统日切 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","990101","150");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("系统日切 执行完成.");
+}
+
+
+ /*
+ * 商户订单手续费计算
+ */
+job AutoSetAcc depends SysDatChg{
+	info("商户订单手续费计算 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","601012","500");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("商户订单手续费计算 执行完成.");
+}
+
+/*
+ * 订单失效
+ */
+job PrdLosEff depends SysDatChg{
+	info("订单失效 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","990106","350");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("订单失效 执行完成.");
+}
+
+/*
+ * 更新公共账户
+ */
+job UpdPubAct depends SysDatChg{
+	info("更新公共账户 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","990107","500");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("更新公共账户 执行完成.");
+}
+
+/*
+ * 账户余额历史数据
+ */
+job RecordAcBalHis depends UpdPubAct{
+	info("账户余额历史数据 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","990113","500");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("登记账户余额历史数据 执行完成.");
+}
+
+/*
+ * 证件到期提醒
+ */
+job CredLosEff depends SysDatChg{
+	info("证件到期提醒 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","990112","500");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("证件到期提醒 执行完成.");
+}
+
+/*
+ * 用户余额监控
+ */
+job UserBalMon depends SysDatChg{
+	info("用户余额监控 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","561100","350");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("用户余额监控 执行完成.");
+}
+
+ /*
+ * 客户余额报表
+ */
+job Balance depends SysDatChg{
+	info("客户余额报表 开始执行");
+	
+	dump;
+	setChildValue("SysCod",getChildValue("_JOBDATA_.SysCod"));
+	callService("stp","700005","300");
+	dump;
+	
+	//调用交易结束后,按RspCod判断交易是否执行成功
+	var String rspcod = getChildValue("RspCod");
+	//设置data字段存储的值
+	setChildValue("_JOBDATA_.RspCod",rspcod);
+	setChildValue("_JOBDATA_.RspMsg",getChildValue("RspMsg"));
+	
+	if(!rspcod.equals("00000")){
+		//非00000,作业执行失败
+		jobFail(getChildValue("RspMsg"));
+	}
+	
+	info("客户余额报表 执行完成.");
+}
+

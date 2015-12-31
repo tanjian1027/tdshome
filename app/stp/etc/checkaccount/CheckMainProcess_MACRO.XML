@@ -1,0 +1,511 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<CheckMainProcess>
+   <!--读取XML配置-->
+   <macro name="ReadXmlCfg">
+     <do func="ReadXmlConfig" error="IGNORE">
+       <para name="FILNAM"     value="etc/public/STP_CONFIG.XML"/>
+       <para name="NAME"       expr="ConfigName"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"    value="08020"></set>
+       <set name="RspMsg"    value="参数错误"></set>
+       <return/>
+     </if>
+     <elseif condition="#RetCod==2">
+       <set name="RspCod"    value="08021"></set>
+       <set name="RspMsg"    value="取XML配置节点失败"></set>
+       <return/>
+     </elseif>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09998"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <return/>
+     </elseif>
+   </macro>
+    
+   <!--插入支付系统数据-->
+   <macro name="BcgDataEntry">
+     <!--将银行对账明细表中存在的订单插入系统明细表-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsStpBnk2BckRec"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="RspMsg"  value="无待对账记录"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09998"></set>
+       <set name="RspMsg"    value="数据库操作错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif>
+     
+     <!--将当日剩余订单数据插入系统明细表-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsStpBckRec"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="RspMsg"  value="无待对账记录"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09998"></set>
+       <set name="RspMsg"    value="数据库操作错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif> 
+     
+   </macro>
+   
+   <!--检查是否正在对账-->
+   <macro name="ChkDzh">
+      <do func="ReadRecord"     error="IGNORE">
+        <para name="SqlCmd"  sql="QryStpChkSts"/>
+      </do>
+      <if condition="#RetCod==0">
+        <if condition="OR(IS_EQUAL_STRING(ChkProSts,'2'),IS_EQUAL_STRING(ChkProSts,'3'))">
+          <set name="RspCod"    value="09002"/>
+          <set name="RspMsg"    value="对账处理中或已对账完成"/>
+          <return/>
+        </if>
+        <else>
+          <set name="ChkProSts"    value="2"/>    <!--对账处理中-->
+          <do func="ExecSql"     error="IGNORE">
+            <para name="SqlCmd"  sql="UpdStpChkSts"/>
+          </do>
+          <if condition="#RetCod!=0">
+            <set name="RspCod"    value="09998"/>
+            <set name="RspMsg"    value="数据库操作失败"/>
+            <return/>
+          </if>
+          <do func="CommitWork"/>
+        </else>
+      </if>
+      <elseif condition="#RetCod==2">
+         <!--查询是否是第一次进行对账  -->
+         <do func="ReadRecord"     error="IGNORE">
+           <para name="SqlCmd"  sql="QryStpChkFisrt"/>
+         </do>
+         <if condition="#RetCod==2">
+             <!-- 如果没有任何对账结果数据，则是第一次对账，插入对账状态表   -->
+             <do func="ExecSql"     error="IGNORE">
+               <para name="SqlCmd"  sql="InsStpChkSts"/>
+             </do>
+             <if condition="#RetCod!=0">
+               <set name="RspCod"    value="09998"/>
+               <set name="RspMsg"    value="数据库操作失败"/>
+               <return/>
+             </if>
+             <do func="CommitWork"/>
+         </if>
+         <elseif condition="#RetCod==0">
+             <!-- 如果有对账结果，则查询一下此对账日期前一天是否对账成功   -->
+             <set  name="chkQDate"    expr="CALCDATE(ChkDat,'-','d','1')"/>
+             <do func="ReadRecord"     error="IGNORE">
+               <para name="SqlCmd"  sql="QryStpChkQD"/>
+             </do>
+             <if condition="#RetCod==2">
+               <set name="RspCod"    value="01998"/>
+               <set name="RspMsg"    value="对账日期前一天未成功对账"/>
+               <return/>
+             </if>
+             <elseif condition="#RetCod==0"> <!-- 如果前一天对账成功，则继续进行对账   -->
+                <do func="ExecSql"     error="IGNORE">
+                  <para name="SqlCmd"  sql="InsStpChkSts"/>
+                </do>
+                <if condition="#RetCod!=0">
+                  <set name="RspCod"    value="09998"/>
+                  <set name="RspMsg"    value="数据库操作失败"/>
+                  <return/>
+                </if>
+                <do func="CommitWork"/>
+             </elseif>
+             <else>
+                <set name="RspCod"    value="09998"/>
+                <set name="RspMsg"    value="数据库操作失败"/>
+                <return/>
+             </else> 
+         </elseif>
+         <else>
+             <set name="RspCod"    value="09998"/>
+             <set name="RspMsg"    value="数据库操作失败"/>
+             <return/>
+         </else>
+      </elseif>
+      <else>
+         <set name="RspCod"    value="09998"/>
+         <set name="RspMsg"    value="数据库操作失败"/>
+         <return/>
+      </else>
+   </macro>
+   
+   <!--数据清理 -->
+   <macro name="ClearData">
+     
+     <!--删除银行明细表中记录-->
+     <do func="ExecSql"   error="IGNORE">
+       <para name="SqlCmd"   sql="DelStpBnkRec_Last"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"    value="02031"/>
+       <set name="RspMsg"    value="删除银行明细记录错误"/>
+       <return/>
+     </if>
+     
+     <do func="ExecSql"   error="IGNORE"><!--删除系统明细表中记录-->
+       <para name="SqlCmd"   sql="DelStpBckRec_Last"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"    value="02032"/>
+       <set name="RspMsg"    value="删除系统明细记录错误"/>
+       <return/>
+     </if>
+     
+     <do func="ExecSql"   error="IGNORE"><!--删除对账成功表中记录-->
+       <para name="SqlCmd"   sql="DelStpChkSuc_Last"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"    value="02032"/>
+       <set name="RspMsg"    value="删除对账成功记录错误"/>
+       <return/>
+     </if>
+     
+   </macro>
+   
+   <!--更新银行对账文件状态-->
+   <macro name="UpdChkBnkFilSts">
+       <set name="BankFilSts"    value="2"/>
+       <do func="ExecSql"     error="IGNORE">
+         <para name="SqlCmd"  sql="UpdChkBnkFilSts"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"></set>
+         <set name="RspMsg"    value="系统错误"></set>
+         <quote name="ChkErrProc"/>
+         <return/>
+       </if> 
+   </macro>
+   
+   <!--存疑表数据处理 -->
+   <macro name="InsDouToErr">
+     <!--设置最大对账次数-->
+     <set name="ChkMax"   value="2"/>
+     
+     <!--转移支付系统存疑数据到系统明细表-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsDouToBck"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="MsgTyp"    value="N"/>
+       <set name="RspCod"    value="00000"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif>
+     
+     <!--删除系统存疑数据-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="DelStpBckDouTmp"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="MsgTyp"    value="N"/>
+       <set name="RspCod"    value="00000"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif>
+     
+     <!--转移银行存疑数据到银行明细表-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsDouToBnk"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="MsgTyp"    value="N"/>
+       <set name="RspCod"    value="00000"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif>
+     
+     <!--删除银行存疑数据-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="DelStpBnkDouTmp"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="MsgTyp"    value="N"/>
+       <set name="RspCod"    value="00000"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif>
+   </macro>
+   
+   <!--1.获取对平交易-->
+   <macro name="ChkStepSuc">
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsSucFromBck"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     
+     <!--转移到历史成功表-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsHisSuc"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     
+     <!--获取对平交易，并删除-->
+     <do func="ExecSql"   error="IGNORE">
+       <para name="SqlCmd"   sql="delBnkSucRec"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="02031"/>
+       <set name="RspMsg"    value="删除银行成功记录错误"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     
+     <!--获取系统对平交易，并删除-->
+     <do func="ExecSql"   error="IGNORE">
+       <para name="SqlCmd"   sql="delBckSucRec"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="02032"/>
+       <set name="RspMsg"    value="删除系统成功记录错误"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+   </macro>
+   
+   <!--2.获取错帐交易-->
+   <macro name="ChkStepErr">
+     <!--获取金额差错交易，并插入对账差错表-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsAmtFalFromRec"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="07000"/>
+       <set name="RspMsg"    value="获取错帐交易失败"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     <!--获取银行有，系统为未支付的订单直接入错账表-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsFalFromRec"/>
+     </do>
+     <if condition="#RetCod==0">
+       <!--获取系统差错交易，并删除-->
+       <do func="ExecSql"   error="IGNORE">
+         <para name="SqlCmd"   sql="delBckErr"/>
+       </do>
+       <if condition="AND(#RetCod!=0,#RetCod!=2)">
+         <set name="RspCod"    value="07001"/>
+         <set name="RspMsg"    value="删除系统错帐记录错误"/>
+         <quote name="ChkErrProc"/>
+         <return/>
+       </if>
+       
+       <!--获取银行差错交易，并删除-->
+       <do func="ExecSql"   error="IGNORE">
+         <para name="SqlCmd"   sql="delBnkErr"/>
+       </do>
+       <if condition="AND(#RetCod!=0,#RetCod!=2)">
+         <set name="RspCod"    value="07001"/>
+         <set name="RspMsg"    value="删除银行错帐记录错误"/>
+         <quote name="ChkErrProc"/>
+         <return/>
+       </if>
+     </if>
+     <elseif condition="#RetCod==2">
+       <set name="RspCod"    value="00000"/>
+       <set name="RspMsg"    value="没有金额差错记录"/>
+     </elseif>
+     <else>
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>  
+     </else>
+   </macro>
+   
+   <!--3.存疑数据处理-->
+   <macro name="ChkStepDou">
+     <!--获取系统存疑交易，并插入存疑表-->
+     <do func="ExecSql"   error="IGNORE">
+       <para name="SqlCmd"   sql="InsDouBck"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="09999"/>
+       <set name="RspMsg"    value="系统错误"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     <!--获取银行存疑交易，并插入存疑表-->
+     <do func="ExecSql"   error="IGNORE">
+       <para name="SqlCmd"   sql="InsDouBnk"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="09999"/>
+       <set name="RspMsg"    value="系统错误"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     <do func="ExecSql"   error="IGNORE">
+       <para name="SqlCmd"   sql="delDouBck"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="09999"/>
+       <set name="RspMsg"    value="系统错误"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     <do func="ExecSql"   error="IGNORE">
+       <para name="SqlCmd"   sql="delDouBnk"/>
+     </do>
+     <if condition="AND(#RetCod!=0,#RetCod!=2)">
+       <set name="RspCod"    value="09999"/>
+       <set name="RspMsg"    value="系统错误"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+   </macro>
+   
+   <!--错帐表数据处理-->
+   <macro name="DealChkErr">
+    
+     <!--将存疑表中对账次数超过最大次数的记录存入错帐表 -->
+     
+     <!--转移错帐表数据-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsDouToErr"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="MsgTyp"    value="N"/>
+       <set name="RspCod"    value="00000"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif>
+     
+     <!--删除存疑表中的差错数据-->
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="DelDouErr"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="MsgTyp"    value="N"/>
+       <set name="RspCod"    value="00000"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09999"></set>
+       <set name="RspMsg"    value="系统错误"></set>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </elseif>
+    
+   </macro>
+   
+   <!--解决对账结果查询-->
+   <macro name="SelStpNumAmt">
+       <do func="ReadRecord">
+         <para name="SqlCmd"  sql="SelSucSumAmt" />
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <return/>
+       </if>
+       
+       <do func="ReadRecord">
+         <para name="SqlCmd"  sql="SelErrSumAmt" />
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <return/>
+       </if>
+       
+       <set name="SUCNUM"        expr="SUCNUM"/>
+       <set name="SUCAMT"        expr="SUCAMT"/>  
+       <set name="ERRORNUM"      expr="ERRORNUM"/>
+       <set name="ERRORAMT"      expr="ERRORAMT"/>   
+   </macro>
+   
+   <!--更新对账对账为成功-->
+   <macro name="UpdtProSts">
+       <do func="ExecSql"   error="IGNORE">
+         <para name="SqlCmd"   sql="UpdtProSts"/>
+       </do>
+       <if condition="#RetCod==-1">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="更新对账状态表错误"/>
+         <!-- 登记对账出错信息 -->
+         <do func="ExecSql" error="IGNORE">
+           <para name="SqlCmd" sql="UpdChkErrInf" />
+         </do>
+         <if condition="#RetCod!=0">
+           <set name="RspCod"    value="08012"/>
+           <set name="RspMsg"    value="登记对账出错信息失败"/>
+           <return/>
+         </if>
+         <return/>
+       </if>
+       <do func="CommitWork"/> 
+   </macro>
+   
+   <!--对账错误处理-->
+   <macro name="ChkErrProc">
+     <!-- 回滚所有操作 -->
+     <do func="RollBackWork" />
+     
+     <!-- 登记对账出错信息 -->
+     <do func="ExecSql" error="IGNORE">
+        <para name="SqlCmd" sql="UpdChkErrInf" />
+     </do>
+     <if condition="#RetCod!=0">
+        <set name="RspCod"    value="08012"/>
+        <set name="RspMsg"    value="登记对账出错信息失败"/>
+        <return/>
+     </if>
+   </macro>
+   
+   <!--清算数据准备-->
+   <macro name="preClrData">
+     <do func="ExecSql"     error="IGNORE">
+       <para name="SqlCmd"  sql="InsClrDat"/>
+     </do>
+     <if condition="#RetCod==2">
+       <set name="RspCod"    value="00000"/>
+       <set name="RspMsg"    value="交易成功"/>
+     </if>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"    value="09999"/>
+       <set name="RspMsg"    value="系统错误"/>
+       <return/>
+     </elseif>
+   </macro>
+   
+</CheckMainProcess>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="rcs" desc="风险控制系统" natures="base,channel,webapp,default,javaengine,remote,timer,dslengine">
+    <module>tangdi.engine.tags.xml.TdXMLModule</module>
+		  <atc name="pub" package="com.tangdi.util">
+		    <class>GetOwnButton</class>
+		  </atc>
+    <transactions>
+        <!--风控业务相关-->
+        <class>com.rcs.excptran.RuleMng</class>         <!--规则管理-->
+        <class>com.rcs.excptranMng.ExcpTranMng</class>  <!--异常交易记录管理-->
+        <class>com.rcs.sustran.SusTranMng</class>       <!--可疑交易记录管理-->
+        <class>com.rcs.xlist.UserBlackXList</class>  <!--用户黑名单管理-->
+        <class>com.rcs.xlist.CompBlackXList</class>     <!--企业黑名单管理-->
+        <class>com.rcs.limtAmt.Complimt</class>         <!--商户限额-->
+        <class>com.rcs.limtAmt.Userlimt</class>         <!--用户限额-->
+        <class>com.rcs.interfaces.CthdInterFace</class> <!--接口渠道接入-->
+        <class>com.tangdi.risk.batch.RuleSetAtc</class> <!--规则引擎-->
+        <class>com.rcs.interfaces.CurrentCont</class>   <!--接口实时风控管理接口-->
+    </transactions>
+    <timers>
+        <file>etc/TIMCON_RCS.XML</file>
+    </timers>
+    <channels>
+        <channel name="CTHDRISK" file="etc/channel/CTHDRISK_ATR.XML" />
+    </channels>
+</application>

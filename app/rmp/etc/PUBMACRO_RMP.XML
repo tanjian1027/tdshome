@@ -1,0 +1,1551 @@
+﻿<?xml version="1.0" encoding="UTF-8"?> 
+<!--该文件为RMP下公共宏文件，不统计 add by gyl 20140719-->
+<publicmacro name="PUBMACRO">
+    <!--****************RMP下的CARD***********-->
+    <macro name="ParseRequestParams_old" desc="统一解析参数">
+        <if condition="ISNULL(sText)">
+            <set name="RspCod"       value="002035"         />
+            <set name="RspMsg"       value="传入的参数为空" />
+            <return/>
+        </if>
+        <do func="parseParams" error="IGNORE">
+            <para name="text"    expr="sText"               />
+            <para name="md5key"  value="0123456789ABCDEF"   />
+            <para name="pwds"    expr="sPwds"               />
+        </do>
+        <if condition="#RetCod!=0">
+            <return/>
+        </if>
+    </macro>
+    
+    <macro name="chkRandom"  desc="校验手机验证码">
+       <set name="USRMP"           expr="USRMP"        desc="手机号"/>
+       <set name="VERIFYNUM"       expr="VERIFYNUM"    desc="验证码"/>
+       <!--手机验证   -->
+       <if condition="ISNULL(SERVICE_TYPE)">
+          <set name="SERVICE_TYPE" value="00"/><!--验证码服务类型 00-注册短信验证 01-修改密码短信验证 02-找回密码短信验证 03-数字证书短信验证 04-帐号变更短信验证 05-消费支付短信验证 -->
+       </if>
+       <else>
+           <set name="SERVICE_TYPE" expr="SERVICE_TYPE" />
+       </else>
+       <if condition="ISNUMBER(UsrMp)">
+         <set name="VER_TYPE" value="0"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </if>
+       <else>
+         <set name="VER_TYPE" value="1"/><!--验证类型 0：短信验证 1：邮箱验证 -->
+       </else>
+       
+       <!--  查询校验码  -->
+       <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="QryUsrIdverifycode" />
+       </do>
+       <if condition="#RetCod==2">
+           <set name="RspCod"        value="002004"/>
+           <set name="RspMsg"        value="该用户未申请校验码"/>
+           <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+           <set name="RspCod"        value="999999"        />
+           <set name="RspMsg"        value="数据库操作错误"/>
+           <return/>
+       </elseif>
+       <!-- 超时时间判断  -->
+       <if condition="INTCMP(timdif,6,TimeOut)">
+           <set name="RspCod"        value="002005"                        />
+           <set name="RspMsg"        value="校验码已失效,请重新获取校验码" />
+           <return/>
+       </if>
+       <!-- 比较校验码 -->
+       <if condition="IS_NOEQUAL_STRING(VERIFYNUM,Random)">
+           <set name="RspCod"        value="002006"/>
+           <set name="RspMsg"        value="校验码输入错误"/>
+           <return/>
+       </if> 
+       
+       <!--  防止数据库保存验证码数据量过大，交易成功后即删除用户验证码信息  -->
+       <do func="ExecSql" error="IGNORE">
+           <para name="SqlCmd"  sql="DelUsrIdInfo" />
+       </do>
+       <if condition="#RetCod==2">
+           <set name="MsgTyp"        value="N"/>
+           <set name="RspCod"        value="00000"/>
+           <set name="RspMsg"        value="未找到验证码登记信息"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="999999"/>
+           <set name="RspMsg"        value="数据库操作错误"/>
+           <return/>
+       </elseif>
+       
+       <set name="RspCod"      value="000000"  />
+       <set name="RspMsg"      value="验证通过"/>
+
+    </macro>
+    
+    <!--****************RMP下的RMP2***********-->
+    <!--账务处理-->
+    <macro name="accProcess_old">
+        <do func="PubAcc" error="IGNORE">
+            <para name="TXN_COD"          expr="TXN_COD"/>
+            <para name="TXN_SUB_COD"      expr="TXN_SUB_COD"/>
+            <para name="NOTENUM"          expr="NOTENUM"/>
+            <para name="TXN_TLR"          expr="TXN_TLR"/>
+            <para name="TXN_ORG"          expr="TXN_ORG_NO"/>
+        </do>
+        <if condition="#RetCod==-4">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="08058"/>
+         <set name="RspMsg"    value="科目不存在"/>
+        </if>
+        <elseif condition="#RetCod==-3">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08059"/>
+            <set name="RspMsg"    value="账户状态不正确"/>
+        </elseif>
+        <elseif condition="#RetCod==-5">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08059"/>
+            <set name="RspMsg"    value="存在下级科目，不允许直接操作"/>
+        </elseif>
+        <elseif condition="OR(#RetCod==-6,#RetCod==-7)">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08060"/>
+            <set name="RspMsg"    value="科目无效"/>
+        </elseif>
+        <elseif condition="#RetCod==-8">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08061"/>
+            <set name="RspMsg"    value="借贷方向无效"/>
+        </elseif>
+        <elseif condition="#RetCod==-9">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08062"/>
+            <set name="RspMsg"    value="科目余额方向错误"/>
+        </elseif>
+        <elseif condition="#RetCod==-10">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08062"/>
+            <set name="RspMsg"    value="货币类型不匹配"/>
+        </elseif>
+        <elseif condition="OR(#RetCod==-11,#RetCod==-12,#RetCod==-13)">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08062"/>
+            <set name="RspMsg"    value="余额不足"/>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="08063"/>
+            <set name="RspMsg"    value="交易失败"/>
+        </elseif>
+    </macro>
+
+    <!--银行编码2银行名称-->
+    <macro name="BankCod2Nam">
+        <if condition="IS_EQUAL_STRING(BANKCODE,'01020000')">
+            <set name="glname"        value="工商银行"/>          <!--银行名称-->
+        </if>
+        <elseif condition="IS_EQUAL_STRING(BANKCODE,'01050000')">
+            <set name="glname"        value="建设银行"/>          <!--银行名称-->
+        </elseif>
+        <elseif condition="IS_EQUAL_STRING(BANKCODE,'01040000')">
+            <set name="glname"        value="中国银行"/>          <!--银行名称-->
+        </elseif>
+        <elseif condition="IS_EQUAL_STRING(BANKCODE,'01030000')">
+            <set name="glname"        value="农业银行"/>          <!--银行名称-->
+        </elseif>
+        <elseif condition="IS_EQUAL_STRING(BANKCODE,'MCM')">
+            <set name="glname"        value="交通银行"/>          <!--银行名称-->
+        </elseif>
+        <elseif condition="IS_EQUAL_STRING(BANKCODE,'B2CBCM')">
+            <set name="glname"        value="交通银行"/>          <!--银行名称-->
+        </elseif>
+        <else>
+            <set name="glname"        value="建设银行"/>          <!--银行名称-->  
+        </else>
+    </macro>
+     
+    <!--银行科目查询-->
+    <macro name="selBnkSubject">
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryBnkSubject"/>
+        </do>
+        <if condition="#RetCod==2">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="07007"/>
+            <set name="RspMsg"    value="该银行没有科目信息！"/>
+            <!--set name="glname"    value=""/>   
+            <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="QryBnkSubject"/>
+            </do-->
+            <return/> 
+        </if> 
+        <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="数据库操作错误"/>
+            <return/> 
+        </elseif> 
+    </macro>
+    <!--****************RMP下的RMP1***********-->
+    <macro name="ParseRequestParams" desc="统一解析参数">
+        <quote name="ParseRequestParamsNoCheckStatus"/>
+        
+        <!--***************** begain ADD BY liuyanwei 20131013 增加用户手机在线状态判断 ***********-->
+        <!--读取手机超时时间-->
+        <set name="ConfigName"   value="PhoneOutTime"/>
+        <quote name="ReadXmlCfg"/>
+        <set name="PhoneOutTime"     expr="PhoneOutTime"/>
+	<do func="checkOutTime" error="IGNORE"/>
+        <if condition="#RetCod!=0">
+            <return/>
+        </if>
+        <!--***************** end ADD BY liuyanwei 20131013 增加用户手机在线状态判断 ***********-->
+    </macro>
+    
+    <macro name="ParseRequestParamsNoCheckStatus" desc="统一解析参数">
+        <if condition="ISNULL(sText)">
+            <set name="RspCod"       value="002035"         />
+            <set name="RspMsg"       value="传入的参数为空" />
+            <return/>
+        </if>
+        <set name="G_MD5_KEY"       value="0123456789ABCDEF"         />
+        
+        <do func="setMd5Key" error="IGNORE">
+            <para name="text"           expr="sText"               />
+            <para name="noLoginTran"    value="800000,800001,800002,800003,800006,800011,810001,810002,810003,810004,810005,810006,800058"   />
+            <para name="signKeyName"    value="G_MD5_KEY"          />
+        </do>
+        <if condition="#RetCod!=0">
+            <return/>
+        </if>
+        <do func="parseParams" error="IGNORE">
+            <para name="text"    expr="sText"       />
+            <para name="md5key"  expr="G_MD5_KEY"   />
+            <para name="pwds"    expr="sPwds"       />
+        </do>
+        <if condition="#RetCod!=0">
+            <return/>
+        </if>
+    </macro>
+
+    <macro name="returnMsgMacro" desc="统一返回处理">
+        <!--if condition="ISNULL(returnNames)">
+            <set name="returnNames"  expr="STRCAT('rspCod',',rspMsg')" />
+        </if>
+        <else>
+            <set name="returnNames"  expr="STRCAT(returnNames,',rspCod',',rspMsg')" />
+        </else--><!--已在RemoteFilter中处理-->
+        
+        <if condition="ISNULL(RSPCOD)">
+            <set name="RSPCOD"  value="999999"          />
+            <set name="RSPMSG"  value="程序处理错误!"   />
+        </if>
+        <if condition="ISNULL(RSPMSG)">
+            <set name="RSPMSG"  value="未知!"   />
+        </if>
+        <return/>
+    </macro>
+    
+    <macro name="ReadXmlCfg">
+        <!-- 读取XML配置文件中的数据，添加到ETF树上 -->
+        <!--0 成功; -1参数错误;2 取XML配置父节点失败 -->
+        <do func="ReadXmlConfig"     error="IGNORE">
+            <para name="FILNAM"        value="etc/RMP_CONFIG.XML"/>
+            <para name="NAME"          expr="ConfigName"/>
+        </do>
+        <if condition="#RetCod==-1">
+            <set name="RspCod"         value="08020"    />
+            <set name="RspMsg"         value="参数错误" />
+            <return/>
+        </if>
+        <elseif condition="#RetCod==2">
+            <set name="RspCod"         value="08021"              />
+            <set name="RspMsg"         value="取XML配置父节点失败"/>
+            <return/>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+            <set name="RspCod"         value="09998"    />
+            <set name="RspMsg"         value="系统错误" />
+            <return/>
+        </elseif>
+    </macro>
+    
+    <macro name="rcsMaro"> 
+        <do func="CallThirdOther"     error="IGNORE">
+            <para name="channel"       value="STHDRCSU" />
+            <para name="code"          expr="sthCode"/>
+        </do>
+        <if condition="#RetCod!=0">
+            <!-- 回滚数据库 -->
+            <do func="RollBackWork"/>
+            <set name="RspCod"         value="009997"/>
+            <set name="RspMsg"         value="通讯错误"/>
+            <return/>
+        </if>
+         
+        <if condition="IS_NOEQUAL_STRING(pass_orNo,'1')">
+            
+        </if>
+    </macro>
+    
+    <!-- 获取公共信息 -->
+    <macro name="getPublicInfo"> 
+        <!-- 当前日期  -->
+        <set name="nowDate"   expr="GETDATETIME('YYYYMMDD')"/>
+        <!-- 当前时间  -->
+        <set name="nowTime"   expr="GETDATETIME('HHMISS')"  /> 
+    </macro>
+    
+    <!--用户状态查询-->
+    <macro name="usrChk">
+        <!-- 用户信息查询-->
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryCusInf" />
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="RspCod"    value="09999"         />
+            <set name="RspMsg"    value="客户信息不存在"/>
+            <return/>
+        </if>
+        <if condition="ISNULL(CUST_STATUS)">
+            <set name="RspCod"    value="02008"         />
+            <set name="RspMsg"    value="客户信息不存在"/>
+            <return/>
+        </if>
+        <if condition="AND(IS_NOEQUAL_STRING(CUST_STATUS,'0'),IS_NOEQUAL_STRING(CUST_STATUS,'1'))">
+            <set name="RspCod"    value="08040"         />
+            <set name="RspMsg"    value="客户状态不正常"/>
+            <return/>
+        </if>
+    </macro>
+    <!--校验证件唯一-->
+    <macro name="usrChkIdCard">
+        <!-- 用户信息查询-->
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryCardInf" />
+        </do>
+        <if condition="#RetCod==0">
+            <set name="RspCod"    value="09999"         />
+            <set name="RspMsg"    value="该证件已经注册过账号！"/>
+            <return/>
+        </if>
+    </macro>
+    <!-- 客户账户状态查询-->
+    <macro name="chkAcc">
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="SelAccInf" />
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="RspCod"    value="09999"             />
+            <set name="RspMsg"    value="客户账户信息不存在"/>
+            <return/>
+        </if>
+        <if condition="IS_NOEQUAL_STRING(AC_STATUS,'0')">
+            <set name="RspCod"    value="08040"             />
+            <set name="RspMsg"    value="客户账户状态不正常"/>
+            <return/>
+        </if>
+        <set name="AC_STATUS"    expr="AC_STATUS"    desc="帐号状态"    />
+        <set name="PAYACNO"      expr="PAYACNO"      desc="用户虚拟帐号"/>
+    </macro>
+    
+    <!--验证支付密码-->
+    <macro name="chkPayPwd">
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryPassInf" />
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="RspCod"    value="08041"/>
+            <set name="RspMsg"    value="该客户已经被禁用"/>
+            <return/>
+        </if>
+        <if condition="IS_NOEQUAL_STRING(PASSWORD,paypwd)">
+            <set name="RspCod"    value="08042"/>
+            <set name="RspMsg"    value="支付密码不正确"/>
+            <return/>
+        </if>
+        <else>
+        </else>
+    </macro>
+    
+    <!--限额检查-->
+    <macro name="chkLimAmt">
+        <if condition="IS_EQUAL_STRING(PAYTYPE,'00')">      <!--虚拟账户-->
+            <set name="PAY_TYPE"      value="04"/> 
+        </if>
+        <elseif condition="IS_EQUAL_STRING(PAYTYPE,'01')">  <!--网银-->
+            <set name="PAY_TYPE"      value="01"/>
+        </elseif>
+        <elseif condition="IS_EQUAL_STRING(PAYTYPE,'02')">  <!--终端-->
+            <set name="PAY_TYPE"      value="02"/>
+        </elseif>
+        <elseif condition="IS_EQUAL_STRING(PAYTYPE,'03')">  <!--快捷-->
+            <set name="PAY_TYPE"      value="05"/>
+        </elseif>
+        <elseif condition="IS_EQUAL_STRING(PAYTYPE,'04')">  <!--混合-->
+            <set name="PAY_TYPE"      value="06"/>
+        </elseif>
+        <do func="CallThird" error="IGNORE">
+            <para name="channel"       value="STHDRCSU"     />
+            <para name="code"          expr="ServiceCode"   />
+        </do>
+        <if condition="#RetCod==0">
+            <if condition="IS_EQUAL_STRING(pass_orNo,'0')">
+                <set name="RspCod"    value="016045" />
+                <set name="RspMsg"    expr="no_info" />
+                
+                <set name="RCS_USER_CODE"       expr="USERID"            />
+                <set name="RCS_PAY_TYPE"        expr="TRANCODE"         />
+                <set name="RCS_PRD_NO"          value=""                />
+                <set name="RCS_TCODE"           value="风控检查不通过"  />
+                <if condition="INTCMP(GETSTRPOS(RspMsg,'黑名单'),6,0)">
+                    <set name="RCS_TCODE"       value="3"   />
+                </if>
+                <if condition="INTCMP(GETSTRPOS(RspMsg,'限额'),6,0)">
+                    <set name="RCS_TCODE"       value="4"   />
+                </if>
+                <set name="RCS_STATUS"          value="0"   />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+        </if>
+        <else>
+           <set name="RspCod"    value="009997"                 />
+           <set name="RspMsg"    value="网络繁忙，请稍候再试。" />
+           <return/>
+        </else> 
+    </macro>
+
+    <!--账务处理-->
+    <macro name="accProcess">
+        <do func="TdAcc">
+           <para name="PARAMS"      expr="PARAMS" />
+        </do> 
+        <if condition="#RetCod==-3">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="08059"/>
+           <set name="RspMsg"    value="账户状态不正确"/>
+        </if>
+        <elseif condition="#RetCod==-9">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="08060"/>
+           <set name="RspMsg"    value="余额方向错误"/>
+        </elseif>
+        <elseif condition="#RetCod==-10">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="08061"/>
+           <set name="RspMsg"    value="货币类型不匹配"/>
+        </elseif>
+        <elseif condition="#RetCod==-12">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="08062"/>
+           <set name="RspMsg"    value="余额不足"/>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="08063"/>
+           <set name="RspMsg"    value="记账失败"/>
+        </elseif>
+    </macro>
+    
+    <!--更新商品订单表-->
+    <macro name="UpdPrd">      
+      <set name="ordCcy"      value="CNY"/> 
+      <do func="UpdateRecord" error="IGNORE">
+         <para name="TblNam" value="StpPrdInf"/>
+         <para name="CndSts" sql="UpdPrd"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="RspCod"    value="01003"/>
+         <set name="RspMsg"    value="无符合条件记录"/>
+         <return/>
+      </if>
+      <elseif condition="#RetCod!=0">
+         <set name="RspCod"    value="06003"/>
+         <set name="RspMsg"    value="更新订单信息错误"/>
+         <return/>
+      </elseif>
+      <delete name="Filed4"/>
+    </macro>
+    
+    <!--更新后台返回数据-->
+    <macro name="UpdPay">
+        <do func="UpdateRecord" error="IGNORE">
+            <para name="TblNam" value="StpPayInf"/>
+            <para name="CndSts" sql="UpdPay"/>
+        </do>
+        <if condition="#RetCod==2">
+            <set name="RspCod"    value="01003"/>
+            <set name="RspMsg"    value="无符合条件记录"/>
+            <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+            <set name="RspCod"    value="06003"/>
+            <set name="RspMsg"    value="更新订单信息错误"/>
+            <return/>
+        </elseif>
+    </macro>
+    
+    <!--更新充值订单-->
+    <macro name="UpdReg">      
+        <set name="payOrdNo" expr="payOrdNo"/>
+        <do func="UpdateRecord" error="IGNORE">
+            <para name="TblNam" value="StpPrdInf"/>
+            <para name="CndSts" sql="UpdReg"/>
+        </do>
+        <if condition="#RetCod==2">
+            <set name="RspCod"    value="01003"/>
+            <set name="RspMsg"    value="无符合条件记录"/>
+            <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+            <set name="RspCod"    value="06003"/>
+            <set name="RspMsg"    value="更新订单信息错误"/>
+            <return/>
+        </elseif>
+        <delete name="Filed4"/>
+    </macro>
+    
+    <!--实时交易通知-->
+    <macro name="noticRcs">
+        <set name="COIN_FLG" value="0000"/>    <!--币种 0000人民币  0001外币-->
+        <do func="CallThird" error="IGNORE">
+            <para name="channel"       value="STHDRCSU"/>
+            <para name="code"          expr="ServiceCode"/>
+        </do>
+        <if condition="#RetCod==0">
+            <if condition="IS_EQUAL_STRING(pass_orNo,'0')">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="16045"/>
+                <set name="RspMsg"    expr="no_info"/>
+                <return/>
+            </if>
+        </if>
+        <else>
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09997"/>
+            <set name="RspMsg"    value="网络繁忙，请稍候再试。"/>
+            <return/>
+        </else> 
+    </macro>
+    
+    <!--查询账户余额-->
+    <macro name="selAccBal">
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="SelAccBal" />
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="RspCod"    value="08062"/>
+            <set name="RspMsg"    value="该账户信息不存在"/>
+            <return/>
+        </if>   
+    </macro>
+    
+    <!-- 风控实时交易 新版本整改后 不用实时风控交易 by20150902 -->
+    <macro name="tranByRightTime">
+        <!--set name="RCS_USER_CODE"       expr="RCS_USER_CODE" />
+        <set name="RCS_PAY_TYPE"        expr="RCS_PAY_TYPE"  />
+        <set name="RCS_PRD_NO"          expr="RCS_PRD_NO"    />
+        <set name="RCS_TCODE"           expr="RCS_TCODE"     />
+        <set name="RCS_STATUS"          expr="RCS_STATUS"    />
+        
+        <set name="ServiceCode"     value="593724"/>
+        <do func="CallThird" error="IGNORE">
+            <para name="channel"       value="STHDRCSU"     />
+            <para name="code"          expr="ServiceCode"   />
+        </do>
+        <if condition="IS_NOEQUAL_STRING(RETURNRESULT,'1')">
+            <set name="RSPCOD"        value="020000"            />
+            <set name="RSPMSG"        expr="RETURNRESULT_INFO"  />
+            <return/>
+        </if-->
+        <set name="Right"  value="风控实时交易新版本已取消，不使用"/>
+    </macro>
+    
+    <!-- 风控密码冻结查询交易 -->
+    <macro name="tranPwdLock">
+        <set name="RCS_PWD_TYPE"        expr="RCS_PWD_TYPE"  />
+        <set name="RCS_USER_CODE"       expr="RCS_USER_CODE" />
+        <set name="RCS_PAY_TYPE"        expr="RCS_PAY_TYPE"  />
+        <set name="RCS_PRD_NO"          expr="RCS_PRD_NO"    />
+        <set name="RCS_TCODE"           expr="RCS_TCODE"     />
+        <set name="RCS_STATUS"          expr="RCS_STATUS"    />
+        
+        <set name="ServiceCode"     value="593728"/>
+        <do func="CallThird" error="IGNORE">
+            <para name="channel"       value="STHDRCSU"     />
+            <para name="code"          expr="ServiceCode"   />
+        </do>
+        
+        <if condition="IS_EQUAL_STRING(RCS_PWD_TYPE,'1')">
+            <set name="RSPCOD"        value="020000"            />
+            <set name="RSPMSG"        expr="RETURNRESULT_INFO"  />
+            
+            <if condition="INTCMP(GETSTRPOS(RETURNRESULT,'0'),6,0)">
+            <set name="RCS_TCODE"           value="登录密码已冻结"     />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(RCS_PWD_TYPE,'3')">
+            <set name="RSPCOD"        value="020000"            />
+            <set name="RSPMSG"        expr="RETURNRESULT_INFO"  />
+            
+            <if condition="INTCMP(GETSTRPOS(RETURNRESULT,'3'),6,0)">
+            <set name="RCS_TCODE"           value="支付密码已冻结"     />
+                <quote name="tranByRightTime"/>
+                <return/>
+            </if>
+        </if>
+    </macro>
+    
+    <!--*****************begain ADD BY liuyanwei 20131013 增加用户手机在线状态判断，登记登录状态***********-->
+    <!-- 用户登录之后登记在线状态和最后操作时间 -->
+    <macro name="InsOnlineTime">
+        <set name="OPERTIME"    expr="GETDATETIME()"/>
+        <set name="SIGNKEY"     expr="RANDOM(16,0)" />
+        
+        <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdateUsrStaus"/>
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="数据库操作错误"/>
+            <return/>
+        </if>
+        
+        <!-- 登录成功 更新STPCUSLOG表 by20150901 -->
+        <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdateUsrSucTime"/>
+        </do>
+        <if condition="#RetCod==2">
+            <set name="MsgTyp"    value="N"/>
+            <set name="reqip"         expr="GetRequestAttr('REQIP')" />
+            <set name="LOG_SUC_IP"       expr="reqip" />
+            <set name="CUST_ID"       expr="CUSTIDS" />
+            <set name="PRE_LOG_SUC_TIM"       expr="OPERTIME" />
+            <set name="LOG_SUC_NUM"       value="0" />
+            <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam" value="STPCUSLOG"/>
+            </do>
+            <if condition="#RetCod!=0">
+            	<set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="登录失败"/>
+              <return/>
+            </if>
+        </if>
+        <elseif condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="数据库操作错误"/>
+            <return/>
+        </elseif>
+        
+        <set name="G_MD5_KEY"   value="0123456789ABCDEF"                    />
+        <set name="SIGNKEY"     expr="CryptUtilsEncrypt(SIGNKEY,G_MD5_KEY)" />
+    </macro>
+    
+    <!-- 用户退出之后登记在线状态和清空最后操作时间 -->
+    <macro name="UpdOnlineTime">
+        <set name="OPERTIME"     value=""/>
+        <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdateUsrStaus"/>
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="数据库操作错误"/>
+            <return/>
+        </if>
+    </macro>
+    <!--*****************end ADD BY liuyanwei 20131013 增加用户手机在线状态判断，登记登录状态 ***********-->
+    
+    <macro name="checkVerifyCode">
+        <set name="CHECK_USRMP"      expr="CHECK_USRMP"      desc="手机号"/>
+        <set name="CHECK_VERIFYNUM"  expr="CHECK_VERIFYNUM"  desc="验证码"/>
+        <!--  查询校验码  -->
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryUsrIdverifycode" />
+        </do>
+        <if condition="#RetCod==2">
+            <set name="RspCod"        value="002004"/>
+            <set name="RspMsg"        value="该用户未申请校验码"/>
+            <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+            <set name="RspCod"        value="999999"        />
+            <set name="RspMsg"        value="数据库操作错误"/>
+            <return/>
+        </elseif>
+        
+        <!-- 超时时间判断,时间判断需要再修改 -->
+        <if condition="INTCMP(CHECK_timdif,6,CHECK_TimeOut)">
+            <set name="RspCod"        value="002005"                      />
+            <set name="RspMsg"        value="校验码已失效,请重新获取校验码" />
+            <return/>
+        </if>
+        
+        <!-- 比较校验码 -->
+        <if condition="IS_NOEQUAL_STRING(CHECK_VERIFYNUM,CHECK_Random)">
+            <set name="RspCod"        value="002006"/>
+            <set name="RspMsg"        value="校验码输入错误"/>
+            <return/>
+        </if> 
+       
+        <!--  防止数据库保存验证码数据量过大，交易成功后即删除用户验证码信息  -->
+        <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd"  sql="DelUsrIdInfo" />
+        </do>
+        <if condition="#RetCod==2">
+            <set name="RspCod"        value="000001"             />
+            <set name="RspMsg"        value="未找到验证码登记信息"/>
+            <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+            <set name="RspCod"        value="999999"        />
+            <set name="RspMsg"        value="数据库操作错误" />
+            <return/>
+        </elseif>
+    </macro>    
+    <!--费率计算-->
+    <macro name="FeeCount">
+      <do func="FeeCount" error="IGNORE">
+         <para name="FeeCode" expr="FEE_CODE"/>
+         <para name="Money"   expr="txnAmt_fee"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="07016"/>
+         <set name="RspMsg"    value="该费率不存在"/> 
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+      </if> 
+      <elseif condition="#RetCod==3">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="07016"/>
+         <set name="RspMsg"    value="分档费率不存在"/>
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/> 
+         <return/>
+      </elseif> 
+      <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09994"/>
+         <set name="RspMsg"    value="异常"/> 
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/>
+      </elseif> 
+      <set name="fee"    expr="FeeResult"/>    <!--手续费-->
+      <set name="fee"    expr="DIV(AMTPOWER(FDIV(AMTPOWER(fee,2),'100','1'),1),10)"/>
+    </macro>
+    <!--查询商户费率信息-->
+    <macro name="SelMerFee">
+      <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="SelMerFee"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="07016"/>
+         <set name="RspMsg"    value="该商户费率不存在"/> 
+      </if> 
+      <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="数据库操作错误"/>
+         <return/> 
+      </elseif> 
+    </macro>
+    <!--计算商户手续费-->
+    <!--macro name="CalMerFee">
+      <set name="txnAmt_fee"    expr="txAmt"/> 
+      <quote name="SelMerFee"/>
+      <if condition="#RetCod==0">
+         <if condition="NOT(ISNULL(FEE_CODE))">
+            <quote name="FeeCount"/> 
+            <set name="fee"            expr="fee"/>
+            <if condition="INTCMP(fee,3,0)">
+               <set name="flag"           value="0"/>  
+            </if>
+            <else>
+               <set name="flag"           value="1"/>                              
+            </else>
+            <if condition="INTCMP(txAmt,1,fee)">
+               <set name="RspCod"    value="01003"/>
+               <set name="RspMsg"    value="手续费大于交易金额"/>
+               <set name="DWZ_STATUS_CODE"     value="300"/>
+               <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+               <return/>    
+            </if>
+         </if>
+         <else>
+            <set name="fee"            value="0"/>
+            <set name="flag"           value="0"/> 
+         </else> 
+      </if>
+      <elseif condition="#RetCod==2">
+         <set name="fee"            value="0"/>
+         <set name="flag"           value="0"/> 
+         <set name="TXN_SUB_COD"    value="001"/>                            
+      </elseif>
+      <set name="netRecAmt"      expr="SUB(txAmt,fee)"/>                     
+      <set name="txnComAmt"      expr="fee"/>                                
+    </macro-->
+    
+    <macro name="CalMerFee">
+      <set name="txnAmt_fee"     expr="txAmt"/>
+      <set name="fee"            value="0"/>
+      <set name="flag"           value="0"/>
+      <set name="netRecAmt"      expr="SUB(txAmt,fee)"/>                     <!--净额-->
+      <set name="txnComAmt"      expr="fee"/>                                <!--交易佣金-->  
+    </macro>
+    
+    <!--冻结金额-->
+    <macro name="frezzAmt">
+       <do func="Freeze" error="IGNORE">
+          <para name="PAY_AC_NO"  expr="PAY_AC_NO" />
+          <para name="Money"      expr="txAmt" />
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="RspCod"    value="07001"/>
+          <set name="RspMsg"    value="冻结失败"/>
+          <return/>
+       </if>
+    </macro>
+    
+    <!--登记冻结信息-->
+    <macro name="InsFrozInf">
+        <set name="FROZ_NO"       expr="BIZ_CODE"/>
+        <set name="PAY_AC_NO"     expr="PAY_AC_NO"/>
+        <set name="STATUS"        value="01"/>      <!--01 冻结  00 未冻结-->
+        <set name="FROZ_WAY"      value="01"/>
+        <set name="FROZ_CCY"      value="CNY"/>
+        <set name="FROZ_AMT"      expr="txAmt"/>
+        <set name="BEGIN_DATE"    expr="GETDATE()"/>
+        <set name="FROZ_REASON"   expr="FROZ_REASON"/>
+        <set name="BIZ_TYPE"      value="01"/>
+        <set name="BIZ_CODE"      expr="BIZ_CODE"/> <!--存放订单号-->
+        <set name="CRE_DATE"      expr="BEGIN_DATE"/> 
+        <set name="CRE_TIME"      expr="GETDATETIME('HHMISS')"/>
+    
+        <do func="InsertRecord">
+           <para name="TblNam"  value="ARP_AC_FORZZ_DETAILS" />
+        </do>
+        <if condition="#RetCod!=0">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="09999"/>
+           <set name="RspMsg"    value="系统错误"/>
+           <do func="RollBackWork" />
+           <return/>
+        </if> 
+    </macro> 
+    
+    <!--更新充值订单-->
+    <macro name="UpdReg">      
+      <set name="payOrdNo" expr="payOrdNo"/>
+      <do func="UpdateRecord" error="IGNORE">
+         <para name="TblNam" value="StpPrdInf"/>
+         <para name="CndSts" sql="UpdReg"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="RspCod"    value="01003"/>
+         <set name="RspMsg"    value="无符合条件记录"/>
+         <set name="DWZ_STATUS_CODE"   value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>
+      </if>
+      <elseif condition="#RetCod!=0">
+         <set name="RspCod"    value="06003"/>
+         <set name="RspMsg"    value="更新订单信息错误"/>
+         <set name="DWZ_STATUS_CODE"   value="300"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+         <return/>
+      </elseif>
+      <delete name="Filed4"/>
+    </macro>
+    
+    <!--更新商品订单表-->
+    <macro name="UpdPrd">      
+      <set name="ordCcy"      value="CNY"/> 
+      <set name="OrdTime"     expr="GETDATETIME()"/> 
+      <do func="UpdateRecord" error="IGNORE">
+         <para name="TblNam" value="StpPrdInf"/>
+         <para name="CndSts" sql="UpdPrd"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="RspCod"    value="01003"/>
+         <set name="RspMsg"    value="无符合条件记录"/>
+         <do func="RollBackWork"/>
+         <return/>
+      </if>
+      <elseif condition="#RetCod!=0">
+         <set name="RspCod"    value="06003"/>
+         <set name="RspMsg"    value="更新订单信息错误"/>
+         <return/>
+      </elseif>
+      <delete name="Filed4"/>
+    </macro>
+    
+    <!--发送短信-->
+   <macro name="sendSms">
+     <do func="sendMesSwt" error="IGNORE">
+        <para name="sendUrl"              value="http://59.41.60.158:8914/TradeAppServer/user/sms.jf"/>
+        <para name="softwareSerialNo"     value="linan-jufeng"/>
+        <para name="smspassword"          value="linan-@jufeng"/>
+        <para name="SendId"               value="12"/>
+        <para name="MobNo"                expr="UsrMp"/>
+        <para name="Context"              expr="SmsContent"/>
+     </do>
+     <if condition="#RetCod!=0">
+       <set name="RspCod"               value="1003"/>
+       <set name="RspMsg"               value="短信发送失败"/>
+       <set name="DWZ_STATUS_CODE"      value="300"/>
+       <set name="DWZ_RSP_MSG"          expr="RspMsg"/>
+     </if>    
+   </macro>
+   
+   <!--查询银行费率信息-->
+   <macro name="SelBnkFee">
+      <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="SelBnkFee"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="07016"/>
+         <set name="RspMsg"    value="该银行费率不存在"/> 
+      </if> 
+      <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <set name="DWZ_STATUS_CODE"     value="300"/>
+         <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+         <return/> 
+      </elseif> 
+   </macro>
+   
+   <macro name="getEcPrdOrdNo"><!--查询商户业务类型-->
+     <do func="ReadRecord" error="IGNORE">
+        <para name="SqlCmd" sql="QryPrdInf2"/>
+     </do>
+     <if condition="#RetCod==2">
+        <set name="MsgTyp"    value="E"/>
+        <set name="RspCod"    value="07016"/>
+        <set name="RspMsg"    value="该订单不存在"/> 
+        <set name="DWZ_STATUS_CODE"     value="300"/>
+        <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+        <set name="_REQUESTATTR.FORWARDURL"  expr="errorPage"/>
+        <return/> 
+     </if> 
+     <elseif condition="#RetCod!=0">
+        <set name="MsgTyp"    value="E"/>
+        <set name="RspCod"    value="09999"/>
+        <set name="RspMsg"    value="系统错误"/>
+        <set name="DWZ_STATUS_CODE"     value="300"/>
+        <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+        <set name="_REQUESTATTR.FORWARDURL"  expr="errorPage"/>
+        <return/> 
+     </elseif>
+   </macro>
+   
+   <!--根据银行编码发送相应网银接口--> 
+   <macro name="SendInb">
+      <if condition="IS_EQUAL_STRING(BANKCODE,'01010000')">    <!--银联-->
+         <set name="version"      expr="version"/>
+         <set name="encoding"     expr="encoding"/>
+         <set name="signMethod"   expr="signMethod"/>
+         <set name="txnType"      expr="txnType"/>
+         <set name="txnSubType"   expr="txnSubType"/>
+         <set name="bizType"      expr="bizType"/>
+         <set name="channelType"  expr="channelType"/>
+         <set name="frontUrl"     expr="frontUrl"/>
+         <set name="backUrl"      expr="backUrl"/>
+         <set name="accessType"   expr="accessType"/>
+         <set name="merId"        expr="merId"/>            <!--平台商户号码-->
+         <set name="orderId"      expr="orderId"/>
+         <set name="txnTime"      expr="ActDat"/>
+         <set name="txnAmt"       expr="txnAmt"/>
+         <set name="txnTime"      expr="txnTime"/>
+         <set name="currencyCode" expr="currencyCode"/>     <!--交易币种-->
+         <set name="Today" expr="GETDATE()" />
+         <!--set name="pageUrl"      expr="STRCAT(pageUrl,Today,'/')"/>
+         <set name="accessUrl"    expr="STRCAT(accessUrl,Today,'/')"/-->
+         <set name="pageUrl"      expr="pageUrl"/>
+         <set name="accessUrl"    expr="accessUrl"/>
+         
+         <do func="UPOPWAPSIGN"  error="IGNORE">
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="MsgTyp"    value="E"/>
+             <set name="RspCod"    value="09001"/>
+             <set name="RspMsg"    value="签名失败"/>
+             <return/>
+         </if>
+      </if>
+      <else>
+        <set name="MsgTyp"    value="E"/>
+        <set name="RspCod"    value="07004"/>
+        <set name="RspMsg"    value="银行编码不正确"/>
+        <return/>   
+      </else>
+   </macro>
+   
+   <!--根据银行编码发送相应网银接口--> 
+   <macro name="SendSDK">
+      <if condition="IS_EQUAL_STRING(BANKCODE,'01010000')">    <!--银联-->
+         <set name="version"      expr="version"/>
+         <set name="encoding"     expr="encoding"/>
+         <set name="signMethod"   expr="signMethod"/>
+         <set name="txnType"      expr="txnType"/>
+         <set name="txnSubType"   expr="txnSubType"/>
+         <set name="bizType"      expr="bizType"/>
+         <set name="channelType"  expr="channelType"/>
+         <set name="frontUrl"     expr="frontUrl"/>
+         <set name="backUrl"      expr="backUrl"/>
+         <set name="accessType"   expr="accessType"/>
+         <set name="merId"        expr="merId"/>            <!--平台商户号码-->
+         <set name="orderId"      expr="orderId"/>
+         <set name="txnTime"      expr="ActDat"/>
+         <!-- <set name="accNo"      expr="ActDat"/> -->
+         <set name="txnAmt"       expr="txnAmt"/>
+         <set name="txnTime"      expr="txnTime"/>
+         <set name="currencyCode" expr="currencyCode"/>     <!--交易币种-->
+         <set name="orderDesc"      expr="orderDesc"/>
+        <!--  <set name="Today" expr="GETDATE()" />
+         set name="pageUrl"      expr="STRCAT(pageUrl,Today,'/')"/>
+         <set name="accessUrl"    expr="STRCAT(accessUrl,Today,'/')"/
+         <set name="pageUrl"      expr="pageUrl"/>
+         <set name="accessUrl"    expr="accessUrl"/> -->
+         
+         <do func="UPOPSDKSEND"  error="IGNORE">
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="MsgTyp"    value="E"/>
+             <set name="RspCod"    value="09001"/>
+             <set name="RspMsg"    expr="respMsg"/>
+             <return/>
+         </if>
+      </if>
+      <else>
+        <set name="MsgTyp"    value="E"/>
+        <set name="RspCod"    value="07004"/>
+        <set name="RspMsg"    value="银行编码不正确"/>
+        <return/>   
+      </else>
+   </macro>
+   
+      <!-- 组银联退货报文接口 --> 
+   <macro name="SendInC">
+      <if condition="IS_EQUAL_STRING(BANKCODE,'01010000')">
+         <set name="ConfigName"   value="UPOPCfgRef"/>
+         <!--取公共参数配置-->
+         <quote name="ReadXmlCfg"/>
+         <set name="upopMerNo"      expr="upopMerNo"/>    <!--银联b2c支付对账商户号码-->
+         <set name="payAmt"         expr="payAmt"/>
+         
+         <do func="Form_6_4_Refund" error="IGNORE">
+            <para name="version"    expr="upopversion" />    <!-- 版本 -->
+            <para name="encoding"   expr="upopencoding" />   <!-- 编码 -->
+            <para name="signMethod" expr="upopsignMethod" /> <!-- 加密方法 -->
+            <para name="txnType"    value="04" />            <!-- 交易类型 01-消费 -->
+            <para name="txnSubType" value="00" />            <!-- 交易子类型 01:自助消费 02:订购 03:分期付款 -->
+            <para name="frontUrl"   expr="upopfrontUrl" />   <!-- 前台通知地址 -->
+            <para name="backUrl"    expr="upopbackUrl" />    <!-- 后台通知地址 -->
+            <para name="merId"      expr="upopMerNo"/>       <!-- 商户id -->
+            <para name="orderId"    expr="payOrdNo"/>        <!-- 订单号 -->
+            <para name="txnAmt"     expr="payAmt"/>          <!-- 订单金额 -->
+            <para name="txnTime"    expr="ACTDAT" />         <!-- 订单时间 -->
+         </do>
+         <if condition="#RetCod!=0">  
+            <set name="MsgTyp"           value="E"/>
+            <set name="RspCod"           value="09910"/>
+            <set name="RspMsg"           value="签名失败"/>
+            <return/> 
+         </if>
+         <set name="BnkMerNo"        expr="upopMerNo"/>        <!--银行商户号-->
+      </if>   
+      <else>
+        <set name="MsgTyp"    value="E"/>
+        <set name="RspCod"    value="07004"/>
+        <set name="RspMsg"    value="银行编码不正确"/>
+        <return/>   
+      </else>
+   </macro>
+   <!--银联返回数据公共处理-->
+   <macro name="UpdBankDFInf">
+        <!--根据接口接收银联返回数据-->
+        <set   name="txnType"   expr="txnType"/>
+        <set   name="respCode"   expr="respCode"/>
+        <set   name="currencyCode"   expr="currencyCode"/>
+        <set   name="merId"   expr="merId"/>
+        <set   name="txnSubType"   expr="txnSubType"/>
+        <set   name="version"   expr="version"/>
+        <set   name="txnAmt"   expr="txnAmt"/>
+        <set   name="accNo"   expr="accNo"/>
+        <set   name="signMethod"   expr="signMethod"/>
+        <set   name="certId"   expr="certId"/>
+        <set   name="encoding"   expr="encoding"/>
+        <set   name="bizType"   expr="bizType"/>
+        <set   name="respMsg"   expr="respMsg"/>
+        <set   name="queryId"   expr="queryId"/>
+        <set   name="signature"   expr="signature"/>
+        <set   name="orderId"   expr="orderId"/>
+        <set   name="txnTime"   expr="txnTime"/>
+        <set   name="accessType"   expr="accessType"/>
+        <!--银联返回数据--> 
+         
+        <!--和绑卡代付表转换字段-->
+        <set   name="bankStlDate" expr="SUBSTR(txnTime,1,8)"/> <!--银行清算日期-->
+        <set   name="bankJrnNo"   expr="queryId"/>  <!--银行流水号-->
+        <set   name="BankError"   expr="respMsg"/>  <!--银行返回错误原因--> 
+        <set   name="PayRet"      expr="respCode"/> <!--银行网关状态--> 
+        <set   name="BnkDat"      expr="SUBSTR(txnTime,1,8)"/> <!--银行网关会计日期-->
+        <set   name="BNKTIM"      expr="txnTime"/> <!--银行网关会计日期-->
+        <set   name="BnkJnl"      expr="queryId"/> <!--银行网关订单号-->
+        <!--和绑卡代付表转换字段--> 
+        
+        <!--更新代付状态表-->
+        <!--
+        UPDATE BANKDFINF SET FEE=#{DFFEE},NETRECAMT = #{DFNETRECAMT},BANKSTLDATE=#{DFBANKSTLDATE},BANKJRNNO=#{DFBANKJRNNO},
+          BANKERROR=#{DFBANKERROR},PAYRET=#{DFPAYRET},BNKDAT=#{DFBNKDAT},BNKJNL=#{DFBNKJNL}
+        WHERE BANKDFNO = #{BAK_SEQ} 
+        -->
+        
+        <set name="DFORDSTATUS"        expr="DFORDSTATUS"/><!--代付状态 1银行代付中 2代付成功 3代付失败-->
+        <set name="DFFEE"              value="0"/>
+        <set name="DFNETRECAMT"        expr="paidAmt"/>
+        <set name="DFBANKSTLDATE"      expr="bankStlDate"/>
+        <set name="DFBANKJRNNO"        expr="bankJrnNo"/>
+        <set name="DFBANKERROR"        expr="BankError"/>
+        <set name="DFPAYRET"      expr="PayRet"/>
+        <set name="DFBNKDAT"      expr="BnkDat"/>
+        <set name="DFBNKTIM"      expr="BNKTIM"/>
+        <set name="DFBNKJNL"      expr="BnkJnl"/>
+        
+        <do func="ExecSql"     error="IGNORE">
+          <para name="SqlCmd"  sql="UpdBankDFInf"/>
+        </do>
+        <if condition="#RetCod!=0">
+          <set name="RspCod"    value="09965"/>
+          <set name="RspMsg"    value="更新绑卡代付表失败"/>
+          <do func="RollBackWork"/>  
+          <return/>
+        </if>
+        
+        <!--删除银联返回数据-->
+        <delete   name="txnType"/>
+        <delete   name="respCode"/>
+        <delete   name="currencyCode"/>
+        <delete   name="merId"/>
+        <delete   name="txnSubType"/>
+        <delete   name="version"/>
+        <delete   name="txnAmt"/>
+        <delete   name="accNo"/>
+        <delete   name="signMethod"/>
+        <delete   name="certId"/>
+        <delete   name="encoding"/>
+        <delete   name="bizType"/>
+        <delete   name="respMsg"/>
+        <delete   name="queryId"/>
+        <delete   name="signature"/>
+        <delete   name="orderId"/>
+        <delete   name="txnTime"/>
+        <delete   name="accessType"/>
+        <delete   name="paidAmt"/>
+        <!--删除银联返回数据-->
+   </macro>
+   
+   <macro name="checkSpecialName">
+   
+		<set name="NAME_TO_CHECK"          expr="DELBOTHSPACE(CUST_NAME)"/>
+		<set name="CARDNO_TO_CHECK"          expr="DELBOTHSPACE(CUST_CRED_NO)"/>
+		
+		<set name="ConfigName"          value="SpecialNameCardNoEntrys"/>
+		<quote name="ReadXmlCfg"/>
+         	
+		<set name="DELIMITER_NUM"          expr="STRGETCOUNT(NAME_CARDNO_ENTRYS, ',')" />
+		<set name="INDEX"          value="0" />
+		<set name="IS_SPECIAL"          value="0" />
+         	
+		<while condition="INTCMP(INDEX, 2, DELIMITER_NUM)">
+         	
+			<set name="NAME_CARDNO_ENTRY"          expr="GETWORDDELIMITER(NAME_CARDNO_ENTRYS, ',', ADD(INDEX,'1'))" />
+			<set name="NAME"          expr="GETWORDDELIMITER(NAME_CARDNO_ENTRY, '|', 1)" />
+			<set name="CARDNO"          expr="GETWORDDELIMITER(NAME_CARDNO_ENTRY, '|', 2)" />
+			<if condition="AND(IS_EQUAL_STRING(NAME, NAME_TO_CHECK), IS_EQUAL_STRING(CARDNO, CARDNO_TO_CHECK))">
+				<set name="IS_SPECIAL"          value="1" />
+         		<break/>
+			</if>
+			<set name="INDEX"          expr="ADD(INDEX,'1')"/> 
+         		
+		</while>
+   
+   </macro>
+   
+   <!--更新用户登录状态-->
+   <macro name="UpLoginInfo">
+      <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="UptUsrLogFailInfo"/>
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RSPCOD" value="02040"/>
+         <set name="RSPMSG" value="更新登录信息失败!"/> 
+         <return/>
+      </if>
+   </macro>
+   
+   <!--登记密码锁定-->
+   <macro name="usrpwdlock">
+       <set name="ConfigName"   value="G_CheckPwd"/>
+       <quote name="ReadXmlCfg"/>
+       <set name="G_ERRORCOUNT" expr="G_ERRORCOUNT"/><!--错误次数-->
+       <set name="G_LOCK_MIN"   expr="G_LOCK_MIN"/><!--锁定分钟数-->
+       <!--  查询用户登录失败次数及第一次失败时间  -->
+       <do func="ReadRecord"   error="IGNORE">
+         <para name="SqlCmd"    sql="QryUserLogFail"/>
+       </do>
+       <if condition="#RetCod==0">
+          <if condition="OR(ISNULL(LOGIN_FAIL_COUNT),IS_EQUAL_STRING(DELBOTHSPACE(LOGIN_FAIL_COUNT),''))">
+              <!--没有次数记录 没有登录过--> 
+              <set name="FailFlag"  value="1"/>
+          </if>
+          <else>
+              <set name="FailFlag"  expr="LOGIN_FAIL_COUNT"/>
+              <!--判断该用户此次登录时间是否达到规定时间-->
+              <if condition="OR(ISNULL(CURRENT_LOGIN_TIME),IS_EQUAL_STRING(DELBOTHSPACE(CURRENT_LOGIN_TIME),''))">
+                  <!--没有时间记录 没有登录--> 
+                  <set name="FailFlag"  expr="ADD(FailFlag,1)"/>
+              </if>
+              <else>
+                <!--存在最后一次异常登录时间-->
+                <set name="timeDifference"  expr="timeDifference"/><!--时间差-->
+                <!--如果是在5分钟内 只要更新次数+1-->
+                <if condition="DOUBLECMP(timeDifference,2,G_LOCK_MIN)">
+                   <!--判断登录次数是否超过五次-->
+                   <if condition="INTCMP(FailFlag,5,G_ERRORCOUNT)">
+                       <!--5分钟内且第五次以上登录-->
+                       <set name="MsgTyp"    value="E"/>
+                       <set name="RspCod"    value="02075" />
+                       <set name="RspMsg"    expr="STRCAT('输入密码连续失败',G_ERRORCOUNT,'次,请',G_LOCK_MIN,'分钟后再试！')"/>   
+                       <quote name="UpLoginInfo"/>
+                       <return/>
+                   </if>
+                   <else>
+                       <!--五分钟内 登录次数少于五次时-->
+                       <set name="FailFlag"  expr="ADD(FailFlag,1)"/>
+                   </else>
+                </if>
+                <else>
+                    <!--超过五分钟-->
+                    <set name="FailFlag"  value="1"/>
+                </else>
+              </else>
+          </else>
+       </if>
+       <elseif condition="#RetCod==2">
+          <!--添加用户登录失败信息-->
+          <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="InsUsrLogInfo"/>
+          </do>
+          <if condition="#RetCod!=0">
+            <set name="RSPCOD" value="02040"/>
+            <set name="RSPMSG" value="初始化登录信息失败!"/> 
+            <return/>
+          </if>
+          <!--没有次数记录 没有登录过--> 
+          <set name="FailFlag"  value="1"/>
+       </elseif>
+       <else>
+          <set name="RSPCOD" value="02038"/>
+          <set name="RSPMSG" value="请稍后再试!"/>
+          <return/>
+        </else>
+        
+   </macro>
+   
+    <!--验证锁定支付密码-->
+    <macro name="chklockPayPwd">
+        <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="QryPassInf" />
+        </do>
+        <if condition="#RetCod!=0">
+            <set name="RspCod"    value="08041"/>
+            <set name="RspMsg"    value="该客户已经被禁用"/>
+            <return/>
+        </if>
+        <if condition="IS_NOEQUAL_STRING(PASSWORD,paypwd)">
+            <set name="RspCod"    value="08042"/>
+            <set name="RspMsg"    value="支付密码不正确"/>
+            <quote name="UpLoginInfo"/>
+            <return/>
+        </if>
+        <else>
+        </else>
+    </macro>
+    
+       <!--查询冻结信息-->
+   <macro name="SelFrzInf">
+      <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="SelFrzInf"/>
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="01003"/>
+         <set name="RspMsg"    value="无符合条件记录"/>
+         <set name="DWZ_STATUS_CODE" value="300"/>
+         <set name="DWZ_RSP_MSG"     expr="RSPMSG"/> 
+         <do func="RollBackWork"/>  
+         <return/>
+      </if>  
+   </macro>
+   
+      <!--更新冻结明细信息-->
+   <macro name="UpdFrezz">
+      <set name="LST_UPT_OPER_ID" expr="SESSIONS.UID"/>
+      <set name="LST_UPT_DATE"    expr="GETDATE()"/>
+      <set name="LST_UPT_TIME"    expr="GETDATETIME('HHMISS')"/>
+      <do func="ExecSql">
+         <para name="SqlCmd"  sql="UpdFrezInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <do func="RollBackWork"/> 
+         <return/>
+      </if>
+   </macro>
+   
+   <!-- 检查无账户灯枯业务是够启用 -->
+   <macro name="ChkNoCusOpen">
+   	  <set name="ConfigName"   value="NoCusPayOpenConfig"/>
+      <quote name="ReadXmlCfg"/>
+
+      <if condition="IS_NOEQUAL_STRING(NoCusOpenFlg,'O')">
+         <set name="RspCod"    value="01002"/>
+         <set name="RspMsg"    value="该业务未启用"/>
+         <return/>
+      </if>
+   </macro>
+   
+      <!-- 无账户充值、提现,限制商户号（暂仅我要物流:00000000000394） -->
+   <macro name="ChkNoCusMer">
+   	  <set name="merchantId"   expr="merchantId"/>
+      <if condition="IS_NOEQUAL_STRING(merchantId,'11111100000000')">
+         <set name="RspCod"    value="01002"/>
+         <set name="RspMsg"    value="商户号不在该业务范围内"/>
+         <return/>
+      </if>
+   </macro>
+       
+    <!--更新支付订单银行商户号数据-->
+   <macro name="UpdPayMer">
+      <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="UpdPayMer"/>
+      </do>
+      <if condition="#RetCod==2">
+         <set name="RspCod"    value="01002"/>
+         <set name="RspMsg"    value="无符合条件记录"/>
+         <do func="RollBackWork"/>
+         <return/>
+      </if>
+      <elseif condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="系统错误"/>
+         <do func="RollBackWork"/>
+         <return/>
+      </elseif>
+   </macro>
+   <!--通知商城付款成功-->
+   <macro name="TimeTouch2">
+   	  <set name="prdOrdNoTmp"      expr="prdOrdNo"/>
+      <if condition="IS_EQUAL_STRING(isProxy,'1')">
+         <set name="ThirdServer" value="STHDPRO1"/>
+      </if>
+      <else>
+         <set name="ThirdServer" value="STHDSMK1"/>
+      </else>
+      <set name="CheckSign"   value="1"/>
+      
+      <if condition="IS_EQUAL_STRING(Status,'1')">            
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="支付成功"/>
+         <set name="DWZ_STATUS_CODE"   value="200"/>
+         <set name="DWZ_RSP_MSG"       expr="RspMsg"/>
+      </if>
+      
+      <!--响应前端-->
+      <do func="putresponse" error="IGNORE"/> 
+      
+      <do func="CallThird" error="IGNORE">
+         <para name="channel"       expr="ThirdServer"/>
+         <para name="code"          value="272000"/>
+      </do>
+      <if condition="OR(#RetCod==1,#RetCod==10)">
+         <set name="MsgTyp"    value="E"/>
+         <set name="MRspCod"    value="09991"/>
+         <set name="MRspMsg"    value="通知商城失败"/>
+         <!-- 超时处理的主控应用定义 -->
+         <set name="CLEARDAT"    expr="sysTxDate"/>   <!--后台清算日期-->
+         <set name="PrdOrdType"  value="0"/>          <!--订单类型  0消费  1充值  2退款   3撤销-->
+         <set name="TimLevel"    value="2"/>
+         <set name="TimSts"      value="0"/>
+         <set name="TimMill"     expr="GETSECOND()"/>
+         <set name="TimCnt"      value="0"/>
+         <set name="BACKERROR"   expr="RspMsg"/>
+         <set name="ACTDAT"      expr="GETDATE()"/>
+         <set name="TXCCY"       value="CNY"/>
+         <do func="InsertRecord" error="IGNORE">
+            <para name="TblNam"  value="StpPayTim" />
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MRspCod"    value="09999"/>
+            <set name="MRspMsg"    value="系统错误"/>
+         </if>
+      </if>
+      <elseif condition="#RetCod==0">
+         <if condition="IS_NOEQUAL_STRING(RspCod,'00000')">
+            <set name="MRspCod"    expr="RspCod"/>
+            <set name="MRspMsg"    value="商城操作失败"/>
+         </if>
+      </elseif>
+      <else>
+         <set name="MRspCod"    value="09991"/>
+         <set name="MRspMsg"    value="通知商城失败"/>
+      </else>
+      <if condition="IS_EQUAL_STRING(ORDSTATUS,'01')">
+         <set name="RspCod"    value="00000"/>
+      </if>
+   </macro>
+   
+   <!-- 获取银联代收基本信息（缴费） -->
+   <macro name="GetDaiShouInfPay">
+         <!-- 读取快捷支付跳转路径 -->
+       <set name="ConfigName"   value="DaiShouPay"/>
+       <quote name="ReadXmlCfg"/>
+       <set name="ConfigName"   value="DaiShouBaseInf"/>
+       <quote name="ReadXmlCfg"/>
+       <set name="BnkMerNo"    expr="DaiShouMerId"/>
+         <set name="no_agree"    expr="no_agree"/>
+         <set name="cardtype"    expr="cardtype"/>
+         <if condition="OR(ISNULL(no_agree),IS_EQUAL_STRING(no_agree,''))">
+             <set name="POSTURL"   expr="DaiShouUrlNew"/>
+             <!-- 查询身份证号 -->
+         		 <do func="ReadRecord" error="IGNORE">
+          	 			<para name="SqlCmd" sql="QryCertificate" />
+       	 		 </do>
+       	 		 <if condition="#RetCod!=0">
+           			<set name="RspCod"    value="10005"/>
+           			<set name="RspMsg"    value="验证用户身份信息有误！"/>
+           			<return/>
+         		 </if>
+       	 		 <set name="CUST_CRED_NO"    expr="CUST_CRED_NO"/>
+         		 <if condition="NOT(ISNULL(CUST_CRED_NO))">
+           			<set name="sDeData"       expr="DES_DECRYPT(CUST_CRED_NO)"   />
+           			<set name="LEN"           expr="SUB(STRLEN(sDeData),2)"/>
+           			<if condition="INTCMP(LEN,6,2)">
+             		 	 <set name="i"               value="0"/>
+              		 <set name="TEMP_STR"        value=""/>
+              		 <while condition="INTCMP(i,1,LEN)">
+                  		<set name="TEMP_STR"    expr="STRCAT(TEMP_STR,'*')"/>
+                      <set name="i"           expr="ADD(i,1)"/>
+              		</while>
+              		<set name="CUST_CRED_NO"     expr="STRCAT(SUBSTR(sDeData,1,1),TEMP_STR,SUBSTR(sDeData,STRLEN(sDeData),1))"/>
+           			</if>
+       	 		 </if>
+         </if>
+         <else>
+            <!-- 查询绑定卡信息 -->
+           	<do func="ReadRecord"     error="IGNORE">
+              	<para name="SqlCmd" sql="QryStpBankInf"/>
+           	</do>
+           	<if condition="#RetCod==2">
+              	<set name="MsgTyp"        value="E"/>
+              	<set name="RspCod"        value="09999"/>
+              	<set name="RspMsg"        value="银行卡尚未绑定"/>
+              	<return/>  
+           	</if>
+           	<elseif condition="#RetCod!=0">
+              	<set name="MsgTyp"        value="E"/>
+              	<set name="RspCod"        value="02003"/>
+              	<set name="RspMsg"        value="获取卡信息失败，请重新选择！"/>
+              	<return/>  
+           	</elseif>
+           	<set name="BANK_CONF"       expr="BANK_CONF"/><!-- 开通无跳转支付状态 -->
+           	<set name="sDeData"         expr="cardno"   /><!-- 卡号 -->
+           	<if condition="NOT(ISNULL(DES_DECRYPT(sDeData)))"><!-- 卡加密转换 -->
+              	<set name="cardno"      expr="DES_DECRYPT(sDeData)"/>
+           	</if>
+           	<do func="ReadRecord" error="IGNORE">
+            		<para name="SqlCmd" sql="QryCertificate"/>
+        		</do>
+        		<if condition="#RetCod!=0">
+            		<set name="MsgTyp"        value="E"/>
+            		<set name="RspCod"        value="02003"/>
+           			<set name="RspMsg"        value="没有进行实名认证"/>
+            		<return/>  
+         		</if>
+         		<if condition="NOT(ISNULL(DES_DECRYPT(CERTIFID)))"><!-- 身份证转换 -->
+             	 <set name="certifid"      expr="DES_DECRYPT(CERTIFID)"/>
+         		</if>
+        
+        		<set name="cardno"        expr="cardno"/>      <!-- 卡号 -->
+        		<set name="bind_mob"      expr="bind_mob"/>    <!-- 预留银行绑定手机号 -->
+        		<set name="type_card"     expr="type_card"/>   <!-- 卡类型 1：借记卡 2：信用卡 -->
+        		<set name="CARD_NAME"     expr="CUST_NAME"/>
+        		<!-- 检测基本卡信息 -->
+        		<if condition="OR(ISNULL(cardno),ISNULL(bind_mob),ISNULL(type_card),ISNULL(BANKCODE))">
+           			<set name="MsgTyp"        value="E"/>
+           			<set name="RspCod"        value="02003"/>
+           			<set name="RspMsg"        value="卡信息不完整，请重填后再提交付款！"/>
+           			<return/> 
+        		</if>
+        		<if condition="IS_NOEQUAL_STRING(BANK_CONF,'1')">
+            		<set name="MsgTyp"        value="E"/>
+            		<set name="RspCod"        value="02003"/>
+           		  <set name="RspMsg"        value="未开通快捷支付，请开通..."/>
+            		<return/>
+        		</if>
+        		<!-- 卡类型转换 -->
+        		<if condition="IS_EQUAL_STRING(type_card,'1')">
+           		 <set name="CardType"       value="01"/>  <!-- 借记卡 -->
+        		</if>
+        		<elseif condition="IS_EQUAL_STRING(type_card,'2')">
+           			<set name="CardType"       value="02"/>  <!-- 贷记卡 -->
+        		</elseif>
+        		<else>
+            		<set name="MsgTyp"        value="E"/>
+            		<set name="RspCod"        value="02007"/>
+            		<set name="RspMsg"        value="不支持该卡种的消费，请选择其他卡付款！"/><!-- 充值只适用于借记卡 -->
+            		<return/>
+        		</else>
+
+        		<!--参数配置-->
+        		<set name="ConfigName"       value="DaiShouBaseInf"/>
+        		<quote name="ReadXmlCfg"/>
+          
+        		<do func="DaiShou_Pay_BindId"    error="IGNORE">
+           			<para name="merId"    expr="DaiShouMerId"/>                     <!-- 商户号 -->
+           			<para name="orderId"   expr="payOrdNo"/>                    <!-- 商户订单号 -->
+           			<para name="txnTime"    	  expr="ActDat"/>            <!-- 交易时间 yyyyMMddHHmmss -->
+           			<para name="txnAmt"       expr="txnAmt"/>       <!-- 交易金额 单位：分 -->
+           			<para name="bindId"       expr="bindId"/>                <!-- 绑定标识号 -->
+           			<para name="backUrl"         expr="DaiShouBackUrl"/>          <!-- 后台通知地址 -->
+        		</do>
+       			<if condition="#RetCod!=0">
+           			<set name="MsgTyp"      value="E"/>
+           			<set name="RspCod"      value="00001"/>
+           			<set name="RspMsg"      value="respMsg"/>
+       			</if>
+       			<else>
+       					<set name="MsgTyp"      value="N"/>
+       					<set name="RspCod"      value="00000"/>
+       					<set name="RspMsg"      value="交易成功"/>
+       			</else>
+         </else>
+
+       	 
+   </macro> 
+</publicmacro>

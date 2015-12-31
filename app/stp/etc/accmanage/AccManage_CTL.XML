@@ -1,0 +1,545 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="DEBUG">
+   <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+
+   <!-- 公共宏文件引入-->
+   <include file="etc/public/Order_MACRO.XML"/>
+   
+   <before>
+       <!--打印ETF树-->
+       <do func="DumpEtf"/>
+       <!--翻页每页显示的条数-->
+       <set name="NumPerPag"                    value="19"/>
+   </before>
+   <after>
+       <do func="DumpEtf"/>
+   </after>
+   
+  <transaction code="413000" desc="记账明细查询">
+    <sql name="queryChkJNL">
+        select SEQ_NO,JNL_NO,CUST_ID,PAY_AC_NO,AC_TYPE,TXN_TYP,DR_CR_FLAG,IS_ACT,
+        TO_CHAR(TO_NUMBER(NVL(TXN_AMT,0))/100,'FM9999,999,999,990.00') TXN_AMT,
+        TO_CHAR(to_date(TXN_DAT,'yyyymmdd'),'yyyy-mm-dd')AS TXN_DAT ,
+        TO_CHAR(to_date(TXN_TIM,'hh24miss'),'hh24:mi:ss')AS TXNTIM 
+        from STPJNLINF 
+        where 1=1 ${STR001} ${STR002} ${STR003} ${STR004} ${STR005} ${STR006} ${STR007} order by TXN_DAT desc
+    </sql>
+      <process>
+         <if condition="ISNULL(JNL_NO)">
+                <set name="STR001"             value=""/>
+            </if>
+            <else>
+                <set name="STR001"             expr="STRCAT('and JNL_NO=\'',JNL_NO,'\'')"/>
+            </else>
+            <if condition="ISNULL(CUST_ID)">
+                <set name="STR002"           value=""/>
+            </if>
+            <else>
+                <set name="STR002"           expr="STRCAT('and CUST_ID=\'',CUST_ID,'\'')"/>
+            </else>
+            <if condition="ISNULL(PAY_AC_NO)">
+                <set name="STR003"        value=""/>
+            </if>
+            <else>
+                <set name="STR003"        expr="STRCAT('and PAY_AC_NO=\'',PAY_AC_NO,'\'')"/>
+            </else>
+            <if condition="ISNULL(AC_TYPE)">
+                <set name="STR004"      value=""/>
+            </if>
+            <else>
+                <set name="STR004"      expr="STRCAT('and AC_TYPE=\'',AC_TYPE,'\'')"/>
+            </else>
+            <if condition="ISNULL(DR_CR_FLAG)">
+                <set name="STR005"          value=""/>
+            </if>
+            <else>
+                <set name="STR005"          expr="STRCAT('and DR_CR_FLAG=\'',DR_CR_FLAG,'\'')"/>
+            </else>
+            <if condition="ISNULL(IS_ACT)">
+                <set name="STR006"          value=""/>
+            </if>
+            <else>
+                <set name="STR006"          expr="STRCAT('and IS_ACT=\'',IS_ACT,'\'')"/>
+            </else>
+            <if condition="ISNULL(TXN_DAT)">
+                 <set name="STR007"   value=""/>
+            </if>
+            <else>
+                 <set name="STR007"   expr="STRCAT('and to_number(TXN_DAT)=\'',TXN_DAT,'\'' )"/>
+            </else>
+         <if condition="ISNULL(PageNum)">
+           <set name="PageNum"                 value="1"/>
+         </if>
+         <if condition="ISNULL(NumPerPag)">
+           <set name="NumPerPag"               value="19"/>
+         </if> 
+         <do func="PagedQuery"          error="IGNORE">
+           <para name="PageNum"         expr="PageNum"/>
+           <para name="NumPerPag"       expr="NumPerPag"/>
+           <para name="sql"             sql="queryChkJNL"/>
+           <para name="RecordName"       value="GRP"/>
+         </do>
+         <if condition="#RetCod==2">
+            <set name="RspCod"          value="219999"/>
+            <set name="RspMsg"          value="没有符合条件的数据"/>
+            <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/accmanage/queryChkJNL.jsp"/>
+            <return/>
+         </if>
+         <if condition="#RetCod!=0">
+           <set name="RSPCOD"           value="329999"/>
+           <set name="RSPMSG"           value="查询失败!"/>
+           <set name="DWZ_STATUS_CODE"  value="300"/>
+           <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+           <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/accmanage/queryChkJNL.jsp"/>
+           <return/>
+         </if>
+           <set name="RSPCOD"           value="000000"/>
+           <set name="RSPMSG"           value="查询成功!"/>
+           <set name="DWZ_STATUS_CODE"  value="200"/>
+           <set name="DWZ_RSP_MSG"      expr="RspMsg"/>
+           <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/accmanage/queryChkJNL.jsp"/>
+           <return/>
+      </process>
+  </transaction>
+  
+  <transaction code="413001" desc="查询单条记账信息，共详情使用">
+    <sql name="select_one_jnl">
+        select SEQ_NO,JNL_NO,CUST_ID,PAY_AC_NO,AC_TYPE,TXN_TYP,DR_CR_FLAG,IS_ACT,
+        TO_CHAR(TO_NUMBER(NVL(TXN_AMT,0))/100,'FM9999,999,999,990.00') TXN_AMT,
+        TO_CHAR(to_date(TXN_DAT,'yyyymmdd'),'yyyy-mm-dd')AS TXN_DAT ,
+        TO_CHAR(to_date(TXN_TIM,'hh24miss'),'hh24:mi:ss')AS TXNTIM 
+        from STPJNLINF where SEQ_NO=#{SEQ_NO} 
+    </sql>
+    <process>
+      <if condition="ISNULL(SEQ_NO)">
+          <set name="RspCod"               value="01005"/>
+          <set name="RspMsg"               value="序号为空"/>
+          <return/>
+      </if>
+      
+     <!--查询基本信息-->
+     <do func="ReadRecord" error="IGNORE">
+       <para name="SqlCmd" sql="select_one_jnl"/>
+     </do>               
+     <if condition="#RetCod!=0">
+       <if condition="#RetCod==2">
+          <set name="RSPCOD" value="02038"/>
+          <set name="RSPMSG" value="该用户信息为空,浏览失败!"/>
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+          <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+          <return/>
+       </if>
+       <else>
+         <set name="RSPCOD" value="02038"/>
+         <set name="RSPMSG" value="获取该用户息失败!"/>
+         <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+         <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+         <return/>
+       </else>
+     </if>
+     <else>
+       <set name="RSPCOD" value="00000"/>
+       <set name="RSPMSG" value="成功查询到该用户信息"/>
+       <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/accmanage/ChkJNLliulan.jsp"/>
+       <return/> 
+     </else>
+    </process>
+  </transaction>
+  
+  <transaction code="413012" desc="账户调整记录查询">
+     <sql name="qryAccChgInf">
+        select ADJUSTMENT_ID,CUST_ID,AC_TYPE,ADJUST_KIND,REMARKS,ADJUST_O,STATUS,
+        TO_CHAR(TO_NUMBER(NVL(ADJUST_AMT,0))/100,'FM9999,999,999,990.00') ADJUST_AMT,
+        TO_CHAR(to_date(ADJUST_T ,'yyyymmddhh24miss'),'yyyy-mm-dd hh24:mi:ss')AS ADJUST_T
+        from ARP_AC_ADJUSTMENT 
+        where (CUST_ID=#{CUST_ID} or ' '=#{CUST_ID}||' ') 
+        and (AC_TYPE=#{AC_TYPE} or ' '=#{AC_TYPE}||' ') 
+        and (ADJUST_KIND=#{ADJUST_KIND} or ' '=#{ADJUST_KIND}||' ') 
+        and (substr(ADJUST_T,1,8) &gt;= #{STARTDATE} or ' '=#{STARTDATE}||' ') 
+        and (substr(ADJUST_T,1,8) &lt;= #{ENDDATE} or ' '=#{ENDDATE}||' ') 
+        order by ADJUST_T desc
+     </sql>
+     <process>
+        <if condition="NOT(ISNULL(STARTDATE))">
+           <set name="S_STARTDATE" expr="STARTDATE"/>
+           <set name="STARTDATE"   expr="FMTDATE(STARTDATE,4,0)"/>  
+        </if>
+        <if condition="NOT(ISNULL(ENDDATE))">
+           <set name="S_ENDDATE" expr="ENDDATE"/>
+           <set name="ENDDATE"     expr="FMTDATE(ENDDATE,4,0)"/>  
+        </if>
+        
+        <if condition="ISNULL(PageNum)">
+          <set name="PageNum"                 value="1"/>
+        </if>
+        <if condition="ISNULL(NumPerPag)">
+          <set name="NumPerPag"               value="19"/>
+        </if> 
+        
+        <if condition="ISNULL(CUST_ID)">
+           <set name="CUST_ID"   value=""/>  
+        </if>
+        <if condition="ISNULL(STARTDATE)">
+           <set name="STARTDATE"   value=""/>  
+        </if>
+        <if condition="ISNULL(ADJUST_T)">
+           <set name="ADJUST_T"   value=""/>  
+        </if>
+        <if condition="ISNULL(AC_TYPE)">
+           <set name="AC_TYPE"   value=""/>  
+        </if>
+        <if condition="ISNULL(ADJUST_KIND)">
+           <set name="ADJUST_KIND"   value=""/>  
+        </if>
+        
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/accmanage/queryAdjustment.jsp"/>
+        
+        <do func="PagedQuery" error="ignore">
+           <para name="PageNum"          expr="PageNum"/>
+           <para name="NumPerPag"        expr="NumPerPag"/>
+           <para name="Sql"              sql="qryAccChgInf"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"             value="329999"/>
+           <set name="RspMsg"             value="无信息" />
+           <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+          <set name="MsgTyp"    value="E"/>
+          <set name="RspCod"    value="09999"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <set name="DWZ_STATUS_CODE"    value="300"/>
+          <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+          <return/>
+        </elseif>
+        
+        <set name="RspCod"    value="00000"/>
+        <set name="RspMsg"    value="交易成功"/>
+        
+     </process>
+  </transaction>
+  
+  <transaction code="413013" desc="账户调整">
+     <sql name="qryCustTyp">
+        select c.ac_type,p.AC_STATUS,f.cust_status from ARP_AC_CUST_REL c,ARP_AC_PROFILE p,stpcusinf f
+         where c.pay_ac_no=p.pay_ac_no and c.cust_id=f.cust_id 
+        and  c.cust_id=#{CUST_ID1} and c.ac_type=#{ac_type1}
+     </sql>
+     <process>
+        <set name="ac_type1"           expr="ac_type"/>
+        <!--查询客户账户信息-->
+        <do func="ReadRecord"          error="IGNORE">
+          <para name="SqlCmd"          sql="qryCustTyp" />
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"             value="01002"/>
+           <set name="RspMsg"             value="该客户无此类型账户" />
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+           <return/>
+        </if>
+        <if condition="#RetCod!=0">
+           <set name="RspCod"             value="09999"/>
+           <set name="RspMsg"             value="系统错误" />
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+           <return/>
+        </if>
+        <if condition="IS_EQUAL_STRING(AC_STATUS,'2')">
+           <set name="RspCod"             value="09349"/>
+           <set name="RspMsg"             value="账户已冻结不能调账！" />
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(cust_status,'9')">
+           <set name="RspCod"             value="09349"/>
+           <set name="RspMsg"             value="账号已注销不能调账！" />
+           <set name="DWZ_STATUS_CODE"    value="300"/>
+           <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+           <return/>
+        </if>
+        
+        <if condition="IS_EQUAL_STRING(ADJUST_KIND,'1')">
+           <set name="DR_CR_FLAG" value="+"/>   
+        </if>
+        <else>
+           <set name="DR_CR_FLAG" value="-"/>   
+        </else>
+        
+        <set name="ADJUST_AMT"   expr="AMTPOWER(ADJUST_AMT,2)"/>
+        <set name="CUST_ID"      expr="CUST_ID1"/>
+        <set name="ORG_ID"       value="000001"/>
+        <set name="ADJUST_O"     expr="SESSIONS.UID"/>   <!--操作员-->
+        <set name="ADJUST_T"     expr="GETDATETIME()"/>
+        <set name="STATUS"       value="00"/>            <!--00 未调账-->
+        
+        <!--获取序号 -->
+        <do func="GetSeqNo"  error="IGNORE">
+           <para name="TblNam" value="stpseqrec"/>
+           <para name="KeyNam" value="KeyNam"/>
+           <para name="KeyVal" expr="STRCAT('ARP_AC_ADJUSTMENT','ADJUSTMENT_ID',GETDATE())"/>
+           <para name="SeqNam" value="KeyVal"/>
+           <para name="Len"    value="8"/>
+           <para name="Circle" value="1"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="09001"/>
+           <set name="RspMsg"    value="获取序号错误"/>
+           <return/>
+        </if>
+        <set name="ADJUSTMENT_ID"   expr="STRCAT('A',SUBSTR(GETDATE(),2,7),KeyVal)"/>
+            
+        <!--提交复核信息-->
+        <set name="table"       value="ARP_AC_ADJUSTMENT"/>
+        <set name="Status"      value="*"/>
+        <set name="Keys"        value="ADJUSTMENT_ID"/>
+        <set name="method"      value="Insert"/>
+        <quote name="submitAudit"/>   
+        
+        <set name="RspCod"              value="00000"/>
+        <set name="RspMsg"              value="提交复核成功"/>
+        <set name="DWZ_CALLBACK_TYPE"   value="closeCurrent"/>
+        <set name="DWZ_STATUS_CODE"     value="200"/>
+        <set name="DWZ_RSP_MSG"         expr="RspMsg"/>
+
+     </process>
+  </transaction>
+  
+  <transaction code="413014" desc="打开调账登记页面">
+     <process>
+        <set name="RspCod"   value="00000"/> 
+        <set name="RspMsg"   value="交易成功"/> 
+        <set name="DWZ_STATUS_CODE"   value="200"/>
+        <set name="_REQUESTATTR.FORWARDURL"  value="WEB-INF/html/accmanage/accountAdjustment.jsp"/>
+     </process>
+  </transaction>
+  
+  <transaction code="413015" desc="内部账户信息查询">
+     <sql name="qryInAccInf">
+        select a.pay_ac_no,b.cust_id,TO_CHAR(to_date(b.OPN_TX_DATE||b.OPN_TX_TIME,'yyyymmddhh24miss'),'yyyy-mm-dd  hh24:mi:ss') datetime,
+               a.AC_TYPE,TO_CHAR(to_number(a.CASH_AC_BAL)/100,'FM9999,999,999,990.00') CASH_AC_BAL,a.FROZ_BALANCE,
+               TO_CHAR(to_date(case when (a.LST_TX_DATE||a.LST_TX_TIME) is null then b.OPN_TX_DATE||b.OPN_TX_TIME else (a.LST_TX_DATE||a.LST_TX_TIME) end ,'yyyymmddhh24miss'),'yyyy-mm-dd  hh24:mi:ss') upd_time ,AC_STATUS
+          from ARP_AC_PROFILE a,ARP_AC_CUST_REL b 
+         where a.pay_ac_no=b.pay_ac_no and (b.CUST_ID=#{CUST_ID} or ' '=#{CUST_ID}||' ') and (a.pay_ac_no=#{pay_ac_no} or ' '=#{pay_ac_no}||' ') and substr(cust_id,1,6)='999999'
+         order by b.OPN_TX_DATE desc,b.OPN_TX_TIME desc 
+     </sql>
+     <process>
+
+        <if condition="ISNULL(PageNum)">
+          <set name="PageNum"                 value="1"/>
+        </if>
+        <if condition="ISNULL(NumPerPag)">
+          <set name="NumPerPag"               value="19"/>
+        </if> 
+        
+        <if condition="ISNULL(CUST_ID)">
+           <set name="CUST_ID"   value=""/>  
+        </if>
+        <if condition="ISNULL(pay_ac_no)">
+           <set name="pay_ac_no"   value=""/>  
+        </if>
+        
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/accmanage/qryInActInf.jsp"/>
+        
+        <do func="PagedQuery" error="ignore">
+           <para name="PageNum"          expr="PageNum"/>
+           <para name="NumPerPag"        expr="NumPerPag"/>
+           <para name="Sql"              sql="qryInAccInf"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"             value="10002"/>
+           <set name="RspMsg"             value="无账户信息" />
+           <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+          <set name="MsgTyp"    value="E"/>
+          <set name="RspCod"    value="09999"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <set name="DWZ_STATUS_CODE"    value="300"/>
+          <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+          <return/>
+        </elseif>
+        
+        <set name="RspCod"    value="00000"/>
+        <set name="RspMsg"    value="交易成功"/>
+        
+     </process>
+  </transaction>
+  
+    <transaction code="ExportBonds"   desc="导出保证金">
+       <sql name="querymar_rcv_det">
+        select SEQ_NO,CUST_ID,
+        TO_CHAR(TO_NUMBER(NVL(PAID_IN_AMT,0))/100,'FM9999,999,999,990.00') PAID_IN_AMT,
+        TO_CHAR(to_date(MARGIN_RCV_DATE ,'yyyymmdd'),'yyyy-mm-dd')AS MARGIN_RCV_DATE  ,
+        TO_CHAR(to_date(MARGIN_RCV_TIME,'hh24miss'),'hh24:mi:ss')AS MARGIN_RCV_TIME 
+        from MAR_RCV_DET 
+        where 1=1 ${STR001} ${STR002} ${STR003} ${STR004}  order by MARGIN_RCV_DATE desc
+    </sql>
+      <process>
+         <if condition="ISNULL(SEQ_NO)">
+                <set name="STR001"             value=""/>
+            </if>
+            <else>
+                <set name="STR001"             expr="STRCAT('and SEQ_NO=\'',SEQ_NO,'\'')"/>
+            </else>
+            <if condition="ISNULL(CUST_ID)">
+                <set name="STR002"           value=""/>
+            </if>
+            <else>
+                <set name="STR002"           expr="STRCAT('and CUST_ID=\'',CUST_ID,'\'')"/>
+            </else>
+            <if condition="ISNULL(PAID_IN_AMT)">
+                <set name="STR003"        value=""/>
+            </if>
+            <else>
+                <set name="STR003"        expr="STRCAT('and PAID_IN_AMT=\'',PAID_IN_AMT,'\'')"/>
+            </else>                                
+            <if condition="ISNULL(MARGIN_RCV_DATE)">
+                 <set name="STR004"   value=""/>
+            </if>
+            <else>
+                 <set name="STR004"   expr="STRCAT('and to_number(MARGIN_RCV_DATE)=\'',MARGIN_RCV_DATE,'\'' )"/>
+            </else>
+
+			  
+        <!--查询用户信息-->
+        <do func="QueryInGroup">
+           <para name="SqlCmd"         sql="querymar_rcv_det" />
+           <para name="RecordName"     value="reportList" />
+        </do>
+        
+        <if condition="#RetCod==-1">
+          <set name="RSPCOD" value="02037"/>
+          <set name="RSPMSG" value="操作数据库有误!"/>
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+          <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+          <return/>
+        </if>
+        <!--查询成功-->
+        <do func="ReportExport" error="IGNORE">
+           <para name="Root"          value="reportList"/>
+           <para name="FileDemo"      value="Bond"/> <!--导出模板名-->
+           <para name="NameForUser"   value="Bond"/> <!--导出文件名-->
+           <para name="FilePath"      value="rptdemo"/>       <!--导出模板路径-->
+           <para name="FileToPath"    value="/dat/download"/> <!--导出目标地址-->
+           <para name="WebPath"       expr="GETCURAPPHOME()"/> 
+           <para name="params"        value="SEQ_NO/CUST_ID/PAID_IN_AMT/MARGIN_RCV_DATE/MARGIN_RCV_TIME"/>
+           <para name="collectParams" value=""/> <!--导出总条数，总金额如果没有传空-->
+        </do>
+        <if condition="#RetCod!=0">
+           <set name="RspCod"    value="02103"/>
+           <set name="RspMsg"    value="导出出错!"/>
+           <set name="DWZ_STATUS_CODE" value="300"/>
+           <set name="DWZ_RSP_MSG" expr="RSPMSG"/>
+           <return/>
+        </if>
+        <else>
+          <!--移动文件-->    
+            <set name="FILENAME"                 expr="#FILENAME"/>
+            <set name="ConfigName"               value="FtpPutPay"/>
+            <quote name="ReadXmlCfg"/>
+            <do func="MoveFile">
+                <para name="srcDir" expr="LclDir"    />
+                <para name="srcFil" expr="FILENAME"  />
+                <para name="tarDir" expr="ObjDir"    />
+            </do>
+            <if condition="#RetCod!=0"> 
+                <set name="RspCod"  value="01007"/>  
+                <set name="RspMsg"  value="移动文件错误!"/>  
+                <return/> 
+            </if>
+            
+            <set name="pos_webapps"              expr="GETSTRPOS(ObjDir,'/webapps/')"                                />
+            <set name="ObjDir"                   expr="RIGHTSTR(ObjDir,SUB(STRLEN(ObjDir),ADD(pos_webapps,8)))"      />
+            <set name="_REQUESTATTR.REDIRECTURL" expr="STRCAT('/',ObjDir,'/',FILENAME)"/>
+        </else>
+      </process>
+  </transaction> 
+  
+  <transaction code="CJ0002" desc="余额历史查询">
+     <sql name="qryAcBalHisInf">
+         select 
+               a.STL_DATE,
+               TO_CHAR(TO_NUMBER(NVL(a.CONS_AC_BAL,0))/100,'FM9999,999,999,990.00') UsrGoldDeposit,
+               TO_CHAR(TO_NUMBER(NVL(b.CONS_AC_BAL,0))/100,'FM9999,999,999,990.00') MerGoldDeposit,
+               TO_CHAR(TO_NUMBER(NVL(c.CONS_AC_BAL,0))/100,'FM9999,999,999,990.00') MerPendingSettlement,
+               TO_CHAR(TO_NUMBER(NVL(d.CONS_AC_BAL,0))/100,'FM9999,999,999,990.00') PlatformAccount,
+               TO_CHAR(TO_NUMBER(NVL(e.CONS_AC_BAL,0))/100,'FM9999,999,999,990.00') GuaranteeAccount,
+               TO_CHAR(TO_NUMBER(NVL(f.CONS_AC_BAL,0))/100,'FM9999,999,999,990.00') TotalAccount
+         from
+         (
+               select a.STL_DATE,sum(a.CONS_AC_BAL)  CONS_AC_BAL
+               from ARP_AC_BAL_HIS a,arp_ac_cust_rel b,stpcusinf c
+               where a.pay_ac_no=b.pay_ac_no and b.cust_id=c.cust_id and b.ac_type='01' and c.cust_type='0'
+               group by a.STL_DATE 
+         )a,(
+               select a.STL_DATE,sum(a.CONS_AC_BAL)  CONS_AC_BAL
+               from ARP_AC_BAL_HIS a,arp_ac_cust_rel b,stpcusinf c
+               where a.pay_ac_no=b.pay_ac_no and b.cust_id=c.cust_id and b.ac_type='01' and c.cust_type='1'
+               group by a.STL_DATE 
+         )b,(
+               select a.STL_DATE,sum(a.CONS_AC_BAL)  CONS_AC_BAL
+               from ARP_AC_BAL_HIS a,arp_ac_cust_rel b,stpcusinf c
+               where a.pay_ac_no=b.pay_ac_no and b.cust_id=c.cust_id and b.ac_type='02' and c.cust_type='1' 
+               group by a.STL_DATE 
+         )c,(
+               select a.STL_DATE,sum(a.CONS_AC_BAL)  CONS_AC_BAL
+               from ARP_AC_BAL_HIS a
+               where a.pay_ac_no='9999990000000103'
+               group by a.STL_DATE 
+         )d,(
+               select a.STL_DATE,sum(a.CONS_AC_BAL)  CONS_AC_BAL
+               from ARP_AC_BAL_HIS a
+               where a.pay_ac_no='9999990000000104'
+               group by a.STL_DATE 
+         )e,(
+               select a.STL_DATE,sum(a.CONS_AC_BAL)  CONS_AC_BAL
+               from ARP_AC_BAL_HIS a  
+               group by a.STL_DATE 
+         )f
+         where a.STL_DATE=b.STL_DATE and b.STL_DATE=c.STL_DATE and c.STL_DATE=d.STL_DATE and d.STL_DATE=e.STL_DATE and e.STL_DATE=f.STL_DATE and (a.STL_DATE=#{STL_DATE} or ' '=#{STL_DATE}||' ')
+         order by a.STL_DATE desc
+     </sql>
+     <process>
+        <if condition="ISNULL(PageNum)">
+          <set name="PageNum"                 value="1"/>
+        </if>
+        <if condition="ISNULL(NumPerPag)">
+          <set name="NumPerPag"               value="19"/>
+        </if> 
+        
+        <if condition="ISNULL(STL_DATE)">
+           <set name="STL_DATE"   value=""/>  
+        </if>
+        
+        <set name="_REQUESTATTR.FORWARDURL" value="WEB-INF/html/accmanage/qryAcBalHisInf.jsp"/>
+        
+        <do func="PagedQuery" error="ignore">
+           <para name="PageNum"          expr="PageNum"/>
+           <para name="NumPerPag"        expr="NumPerPag"/>
+           <para name="Sql"              sql="qryAcBalHisInf"/>
+        </do>
+        <if condition="#RetCod==2">
+           <set name="RspCod"             value="10002"/>
+           <set name="RspMsg"             value="无历史信息" />
+           <return/>
+        </if>
+        <elseif condition="#RetCod!=0">
+          <set name="MsgTyp"    value="E"/>
+          <set name="RspCod"    value="09999"/>
+          <set name="RspMsg"    value="系统错误"/>
+          <set name="DWZ_STATUS_CODE"    value="300"/>
+          <set name="DWZ_RSP_MSG"        expr="RspMsg"/>
+          <return/>
+        </elseif>
+
+        <set name="RspCod"    value="00000"/>
+        <set name="RspMsg"    value="交易成功"/>
+        
+     </process>
+  </transaction>
+</application>

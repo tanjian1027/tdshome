@@ -1,0 +1,484 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="102" log_level="INFO">
+   <!--银联对账主控-->
+   
+   <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   
+   <before>
+     <set name="MsgTyp"       value="N"/>
+     <set name="RspCod"       value="00000"/>
+     <do expr="@tangdi.engine.context.Msg@dump()"/>
+   </before>
+   
+   <after>
+     <do expr="@tangdi.engine.context.Msg@dump()"/>
+     <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+       <set name="MsgTyp"       value="N"/>
+     </if>
+     <else>
+       <set name="MsgTyp"       value="E"/>
+     </else>
+     
+     <!--银联参数-->
+     <delete name="fieldA"/><!--交易代码            -->
+     <delete name="fieldB"/><!--代理机构标识码      -->
+     <delete name="fieldC"/><!--发送机构标识码      -->
+     <delete name="fieldD"/><!--系统跟踪号          -->
+     <delete name="fieldE"/><!--交易传输时间        -->
+     <delete name="fieldF"/><!--帐号                -->
+     <delete name="fieldG"/><!--交易金额            -->
+     <delete name="fieldH"/><!--商户类别            -->
+     <delete name="fieldJ"/><!--终端类型            -->
+     <delete name="fieldK"/><!--查询流水号          -->
+     <delete name="fieldL"/><!--支付方式（旧-->
+     <delete name="fieldM"/><!--商户订单号-->
+     <delete name="fieldN"/><!--支付卡类型-->
+     <delete name="fieldO"/><!--原始交易的系统跟踪号-->
+     <delete name="fieldP"/><!--原始交易日期时间-->
+     <delete name="fieldQ"/><!--商户手续费-->
+     <delete name="fieldR"/><!--结算金额-->
+     <delete name="fieldS"/><!--支付方式-->
+     <delete name="fieldT"/><!--集团商户代码-->
+     <delete name="fieldU"/><!--交易类型-->
+     <delete name="fieldV"/><!--交易子类-->
+     <delete name="fieldW"/><!--业务类型--> 
+     <delete name="fieldX"/><!--帐号类型-->
+     <delete name="fieldY"/><!--账单类型-->
+     <delete name="fieldZ"/><!--账单号码-->
+     <delete name="fieldZA"/><!--交互方式-->
+     <delete name="fieldAA"/><!--原交易查询流水号    -->
+     <delete name="fieldBB"/><!--商户代码            -->
+     <delete name="fieldCC"/><!--分账入账方式        -->
+     <delete name="fieldDD"/><!--二级商户代码        -->
+     <delete name="fieldEE"/><!--二级商户简称        -->
+     <delete name="fieldFF"/><!--二级商户分账入账金额-->
+     <delete name="fieldGG"/><!--清算净额            -->
+     <delete name="fieldHH"/><!--终端号              -->
+     <delete name="fieldII"/><!--商户自定义域        -->
+     <delete name="fieldJJ"/><!--优惠金额            -->
+     <delete name="fieldKK"/><!--发票金额            -->
+     <delete name="fieldLL"/><!--分期付款附加手续费  -->
+     <delete name="fieldMM"/><!--分期付款期数        -->
+     <delete name="fieldNN"/><!--交易介质-->             
+     <delete name="fieldOO"/><!--保留使用-->
+   </after>
+   
+   <include file="etc/checkaccount/CheckMainProcess_MACRO.XML"/>
+   
+   <!--银联对账文件获取-->  
+   <macro name="upopGetFile">
+
+   	<!--取对账文件传输类交易参数配置-->
+        <set name="ConfigName"       value="UPOPB2bFileTran"/>
+        <quote name="ReadXmlCfg"/>
+         	
+   			<do func="B2bFileTran" error="IGNORE">
+   				<para name="version"        expr="B2bFile_version"/>     <!--版本号-->                     
+					<para name="encoding"       expr="B2bFile_encoding"/>    <!--编码方式-->                   
+					<para name="signMethod"     expr="B2bFile_signMethod"/>  <!--签名方法01-->                 
+					<para name="txnType"        expr="B2bFile_txnType"/>     <!--交易类型76-->                 
+					<para name="txnSubType"     expr="B2bFile_txnSubType"/>  <!--交易子类01-->                 
+					<para name="bizType"        expr="B2bFile_bizType"/>     <!--产品类型000000-->             
+					<para name="accessType"     expr="B2bFile_accessType"/>  <!--接入类型0-->                  
+					<para name="merId"          expr="B2bFile_merId"/>       <!--商户代码-->                   
+					<para name="settleDate"     expr="settleDate"/>  <!--对账日期（MMdd，如：0119）--> 
+					<para name="txnTime"        expr="txnTime"/>     <!--订单发送时间-->               
+					<para name="fileType"       expr="B2bFile_fileType"/>    <!--文件类型00-->                 
+					<para name="reqReserved"    expr="B2bFile_reqReserved"/> <!--商户自定义保留域-->           
+					<para name="revFilePath"    expr="B2bFile_revFilePath"/> <!--接收压缩文件的路径-->         
+					<para name="saveFilePath"   expr="B2bFile_saveFilePath"/><!--保存解压文件的路径-->         
+	   		</do>
+     		<if condition="#RetCod==1">
+         	<set name="RspCod"            value="00000"/>
+         	<set name="RspMsg"            value="生成对账文件失败"/>
+         	<return/>
+      	</if>
+		  	<elseif condition="#RetCod==2">
+			   	<set name="RspCod"            value="00000"/>
+         	<set name="RspMsg"            value="无对账文件"/>
+		  	</elseif>
+		  	<else>
+		  		<set name="RspCod"               value="00000"/>
+      		<set name="RspMsg"               value="对账文件生成完成"/> 
+		  	</else>
+   </macro>
+   
+   <!--判断银联对账文件是否存在-->
+   <macro name="ChkUPOPRevFilsValid">
+      <set name="BankCode"   expr="TOUPPER(BankCode)"/>
+      <do func="IsValidFile" error="IGNORE">
+        <para name="FilNam"  expr="STRCAT('dat/chk/','UPOPB2B','/',BnkFil)"/>
+      </do>
+      <if condition="#RetCod==1">
+        <set name="RspCod"    value="01002"/>
+        <set name="RspMsg"    value="文件不存在,继续执行"/>
+      </if>
+      <elseif condition="#RetCod!=0">
+        <set name="RspCod"    value="09998"/>
+        <set name="RspMsg"    value="系统错误"/>
+        <quote name="ChkErrProc"/><!-- 回滚数据库 -->
+        <return/>
+      </elseif>
+      <elseif condition="#RetCod==0">
+        <set name="BnkFilLin"  expr="FilLin"/>
+        <quote name="PaserUPOPPayFile"/>
+      </elseif>
+   </macro> 
+   
+
+   <!--解析银联对账文件-->
+   <macro name="PaserUPOPPayFile">
+     <!-- 银联对账文件入库 -->
+     <set name="Line"         value="1"/>  <!--  正在读取行数 -->
+     <do func="ReadLines">
+       <para name="FilNam"  expr="STRCAT('dat/chk/','UPOPB2B','/',BnkFil)" />
+       <para name="CharSet" value="GB18030" />
+       <para name="TEMNAM"  value="Files3" />
+     </do>
+     <if condition="#RetCod!=0">
+       <set name="RspCod"    value="09004"/>
+       <set name="RspMsg"    value="解析文件失败"/>
+       <quote name="ChkErrProc"/>
+       <return/>
+     </if>
+     <set name="mark"    value="1"/>    <!-- 从第一行读起-->
+     <foreach expr="#Files3"  iterator="#line3">
+        <if condition="INTCMP(mark,6,0)">
+          <do func="unpack"     error="IGNORE">
+            <para name="dataType" value="asc"/>
+            <para name="charset"  value="GB18030"/>
+            <para name="code"     value="UPOPPayRec"/>
+            <para name="ITF"      value="etc/public/STP_TRAN_FMT.XML"/>
+            <para name="source"   expr="#line3"/>
+          </do>
+          
+          <set name="BankCode"   expr="BankCode"/>   <!--银行编码-->
+          <set name="BNKORDNO"   expr="fieldM"/>     <!--银行网关订单号-->
+          <set name="BankLogNo"  expr="fieldK"/>     <!--银行流水号-->
+          <set name="Date"       expr="SUBSTR(GETDATE(),1,4)"/>
+          <set name="ActDate"    expr="STRCAT(Date,SUBSTR(fieldE,1,4))"/>   <!--交易日期-->
+          <set name="ActTime"    expr="SUBSTR(fieldE,5,6)"/>   <!--交易时间-->
+          <set name="TxnAmt"     expr="AMTDELZERO(fieldG)"/>   <!--交易金额-->
+	        <set name="MerCode"    expr="fieldBB"/>               <!--银联商户号码-->   
+	        <set name="txnDate"    expr="STRCAT(Date,fieldE)"/>   <!--交易日期-->
+	        <set name="BANKFEE"    expr="AMTDELZERO(SUBSTR(fieldQ,2,12))"/>               <!--手续费-->     
+	        
+	        <set name="fieldU"          expr="fieldU"/>
+	        <if condition="IS_EQUAL_STRING(fieldU,'12')"> <!--代付-->
+	           <set name="ChkTypeBnkRec"   value="3"/>    <!--对账类型   ChkType  0 收款and退款 1 收款 2 退款 3代付-->
+	        </if>
+	        <elseif condition="IS_EQUAL_STRING(fieldU,'01')"><!--支付-->
+            <set name="ChkTypeBnkRec"   value="1"/>
+	        </elseif>
+	        <elseif condition="IS_EQUAL_STRING(fieldU,'04')"><!--退货-->
+	           <set name="ChkTypeBnkRec"   value="2"/>
+	        </elseif>
+	        <else>
+	           <set name="RspCod"    value="09996"/>
+             <set name="RspMsg"    value="获取交易子类出错"/>
+             <quote name="ChkErrProc"/>
+             <return/>
+	        </else>    
+	        
+	        
+          <if condition="IS_NOEQUAL_STRING(ChkTypeBnkRec,'2')"> <!--退货不参与对账-->
+          	<!--插入银行对账明细表 -->
+          	<do func="ExecSql"     error="IGNORE">            
+            	<para name="SqlCmd"  sql="InsStpBnkRec"/>
+          	</do>
+          	<if condition="#RetCod==3">
+            	<set name="RspCod"    value="09996"/>
+            	<set name="RspMsg"    value="数据库主键冲突"/>
+            	<quote name="ChkErrProc"/>
+            	<return/>
+          	</if>
+          	<elseif condition="#RetCod ==-1">
+            	<set name="RspCod"    value="09999"/>
+            	<set name="RspMsg"    value="数据库操作错误"/>
+            	<quote name="ChkErrProc"/>
+            	<return/>
+          	</elseif>
+          	<!--更新手续费 -->
+          	<do func="ExecSql"     error="IGNORE">            
+            	<para name="SqlCmd"  sql="UpdFee"/>
+          	</do>
+          	<if condition="#RetCod==3">
+            	<set name="RspCod"    value="09996"/>
+            	<set name="RspMsg"    value="数据库主键冲突"/>
+            	<quote name="ChkErrProc"/>
+            	<return/>
+          	</if>
+          	<elseif condition="#RetCod==-1">
+            	<set name="RspCod"    value="09999"/>
+            	<set name="RspMsg"    value="数据库操作错误"/>
+            	<quote name="ChkErrProc"/>
+            	<return/>
+          	</elseif>
+          </if>	          
+
+        </if>
+        <set name="Line"        expr="ADD(Line,1)"/>
+        <set name="mark"        expr="ADD(mark,1)"/>
+     </foreach>
+
+   </macro>
+  
+   <transaction code="upopB2BCheck" desc="银联对账">
+     <sql name="QryStpChkSts"><!--查询对账状态表-->
+       SELECT CHKPROSTS FROM StpChkSts WHERE BankCode=#{BankCode} AND ActDate=#{ChkDat} AND ChkType=#{ChkType}  
+     </sql>
+     <sql name="UpdStpChkSts"><!--更新对账状态表-->
+       UPDATE StpChkSts SET ChkProSts=#{ChkProSts} WHERE BankCode=#{BankCode} AND ActDate=#{ChkDat} AND ChkType=#{ChkType}  
+     </sql>
+     <sql name="QryStpChkFisrt"><!--  查询是否是第一次做对账  3已对账完成 -->
+       SELECT CHKPROSTS FROM StpChkSts WHERE BankCode=#{BankCode} AND ChkType=#{ChkType} AND  ChkProSts='3'  
+     </sql>
+     <sql name="InsStpChkSts"><!--插入对账状态表-->
+       INSERT INTO StpChkSts VALUES (#{BankCode},#{ChkType},#{ChkDat},'','2','','','','','') 
+     </sql>
+     <sql name="QryStpChkQD"><!--  查询对账日期前一天对账是否成功   -->
+       SELECT CHKPROSTS FROM StpChkSts WHERE BankCode=#{BankCode} AND ActDate=#{ChkQDate} AND  ChkProSts='3'  
+     </sql>
+     <sql name="InsStpBnkRec"><!-- 插入银行对账文件明细表 银联e支付-->
+       INSERT INTO StpBnkRec (BankCode,ActDate,PAYORDNO,BankDate,BankLogNo,OBankLogNo,CcyCod,TxnAmt,ChkNum,ActTime,ChkType) 
+       VALUES (#{BankCode},#{ActDate},#{BNKORDNO},#{ActDate},#{BankLogNo},'','CNY',#{TxnAmt},'0',#{ActTime},#{ChkTypeBnkRec})
+     </sql>
+     <sql name="DelStpBnkRec_Last"><!--删除银行明细表中记录-->
+       DELETE FROM StpBnkRec WHERE BankCode=#{BankCode}
+     </sql>
+     <sql name="DelStpBckRec_Last"><!--删除系统明细表中记录-->
+       DELETE FROM StpBckRec WHERE BankCode=#{BankCode}
+     </sql>
+     <sql name="DelStpChkSuc_Last"><!--删除成功表中记录-->
+       DELETE FROM StpChkSuc WHERE BankCode=#{BankCode}
+     </sql>
+     <sql name="UpdChkErrInf"><!--登记对账错误信息-->
+       UPDATE StpChkSts SET ChkProSts='4',RmkInf=#{RspMsg} WHERE BankCode=#{BankCode} AND ActDate=#{ChkDat}
+     </sql>
+     <sql name="QryBnkRec"><!--  查询银行对账数据 -->
+       SELECT PAYORDNO FROM StpBnkRec WHERE BankCode=#{BankCode} AND ChkType=#{ChkType}
+     </sql>
+     <sql name="InsStpBnk2BckRec"><!-- 支付系统数据插入明细表 和银行明细表中比对的数据入系统明细表-->
+       <!-- 注:此处暂不考虑收取用户手续费-->
+       INSERT INTO StpBckRec(BankCode,ACTDATE,PAYORDNO,ORDSTATUS,PRDORDTYPE,CHKTYPE,BANKDATE,BANKLOGNO,CcyCod,TXNAMT,FEE,MERCODE,GODORDCODE,ChkNum)
+          SELECT p.bankcod, SUBSTR(p.ActDat, 0, 8),p.payordno,p.OrdStatus,p.PrdOrdType,#{ChkType}, SUBSTR(p.ActDat, 0, 8), p.bankJrnNo, 'CNY', 
+                 CASE WHEN p.payType='01' THEN p.txAmt ELSE p.mulAmt END txAmt,nvl(p.fee,0), p.merNo,p.PrdOrdNo,'0'
+            FROM STPPAYINF P,StpBnkRec B
+           WHERE P.payordno = B.payordno AND B.BankCode=P.Bankcod AND BankCode=#{BankCode} AND ChkType=#{ChkType}
+     </sql>
+     <sql name="InsStpBckRec"><!-- 支付系统数据插入明细表 剩余的当日数据入系统明细表 网银通道-->
+       INSERT INTO StpBckRec(BankCode,ACTDATE,PAYORDNO,ORDSTATUS,PRDORDTYPE,CHKTYPE,BANKDATE,BANKLOGNO,CcyCod,TXNAMT,FEE,MERCODE,GODORDCODE,ChkNum)
+          SELECT p.bankcod, SUBSTR(p.ActDat, 0, 8),p.payordno,p.OrdStatus,p.PrdOrdType,#{ChkType}, SUBSTR(p.ActDat, 0, 8), p.bankJrnNo, 'CNY', 
+                 CASE WHEN p.payType='01' THEN p.txAmt ELSE p.mulAmt END txAmt,nvl(p.fee,0), p.merNo,p.PrdOrdNo,'0'
+            FROM STPPAYINF P
+           WHERE P.payordno NOT IN (SELECT PAYORDNO FROM StpBckRec WHERE BankCode=#{BankCode} AND ChkType=#{ChkType}) 
+                 AND SUBSTR(P.ActDat, 0, 8) = #{ChkDat} AND P.bankCod=#{BankCode} AND P.OrdStatus='01' and (P.payType='01' or (P.payType='04' and P.MulType='01'))
+     </sql>
+     <sql name="UpdChkBnkFilSts"><!--银行对账文件获取并入库后 更新对账状态-->
+       UPDATE StpChkSts SET BankFilSts=#{BankFilSts},ChkProSts='2' WHERE ActDate=#{ChkDat} AND BankCode=#{BankCode}
+     </sql>
+     <sql name="InsDouToErr"><!--将存疑表中对账次数大于最大次数的记录存入错帐表-->
+       INSERT INTO StpChkErr (BankCode,chkDat,ActDate,PAYORDNO,BankDate,BankLogNo,ChkType,CWType,CcyCod,TxnAmt,bnkOrdAmt,Fee,MerCode,GodOrdCode,ChkNum)
+         SELECT BankCode,${ChkDat},ActDate,PAYORDNO,BankDate,BankLogNo,ChkType,DouType,CcyCod, CASE WHEN DouType='2' THEN TxnAmt ELSE '' END TxnAmt,CASE WHEN DouType='1' THEN TxnAmt ELSE '' END bnkOrdAmt,Fee,MerCode,GodOrdCode,ChkNum 
+           FROM StpChkDou WHERE ChkNum &gt;=#{ChkMax} AND BankCode=#{BankCode}
+     </sql>
+     <sql name="InsDouToBck"><!--转移支付系统存疑数据到系统明细表-->
+       INSERT INTO StpBckRec (BankCode,ActDate,PAYORDNO,PRDORDTYPE,BankDate,BankLogNo,ChkType,CcyCod,TxnAmt,Fee,MerCode,GodOrdCode,ChkNum,ORDSTATUS)
+         SELECT BankCode,ActDate,PAYORDNO,PRDORDTYPE,BankDate,BankLogNo,ChkType,CcyCod,TxnAmt,Fee,MerCode,GodOrdCode,ChkNum,'01' ORDSTATUS  
+           FROM StpChkDou WHERE ChkNum &lt;#{ChkMax} AND DouType='2' AND BankCode=#{BankCode}
+     </sql>
+     <sql name="DelStpBckDouTmp"><!--删除后台存疑表中记录-->
+       DELETE  FROM StpChkDou WHERE ChkNum &lt;#{ChkMax} AND DouType='2' AND BankCode=#{BankCode}
+     </sql>
+     <sql name="InsDouToBnk"><!--转移银行存疑数据到银行明细表-->
+       INSERT INTO StpBnkRec (BankCode,ActDate,PAYORDNO,BankDate,BankLogNo,OBankLogNo,CcyCod,TxnAmt,ChkType,ChkNum)
+         SELECT BankCode,ActDate,PAYORDNO,BankDate,BankLogNo,OBankLogNo,CcyCod,TxnAmt,ChkType,ChkNum  
+           FROM StpChkDou WHERE ChkNum &lt;#{ChkMax} AND DouType='1' AND BankCode=#{BankCode}
+     </sql>
+     <sql name="DelStpBnkDouTmp"><!--删除银行存疑表中记录-->
+       DELETE FROM StpChkDou WHERE ChkNum &lt;#{ChkMax} AND DouType='1' AND BankCode=#{BankCode}
+     </sql>
+     <sql name="InsSucFromBck"><!--获取对账正确数据，并插入对账成功表-->
+       INSERT INTO StpChkSuc 
+       SELECT DISTINCT a.BankCode,${ChkDat},a.ActDate,a.PAYORDNO,a.PRDORDTYPE,a.ChkType,a.BankDate,a.BankLogNo,a.CcyCod,a.TxnAmt,a.Fee,a.MerCode,a.GodOrdCode,a.ChkNum 
+         FROM StpBckRec a, StpBnkrec b
+        WHERE a.BankCode=b.BankCode  AND a.BankCode=#{BANKCODE} AND a.PAYORDNO=b.PAYORDNO AND CAST(a.TxnAmt AS DECIMAL(13,2))=CAST(b.TxnAmt AS DECIMAL(13,2)) AND a.ORDSTATUS='01'
+     </sql>
+     <sql name="InsHisSuc"><!--  获取对账正确数据，转移到对账成功历史表中   -->
+        INSERT INTO StpHisSuc 
+        SELECT a.BankCode,${ChkDat},a.ActDate,a.PAYORDNO,a.ChkType,a.BankDate,a.BankLogNo,a.CcyCod,a.TxnAmt,a.Fee,a.MerCode,a.GodOrdCode,a.ChkNum 
+          FROM StpChkSuc a
+         WHERE a.BankCode=#{BANKCODE} 
+     </sql>
+     <sql name="delBnkSucRec"><!--获取银行对平交易，并删除-->
+       DELETE FROM StpBnkRec b where exists ( select 1 from StpChkSuc a WHERE a.BankCode=b.BankCode AND a.BankCode=#{BankCode} and a.PAYORDNO=b.PAYORDNO and a.TxnAmt=b.TxnAmt)
+     </sql>
+     <sql name="delBckSucRec"><!--获取系统对平交易，并删除-->
+       DELETE FROM StpBckRec b where exists ( select 1 from StpChkSuc a WHERE a.BankCode=b.BankCode AND a.BankCode=#{BankCode} and a.PAYORDNO=b.PAYORDNO and a.TxnAmt=b.TxnAmt)
+     </sql>
+     <sql name="InsAmtFalFromRec"><!--获取金额差错交易，并插入对账差错表-->
+       INSERT INTO StpChkErr (BankCode,chkDat,ActDate,PAYORDNO,BankDate,BankLogNo,ChkType,CWType,CcyCod,TxnAmt,BNKORDAMT,ChkNum,Fee,MerCode,GodOrdCode)
+                   SELECT DISTINCT a.BankCode,${ChkDat},a.ActDate,a.PAYORDNO,a.BankDate,a.BankLogNo,'0','3',a.CcyCod,a.TxnAmt,b.TxnAmt,a.ChkNum,a.Fee,a.MerCode,a.GodOrdCode
+                     FROM stpbckrec a,stpbnkrec b 
+                    WHERE a.BankCode=b.BankCode AND a.BankCode=#{BANKCODE} and a.PAYORDNO=b.PAYORDNO and a.TxnAmt!=b.TxnAmt
+     </sql>
+     <sql name="InsFalFromRec"><!--获取系统状态为未支付 银行为支付成功的订单数据，并插入对账差错表-->
+       INSERT INTO StpChkErr (BankCode,chkDat,ActDate,PAYORDNO,BankDate,BankLogNo,ChkType,CWType,CcyCod,TxnAmt,BNKORDAMT,ChkNum,Fee,MerCode,GodOrdCode)
+                   SELECT DISTINCT a.BankCode,${ChkDat},a.ActDate,a.PAYORDNO,a.BankDate,a.BankLogNo,'0','1',a.CcyCod,a.TxnAmt,b.TxnAmt,a.ChkNum,a.Fee,a.MerCode,a.GodOrdCode
+         FROM StpBckRec a, StpBnkRec b
+        WHERE a.BankCode=b.BankCode  AND a.BankCode=#{BANKCODE} AND a.PAYORDNO=b.PAYORDNO AND CAST(a.TxnAmt AS DECIMAL(13,2))=CAST(b.TxnAmt AS DECIMAL(13,2)) AND a.ORDSTATUS='00'
+     </sql>
+     <sql name="delBckErr"><!--获取后台差错交易，并删除-->
+       DELETE FROM StpBckRec b where exists ( select 1 from StpChkErr a WHERE a.BankCode=b.BankCode and a.BankCode=#{bankcode} and a.PAYORDNO=b.PAYORDNO )
+     </sql>
+     <sql name="delBnkErr"><!--获取银行差错交易，并删除-->
+       DELETE FROM StpBnkRec b where exists ( select 1 from StpChkErr a WHERE a.BankCode=b.BankCode AND a.BankCode=#{bankcode} and a.PAYORDNO=b.PAYORDNO )
+     </sql>
+     <sql name="InsDouBck"><!--获取系统存疑交易，并插入存疑表-->
+       INSERT INTO StpChkDou (BankCode,ActDate,PAYORDNO,PRDORDTYPE,BankDate,BankLogNo,ChkType,DouType,CcyCod,TxnAmt,Fee,MerCode,GodOrdCode,ChkNum)
+         SELECT BankCode,ActDate,PAYORDNO,PRDORDTYPE,BankDate,BankLogNo,'0','2' DouType,CcyCod,TxnAmt,Fee,MerCode,GodOrdCode,CAST((CAST(ChkNum AS INT)+1) AS CHAR(02)) ChkNum 
+           FROM StpBckRec WHERE BankCode=#{BankCode}
+     </sql>
+     <sql name="InsDouBnk"><!--获取银行存疑交易，并插入存疑表-->
+       INSERT INTO StpChkDou (BankCode,ActDate,PAYORDNO,BankDate,BankLogNo,OBankLogNo,ChkType,DouType,CcyCod,TxnAmt,Fee,ChkNum)
+         SELECT BankCode,ActDate,PAYORDNO,BankDate,BankLogNo,OBankLogNo,'0','1' DouType,CcyCod,TxnAmt,'0.00',CAST((CAST(ChkNum AS INT)+1) AS CHAR(02)) ChkNum 
+           FROM StpBnkRec  WHERE BankCode=#{BankCode}
+     </sql>
+     <sql name="delDouBck"><!--从明细表中删除银行存疑记录-->
+       DELETE FROM StpBnkRec b where exists ( select 1 from STPCHKDOU a WHERE a.BankCode=b.BankCode AND a.BankCode=#{bankcode} and a.PAYORDNO=b.PAYORDNO)
+     </sql>
+     <sql name="delDouBnk"><!--从明细表中删除后台存疑记录-->
+       DELETE FROM StpBckRec b where exists ( select 1 from STPCHKDOU a WHERE a.BankCode=b.BankCode AND a.BankCode=#{bankcode} and a.PAYORDNO=b.PAYORDNO)
+     </sql>
+     <sql name="DelDouErr"><!--删除存疑表中的差错数据-->
+       Delete FROM StpChkDou WHERE ChkNum &gt;=#{ChkMax} AND BankCode=#{BankCode}
+     </sql>
+     <sql name="SelSucSumAmt"><!--查询平台和银行成功笔数及金额 -->
+       SELECT count(*) as SUCNUM,nvl(SUM(TxnAmt),0) SUCAMT FROM StpChkSuc where BankCode=#{BankCode} and chkDat=#{ChkDat}
+     </sql>
+      <sql name="SelErrSumAmt"><!--查询差金额及笔数-->
+       SELECT count(*) as ERRORNUM,nvl(SUM((CASE WHEN CWType='1' THEN BNKORDAMT ELSE TxnAmt END)),0)  ERRORAMT FROM StpChkErr where BankCode=#{BankCode}
+     </sql>
+     <sql name="UpdtProSts"><!--更新对账状态表状态-->
+       UPDATE StpChkSts SET ChkProSts='3',SUCNUM=#{SUCNUM},SUCAMT=#{SUCAMT},ERRORNUM=#{ERRORNUM},ERRORAMT=#{ERRORAMT} where BankCode=#{BankCode} AND ActDate=#{ChkDat}
+     </sql>
+     <sql name="InsClrDat"><!--将对账成功的消费类订单插入结算明细表 金额入商品订单表的 避免混合支付-->
+       INSERT INTO ARP_BANK_REC_STL (merNo,prodCode,PrdOrdNo,orderTime,ordCcy,ordAmt,fee)
+         SELECT a.MerCode,b.prodCode,a.GodOrdCode,a.ActDate,'CNY',b.ordAmt,b.txnComAmt
+           FROM StpChkSuc a,StpPrdInf b 
+          WHERE a.GodOrdCode=b.PrdOrdNo and a.BankCode=#{BankCode} AND (a.PrdOrdType='0' or a.PrdOrdType='2')
+     </sql>
+     <sql name="UpdFee"><!--根据对账文件中的手续费金额更新STPPAYINF中的手续费-->
+       update STPPAYINF set BANKFEE = #{BANKFEE}
+       	where PAYORDNO=#{BNKORDNO} and ACTDAT=#{txnDate} and TXAMT=#{TxnAmt}
+     </sql>
+     <process>
+	     <set name="bankcode" expr="bank_code"/>
+       <if condition="ISNULL(BANKCODE)">
+         <set name="BANKCODE"  value="01010100"/>
+       </if>
+       <set name="ChkType"   value="0"/>      <!-- 对账类型 ChkType  0 收款and退款 1 收款 2 退款 -->
+       <set name="BnkCod"    expr="BANKCODE"/> 
+       <set name="ACTDATE"   expr="ACTDATE"/>
+       <if condition="ISNULL(ACTDATE)">
+         <set name="ChkDat"  expr="CALCDATE(GETDATE(),'-','d','1')"/>
+       </if> 
+       <else>
+       	 <set name="ChkDat"    expr="FMTDATE(ACTDATE,4,0)"/>
+       </else>      
+       
+       <!--检查是否正在对账-->
+       <quote name="ChkDzh"/>
+       
+       <!--数据清理-->
+       <quote name="ClearData"/>
+       
+       <set name="ConfigName"     value="UpopCfgMerIdB2B"/>  <!--银联B2B支付商户号码-->
+       <quote name="ReadXmlCfg"/>
+	     <set name="upopMerNo"      expr="upopMerNo"/> <!--银联B2B支付对账商户号码，用来组装对账文件-->	     
+	     <set name="fileName"       expr="CALCDATE(ChkDat,'+','d','1')"/>     
+
+	     <if condition="IS_EQUAL_STRING(BankCode,'01010100')">	    
+         <set name="BnkFil"  expr="STRCAT(fileName,'_',upopMerNo)"/>
+         <!--判断对账文件是否存在并解析文件 银联文件由后台直接从银行获取解析至指定目录下，不需手工上传-->
+         <quote name="ChkUPOPRevFilsValid"/>
+	     </if>
+	     <else>
+         <set name="RspCod"    value="08412"/>
+         <set name="RspMsg"    value="没有符合该银行编号！"/>
+         <return/>
+       </else>
+       <set name="starta"  value="银联B2B支付银联数据录入完毕"/>
+       <!--支付系统数据录入-->
+       <quote name="BcgDataEntry"/>
+
+       <!--插入绑卡代付一分钱-->
+       <!--do func="ExecSql"     error="IGNORE">
+         <para name="SqlCmd"  sql="InsBankDfInf"/>
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RspMsg"  value="绑卡代付一分钱后台无记录"/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"></set>
+         <set name="RspMsg"    value="数据库操作错误"></set>
+         <quote name="ChkErrProc"/>
+         <return/>
+       </elseif-->   
+       
+       <!--银行对账文件入库成功更新对账状态表-->
+       <quote name="UpdChkBnkFilSts"/> 
+   		<!--进入对账主要流程处理-->      
+       <!--存疑表数据处理, 提取错帐记录, 将存疑数据转移到后台和银行明细表中 -->
+       <quote name="InsDouToErr"/>
+  
+       <!--1.获取对平交易-->
+       <quote name="ChkStepSuc"/>
+       <!--2.获取错帐交易-->
+       <quote name="ChkStepErr"/>
+       <!--3.其余为存疑数据-->
+       <quote name="ChkStepDou"/>
+       
+       <!--错帐表中数据处理-->
+       <quote name="DealChkErr"/>
+       
+       <!--查询银行及平台笔数成功、差错及金额-->
+       <quote name="SelStpNumAmt"/>
+       
+       <!--更新对账状态表-->
+       <quote name="UpdtProSts"/>
+       
+       <!--清算数据准备-->
+       <quote name="preClrData"/>
+       
+       <set name="RspCod"    value="00000"/>
+       <set name="RspMsg"    value="交易成功"/>       
+     </process>
+   </transaction>
+   	
+   <transaction code="UpopB2BChkFileGet"   desc="银联自动生成对账文件"> 
+     <process>
+       <!--检查用户登录平台是否正确-->       
+       <if condition="IS_NOEQUAL_STRING(SysCod,'Batch')">
+          <set name="RspCod"            value="01001"/>
+          <set name="RspMsg"            value="用户登录平台不正确"/>
+          <return/>        
+       </if> 
+       <set name="settleDate"    expr="CALCDATE(GETDATE(),'-','d','1')"/> <!-- 清算时间-->   
+       <set name="settleDate" 	 expr="SUBSTR(settleDate,5,4)"/>
+       <set name="txnTime"		   expr="GETDATETIME()"/> 	<!-- 订单时间 -->
+		   <!--取公共参数配置-->
+       <set name="ConfigName"   value="UpopCfgFile"/>
+       <quote name="ReadXmlCfg"/>
+       		   
+		   <!--取银联B2B商户号码-->
+       <set name="ConfigName"     value="UpopCfgMerIdB2BTopUP"/>
+       <quote name="ReadXmlCfg"/>
+	     <set name="upopmerno"      expr="upopMerNo"/> <!--银联B2B商户号码-->
+		   <quote name="upopGetFile"/>     <!--银联对账文件获取-->
+		     
+     </process>
+  </transaction>
+   
+</application>

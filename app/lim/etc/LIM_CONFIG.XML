@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<root>
+  <!--系统公共参数配置-->
+  <config name="UrlConfig">
+    <!--服务器内网退出路径-->
+    <outUrl>http://59.41.60.154:8090/pay/login.jsp</outUrl>
+    <!--内部系统指定账户号-->
+    <innAccount>100000</innAccount>
+    <!--内部系统ID-->
+    <innSysId>1000</innSysId>
+    <!--服务器外网退出路径-->
+    <outerUrl>http://59.41.60.154:8090/pay/outerlogin.jsp</outerUrl>
+    <!--服务器内网返回首页路径-->
+    <initLogUrl>http://59.41.60.154:8090/pay</initLogUrl>
+    <!--内部系统用户密码过期拥有权限集合-->
+    <interLimits>01,0103,010301</interLimits>
+    <!--商户系统用户密码过期拥有权限集合-->
+    <merchantLimits>21,2102,210201</merchantLimits>
+    <!--企业会员系统密码过期拥有权限集合-->
+    <busLimits>24,2407,240704</busLimits>
+    <!--终端代理系统用户密码过期拥有权限集合-->
+    <proxyLimits>23,2306,230602</proxyLimits>
+    <!--商户密码过期时间 单位:天-->
+    <merchantExpTime>60</merchantExpTime>
+    <!--渠道商密码过期时间 单位:天-->
+    <proxyExpTime>60</proxyExpTime>
+    <!--默认密码过期时间 单位:天-->
+    <defaultExpTime>60</defaultExpTime>
+    
+    
+    <!--双因素认证开关-->
+    <DFactors>flase</DFactors>
+    
+  </config>
+  <config name="passwdper">
+  	<merpasswd>td888888</merpasswd>
+  </config>
+  
+  
+  
+  <config name="CheckEmailNew">
+      <G_EMFROM>k138044265@163.com</G_EMFROM>
+      <G_EMUSER>k138044265@163.com</G_EMUSER>
+      <G_EMPWD>1111111</G_EMPWD> 
+      <G_VALURL>http://59.41.60.154:8090/user/</G_VALURL>
+      <G_EMSMTP></G_EMSMTP>
+      <G_EMUSERNAME>棠棣支付</G_EMUSERNAME>
+      <G_EMCOMPNAME>棠棣支付</G_EMCOMPNAME>
+      <G_EMCOMPPAYNAME>棠棣支付</G_EMCOMPPAYNAME>
+      <G_EMCOMPHTTP>http://59.41.60.154:8090/user</G_EMCOMPHTTP>
+   </config>
+  
+  
+  
+  
+</root>

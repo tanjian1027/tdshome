@@ -1,0 +1,55 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<timetrigger>
+	
+  <!--594108-物业缴费 月终批量 订单作废 触发时间每月1号0点30分 -->
+  <schitem app="stp" txncod='594108' cronExpression="0 30 0 1 * ?" log_level="INFO">
+    <data><root><SYSCOD>Batch</SYSCOD></root></data>
+  </schitem>
+	
+  <!--990199-日终批量 -->
+  <schitem app="stp" txncod='990199' cronExpression="0 0 0 * * ?" log_level="INFO">
+    <data><root><SYSCOD>Batch</SYSCOD></root></data>
+  </schitem>
+
+  <!--999989-自动支付跑批 -->
+  <schitem app="stp" txncod='999989' cronExpression="0 30 0 * * ?" log_level="INFO">
+      <data><root><TIMEPAY>7</TIMEPAY></root></data>
+  </schitem>
+
+  <!--UpopChkFileGet自动生成银联对账文件-->
+  <schitem app="stp" txncod='UpopChkFileGet' cronExpression="0 0 9 * * ?" log_level="INFO">
+    <data><root><SYSCOD>Batch</SYSCOD></root></data>
+  </schitem>
+  
+  <!--upopCheck银联自动对账-->
+  <schitem app="stp" txncod='upopCheck' cronExpression="0 25 15 * * ?" log_level="INFO">
+    <data><root><SYSCOD>Batch</SYSCOD></root></data>
+  </schitem>
+  
+  <!--601010-商户产品清算汇总 -->
+  <schitem app="stp" txncod='601010' cronExpression="0 40 9 * * ?" log_level="INFO">
+      <data><root></root></data>
+  </schitem>
+  
+  <!--601009-自动结算跑批 -->
+  <schitem app="stp" txncod='601009' cronExpression="0 0 10 * * ?" log_level="INFO">
+      <data><root></root></data>
+  </schitem>
+  
+  <!--565100-生成备付金报表文件-->
+  <schitem app="stp" txncod='565100' cronExpression="0 0 1 * * ?" log_level="INFO">
+    <data><root><SYSCOD>Batch</SYSCOD></root></data>
+  </schitem>
+
+  <!--UpopB2BChkFileGet自动生成银联对账文件-->
+  <schitem app="stp" txncod='UpopB2BChkFileGet' cronExpression="0 5 9 * * ?" log_level="INFO">
+    <data><root><SYSCOD>Batch</SYSCOD></root></data>
+  </schitem>
+  
+  <!--upopB2BCheck银联自动对账-->
+  <schitem app="stp" txncod='upopB2BCheck' cronExpression="0 10 9 * * ?" log_level="INFO">
+   <data><root><SYSCOD>Batch</SYSCOD></root></data>
+  </schitem>
+  
+  
+</timetrigger>

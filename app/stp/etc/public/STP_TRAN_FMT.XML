@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--DOCTYPE channel PUBLIC "//UNKNOWN/" "FMT_ITF.dtd"-->
+<channel name="sms" timeout="1200">
+    
+  <transaction code="UPOPPayRec" log_level='INFO' desc="银联对账文件明细解析格式" >
+     <unpack type="deli" deli="|">
+        <item name="fieldA"/><!--交易代码            -->
+        <item name="fieldB"/><!--代理机构标识码      -->
+        <item name="fieldC"/><!--发送机构标识码      -->
+        <item name="fieldD"/><!--系统跟踪号          -->
+        <item name="fieldE"/><!--交易传输时间        -->
+        <item name="fieldF"/><!--帐号                -->
+        <item name="fieldG"/><!--交易金额            -->
+        <item name="fieldH"/><!--商户类别            -->
+        <item name="fieldJ"/><!--终端类型            -->
+        <item name="fieldK"/><!--查询流水号          -->
+        <item name="fieldL"/><!--支付方式（旧-->
+        <item name="fieldM"/><!--商户订单号-->
+        <item name="fieldN"/><!--支付卡类型-->
+        <item name="fieldO"/><!--原始交易的系统跟踪号-->
+        <item name="fieldP"/><!--原始交易日期时间-->
+        <item name="fieldQ"/><!--商户手续费-->
+        <item name="fieldR"/><!--结算金额-->
+        <item name="fieldS"/><!--支付方式-->
+        <item name="fieldT"/><!--集团商户代码-->
+        <item name="fieldU"/><!--交易类型-->
+        <item name="fieldV"/><!--交易子类-->
+        <item name="fieldW"/><!--业务类型--> 
+        <item name="fieldX"/><!--帐号类型-->
+        <item name="fieldY"/><!--账单类型-->
+        <item name="fieldZ"/><!--账单号码-->
+        <item name="fieldZA"/><!--交互方式-->
+        <item name="fieldAA"/><!--原交易查询流水号    -->
+        <item name="fieldBB"/><!--商户代码            -->
+        <item name="fieldCC"/><!--分账入账方式        -->
+        <item name="fieldDD"/><!--二级商户代码        -->
+        <item name="fieldEE"/><!--二级商户简称        -->
+        <item name="fieldFF"/><!--二级商户分账入账金额-->
+        <item name="fieldGG"/><!--清算净额            -->
+        <item name="fieldHH"/><!--终端号              -->
+        <item name="fieldII"/><!--商户自定义域        -->
+        <item name="fieldJJ"/><!--优惠金额            -->
+        <item name="fieldKK"/><!--发票金额            -->
+        <item name="fieldLL"/><!--分期付款附加手续费  -->
+        <item name="fieldMM"/><!--分期付款期数        -->
+        <item name="fieldNN"/><!--交易介质-->             
+        <item name="fieldOO"/><!--保留使用-->      
+     </unpack>
+  </transaction>
+    
+  <transaction code="ICBCPayRec" log_level='INFO' desc="工商银行对账文件明细解析格式">
+     <unpack>
+       <item name="MerActNo"     length="30"  expr="DELBOTHSPACE(MerActNo)"/>      <!-- 商城账号 -->
+       <item name="ContractNo"   length="30"/>    <!-- 订单号(合同号)  -->
+       <item name="BankNo"       length="24"/>    <!-- 银行流水号  -->
+       <item name="TxnAmt"       length="15"/>    <!-- 交易金额  -->
+       <item name="TxnTime"      length="20"/>    <!-- 交易时间  -->
+       <item name="TranState"    length="20"/>    <!-- 交易状态  -->
+       <item name="RefundState"  length="12"/>    <!-- 退货状态  -->
+       <item name="RefundAmt"    length="8"/>    <!-- 累计退还转付金额  -->
+    </unpack>
+  </transaction>
+	
+  <transaction code="LTWPayRec" desc="联通沃对账文件明细解析格式">
+     <unpack type="deli" deli="|">
+        <item name="TranType"/>       <!--  交易方式 -->
+        <item name="TranTypen"/>      <!--  交易方式名称 -->
+        <item name="payTypeN"/>        <!--  支付方式代码-->
+        <item name="payTypeM"/>        <!--  支付方式名称-->
+        <item name="orddaten"/>        <!--  订单日期-->
+        <item name="BNKORDNO"/>       <!--  商户订单号 -->  
+        <item name="BankLogNo"/>      <!--  支付流水号 -->
+        <item name="TxnAmt"/>         <!--  订单金额  -->
+        <item name="Field3"/>         <!--  资金类型 -->
+        <item name="TranComm"/>       <!--  付款明细  -->
+     </unpack>
+  </transaction>
+  
+  <transaction code="ABCPayRec" desc="农行对账文件明细解析格式">    
+    <unpack type="deli" deli="^">
+        <item name="BNKORDNO"  />        <!--  订单号--> 
+        <item name="OBankLogNo" />       <!--  交易批号--> 
+        <item name="BankLogNo"  />       <!--  批内序号-->
+        <item name="Field3"     />       <!--  交易时间-->
+        <item name="Field1s"     />       <!--  交易类型--> 
+        <item name="PayNos"     />        <!--  交易方式--> 
+        <item name="TxnAmt"     />       <!--  交易金额-->
+        <item name="Field4s"     />       <!--  交易状态-->
+        <item name="Field3"     />       <!--  账单时间-->
+        <item name="InAmt" />            <!--  账单金额-->
+        <item name="Field5" />           <!--  已支付金额-->  
+        <item name="Field2" />           <!--  已退款金额 -->
+    </unpack>
+  </transaction>
+   
+  <transaction code="B2CBCMPayRec" desc="交行网银对账文件明细解析格式">
+     <unpack>
+       <item name="BNKORDNO"     length="21"  expr="DELBOTHSPACE(BNKORDNO)"/>      <!-- 订单号 -->
+       <item name="OrdDate"      length="21"/>    <!-- 订单日期  -->
+       <item name="zt"           length="09"/>    <!-- 交易状态  -->
+       <item name="TxnAmt"       length="21"/>    <!-- 交易金额  -->
+       <item name="CcyCod"       length="11"/>    <!-- 币种  -->
+       <item name="PayType1"      length="09"/>    <!-- 渠道类型  -->
+       <item name="BankLogNo"    length="21"/>  	<!-- 交易流水号  -->
+       <item name="ActTime"      length="10"/>    <!-- 交易日期-时间  -->
+       <set name="ActDate"       expr="STRCAT(SUBSTR(ChkDat,1,2),SUBSTR(BNKORDNO,3,6))" />
+    </unpack>
+  </transaction>
+  
+  
+  
+  <transaction code="UPOPB2BPayRec" desc="企业网银银联对账文件明细解析格式">
+     <unpack>
+       <item name="fieldA" length="4"/>   <!--交易代码-->                  
+       <item name="fieldB" length="12"/>   <!--代理机构标识码-->              
+       <item name="fieldC" length="12"/>   <!--发送机构标识码-->                                                        
+       <item name="fieldD" length="7"/>   <!--系统跟踪号-->                 
+       <item name="fieldE" length="11"/>   <!--交易传输时间-->               
+       <item name="fieldF" length="19"/>   <!--帐号-->                   
+       <item name="fieldG" length="13"/>   <!--交易金额-->                 
+       <item name="fieldH" length="5"/>   <!--商户类别-->                  
+       <item name="fieldJ" length="3"/>   <!--终端类型-->                  
+       <item name="fieldK" length="22"/>   <!--查询流水号-->                
+       <item name="fieldL" length="3"/>   <!--支付方式（旧-->                
+       <item name="fieldM" length="33"/>   <!--商户订单号-->                
+       <item name="fieldN" length="3"/>   <!--支付卡类型-->                 
+       <item name="fieldO" length="7"/>   <!--原始交易的系统跟踪号-->            
+       <item name="fieldP" length="11"/>   <!--原始交易日期时间-->             
+       <item name="fieldQ" length="14"/>   <!--商户手续费-->                
+       <item name="fieldR" length="14"/>   <!--结算金额-->                 
+       <item name="fieldS" length="5"/>   <!--支付方式-->                  
+       <item name="fieldT" length="16"/>   <!--集团商户代码-->               
+       <item name="fieldU" length="3"/>   <!--交易类型-->                  
+       <item name="fieldV" length="3"/>   <!--交易子类-->                  
+       <item name="fieldW" length="7"/>   <!--业务类型-->                  
+       <item name="fieldX" length="3"/>   <!--帐号类型-->                  
+       <item name="fieldY" length="5"/>   <!--账单类型-->                  
+       <item name="fieldZ" length="33"/>   <!--账单号码-->                 
+       <item name="fieldZA" length="2"/>   <!--交互方式-->                 
+       <item name="fieldAA" length="22"/>   <!--原交易查询流水号-->            
+       <item name="fieldBB" length="16"/>   <!--商户代码-->                
+       <item name="fieldCC" length="2"/>   <!--分账入账方式-->               
+       <item name="fieldDD" length="16"/>   <!--二级商户代码-->              
+       <item name="fieldEE" length="33"/>   <!--二级商户简称-->              
+       <item name="fieldFF" length="14"/>   <!--二级商户分账入账金额-->          
+       <item name="fieldGG" length="14"/>   <!--清算净额-->                
+       <item name="fieldHH" length="9"/>   <!--终端号-->                  
+       <item name="fieldII" length="33"/>   <!--商户自定义域-->              
+       <item name="fieldJJ" length="14"/>   <!--优惠金额-->                
+       <item name="fieldKK" length="14"/>   <!--发票金额-->                
+       <item name="fieldLL" length="13"/>   <!--分期付款附加手续费-->           
+       <item name="fieldMM" length="3"/>   <!--分期付款期数-->               
+       <item name="fieldNN" length="2"/>   <!--交易介质-->                 
+       <item name="fieldOO" length="33"/>   <!--原始交易订单号-->             
+       <item name="fieldPP" length="99"/>   <!--保留使用-->               
+    </unpack>
+  </transaction>
+</channel>                   

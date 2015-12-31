@@ -1,0 +1,241 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!--DOCTYPE channel PUBLIC "//UNKNOWN/" "CCA_ITF.dtd"-->
+<channel name="APP" timeout="1200" log_level="INFO">
+
+  <transaction code="564101" desc="商品订单建立">  
+     <unpack>
+        
+     </unpack>
+     <pack>
+        <switch expr="MsgTyp">
+        <case value="N">
+           <writeelement name="settle">
+              <writeattr name="retCode"           expr="DELBOTHSPACE(retCode)" value="0001"/>   <!--交易返回码  0001：成功  0002：失败-->
+              <writeattr name="retMsg"            expr="DELBOTHSPACE(RspMsg)"        />         <!--交易返回信息 -->
+              <writeelement name="payUrl"         expr="DELBOTHSPACE(payUrl)"        />         <!-- 支付URL -->
+           </writeelement>
+           <break/>
+        </case>
+        <case value="E">
+           <writeelement   name="orderPkg">
+              <writeattr   name="retCode"        value="0002" />
+              <writeattr   name="retMsg"         expr="RspMsg" />  
+           </writeelement>
+           <break/>
+        </case>
+     </switch>
+     </pack>
+  </transaction>
+
+  <!--564102-建立退款订单-->
+  <transaction code="564102" desc="建立退款订单">
+     <unpack>
+        
+     </unpack>
+     <pack>
+        <switch expr="MsgTyp">
+           <case value="N">
+              <writeelement name="settle">
+                 <writeattr name="retCode"           expr="DELBOTHSPACE(retCode)" value="0001"/>   <!--交易返回码  0001：成功  0002：失败-->
+                 <writeattr name="retMsg"            expr="DELBOTHSPACE(RspMsg)"        />         <!--交易返回信息 -->
+              </writeelement>
+              <break/>
+           </case>
+           <case value="E">
+              <writeelement   name="orderPkg">
+                 <writeattr   name="retCode"        value="0002" />
+                 <writeattr   name="retMsg"         expr="RspMsg" />  
+              </writeelement>
+              <break/>
+           </case>
+        </switch>
+     </pack>
+  </transaction>
+  
+   <transaction code="564103" desc="确认付款">
+     <unpack>
+        
+     </unpack>
+     <pack>
+        <switch expr="MsgTyp">
+           <case value="N">
+              <writeelement name="settle">
+                 <writeattr name="retCode"           expr="DELBOTHSPACE(retCode)" value="0001"/>   <!--交易返回码  0001：成功  0002：失败-->
+                 <writeattr name="retMsg"            expr="DELBOTHSPACE(RspMsg)"        />         <!--交易返回信息 -->
+              </writeelement>
+              <break/>
+           </case>
+           <case value="E">
+              <writeelement   name="orderPkg">
+                 <writeattr   name="retCode"        value="0002" />
+                 <writeattr   name="retMsg"         expr="RspMsg" />  
+              </writeelement>
+              <break/>
+           </case>
+        </switch>
+     </pack>
+  </transaction>
+  
+  <transaction code="564104" desc="商品订单明细查询">
+     <unpack>
+        
+     </unpack>
+     <pack>
+        <switch expr="MsgTyp">
+        <case value="N">
+          <writeelement name="orderPkg">
+             <writeattr      name="retCode"      value="0001"                          desc="交易返回码"/>
+             <writeattr      name="retMsg"       value="成功"                          desc="交易返回信息"/>
+             <if condition="IS_EQUAL_STRING(QUERYTYPE,'1')"> <!--单笔查询-->
+                <writeelement name="order">
+                  <writeattr name="orderId"      expr="DELBOTHSPACE(prdOrdNo)"         desc="特约商户订单号"/>
+                  <writeattr name="amount"       expr="DELBOTHSPACE(ordAmt)"           desc="订单金额"/>
+                  <writeattr name="orderDate"    expr="SUBSTR(DELBOTHSPACE(orderTime),1,8)"         desc="订单时间"/>
+                  <if condition="IS_EQUAL_STRING(ordStatus,'00')">
+                    <set name="ordStatus" value="0"/>
+                    <set name="statusDes" value="未支付"/>
+                  </if>
+                  <elseif condition="IS_EQUAL_STRING(ordStatus,'01')">
+                    <set name="ordStatus" value="1"/>
+                    <set name="statusDes" value="支付成功"/>
+                  </elseif>
+                  <else>
+                  	<set name="ordStatus" value="2"/>
+                    <set name="statusDes" value="支付失败"/>
+                  </else>
+                  <writeattr name="status"       expr="DELBOTHSPACE(ordStatus)"        desc="交易订单状态"/>
+                  <writeattr name="statusDes"    expr="DELBOTHSPACE(statusDes)"        desc="交易订单状态描述"/>
+                </writeelement>
+             </if>
+             <else> <!--多笔查询-->
+                <foreach name="PrdOrderInfoDto"  iterator="#tmp">
+                  <writeelement name="order">
+                    <writeattr name="orderId"      expr="DELBOTHSPACE(#tmp.prdOrdNo)"         desc="特约商户订单号"/> 
+                    <writeattr name="amount"       expr="DELBOTHSPACE(#tmp.ordAmt)"           desc="订单金额"/> 
+                    <writeattr name="orderDate"    expr="SUBSTR(DELBOTHSPACE(#tmp.orderTime),1,8)"   desc="订单日期"/>  
+                    <if condition="IS_EQUAL_STRING(#tmp.rdStatus,'00')">
+                     <set name="ordStatus" value="0"/>
+                     <set name="statusDes" value="未支付"/>
+                    </if>
+                    <elseif condition="IS_EQUAL_STRING(#tmp.ordStatus,'01')">
+                      <set name="ordStatus" value="1"/>
+                      <set name="statusDes" value="支付成功"/>
+                    </elseif>
+                    <else>
+                      <set name="ordStatus" value="2"/>
+                      <set name="statusDes" value="支付失败"/>
+                    </else>
+                    <writeattr name="status"       expr="DELBOTHSPACE(ordStatus)"            desc="交易订单状态标识"/>  
+                    <writeattr name="statusDes"    expr="DELBOTHSPACE(statusDes)"            desc="交易订单状态描述"/>  
+                  </writeelement>
+                </foreach>
+             </else>
+          </writeelement>
+          <break/>
+        </case>
+        <case value="E">
+           <writeelement name="orderPkg">
+              <writeattr name="retCode"    value="0002" />
+              <writeattr name="retMsg"     expr="RspMsg" />  
+           </writeelement>
+           <break/>
+        </case>
+     </switch>
+     </pack>
+  </transaction>
+  
+  <transaction code="564105" desc="商户提现">
+     <unpack>
+        
+     </unpack>
+     <pack>
+        <switch expr="MsgTyp">
+        <case value="N">
+          <writeelement name="settle">
+             <writeattr      name="retCode"      expr="DELBOTHSPACE(retCode)"                 desc="交易返回码"/>
+             <writeattr      name="retMsg"       expr="DELBOTHSPACE(RspMsg)"        />         <!--交易返回信息 -->
+          </writeelement>
+          <break/>
+        </case>
+        <case value="E">
+           <writeelement name="orderPkg">
+              <writeattr name="retCode"     expr="DELBOTHSPACE(retCode)" value="0002"/>
+              <writeattr name="retMsg"     expr="RspMsg" />  
+           </writeelement>
+           <break/>
+        </case>
+     </switch>
+     </pack>
+  </transaction>
+  
+  <transaction code="564106" desc="充值或者消费订单建立">  
+     <unpack>
+        
+     </unpack>
+     <pack>
+        <switch expr="MsgTyp">
+        <case value="N">
+           <writeelement name="settle">
+              <writeattr name="retCode"           expr="DELBOTHSPACE(retCode)" value="0001"/>   <!--交易返回码  0001：成功  0002：失败-->
+              <writeattr name="retMsg"            expr="DELBOTHSPACE(RspMsg)"        />         <!--交易返回信息 -->
+              <writeelement name="payUrl"         expr="DELBOTHSPACE(payUrl)"        />         <!-- 支付URL -->
+           </writeelement>
+           <break/>
+        </case>
+        <case value="E">
+           <writeelement   name="orderPkg">
+              <writeattr   name="retCode"        value="0002" />
+              <writeattr   name="retMsg"         expr="RspMsg" />  
+           </writeelement>
+           <break/>
+        </case>
+     </switch>
+     </pack>
+  </transaction>
+  
+  <transaction code="564107" desc="提现订单明细查询">
+     <unpack>
+        
+     </unpack>
+     <pack>
+        <switch expr="MsgTyp">
+        <case value="N">
+          <writeelement name="orderPkg">
+             <writeattr      name="retCode"      value="0001"                          desc="交易返回码"/>
+             <writeattr      name="retMsg"       value="成功"                          desc="交易返回信息"/>
+             <if condition="IS_EQUAL_STRING(QUERYTYPE,'1')"> <!--单笔查询-->
+                <writeelement name="order">
+                  <writeattr name="orderId"      expr="DELBOTHSPACE(prdOrdNo)"         desc="特约商户订单号"/>
+                  <writeattr name="amount"       expr="DELBOTHSPACE(ordAmt)"           desc="订单金额"/>
+                  <writeattr name="orderDate"    expr="SUBSTR(DELBOTHSPACE(orderTime),1,8)"         desc="订单时间"/>
+                  <if condition="IS_EQUAL_STRING(ordStatus,'00')">
+                    <set name="ordStatus" value="0"/>
+                    <set name="statusDes" value="未支付,请等待"/>
+                  </if>
+                  <elseif condition="IS_EQUAL_STRING(ordStatus,'01')">
+                    <set name="ordStatus" value="1"/>
+                    <set name="statusDes" value="支付成功"/>
+                  </elseif>
+                  <else>
+                  	<set name="ordStatus" value="2"/>
+                    <set name="statusDes" value="支付失败"/>
+                  </else>
+                  <writeattr name="status"       expr="DELBOTHSPACE(ordStatus)"        desc="交易订单状态"/>
+                  <writeattr name="statusDes"    expr="DELBOTHSPACE(statusDes)"        desc="交易订单状态描述"/>
+                </writeelement>
+             </if>
+          </writeelement>
+          <break/>
+        </case>
+        <case value="E">
+           <writeelement name="orderPkg">
+              <writeattr name="retCode"    value="0002" />
+              <writeattr name="retMsg"     expr="RspMsg" />  
+           </writeelement>
+           <break/>
+        </case>
+     </switch>
+     </pack>
+  </transaction>
+  
+</channel>

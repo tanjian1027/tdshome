@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="STHDCCB1" log_level="INFO">
+  <connector name="connector1" class="tangdi.comm.tcp.TdNewTcpConnector">
+    <para name="host" value="192.168.38.223" />
+    <para name="port" value="8092"/>
+    <interceptor class="tangdi.interceptor.xml.TdLnCCBSendXmlInterceptor" />
+  </connector>
+  <process>
+    <do expr="@tangdi.engine.context.Xml@begin()" />
+    <do func="pack">
+       <para name="ITF" value="etc/channel/STHDCCB1_ITF.XML" />
+    </do>
+    <callconnector connector="connector1" />
+    <do func="unpack">
+       <para name="dataType" value="asc" />
+       <para name="ITF" value="etc/channel/STHDCCB1_ITF.XML" />
+    </do>
+  </process>
+</channel>

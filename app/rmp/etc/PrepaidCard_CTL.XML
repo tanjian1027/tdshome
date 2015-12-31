@@ -1,0 +1,1092 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="STP" code="100" log_level="INFO">
+    <!-- 公共宏文件引入-->
+    <include file="etc/PUBMACRO_RMP.XML"/> 
+    <before>
+        <do expr="@tangdi.engine.context.Msg@dump()"/>
+        <set name="ConfigName"   value="G_VARIABLE"/>
+        <quote name="ReadXmlCfg"/>
+
+        <!--取当前日期设置会计日期-->
+        <set name="ActDat"        expr="GETDATE()"  />
+        
+    </before>
+    <after>
+        <do expr="@tangdi.engine.context.Msg@dump()"/>
+    </after>
+    
+    <transaction code="900000" desc="虚拟账户余额查询_预付卡接口查询">
+        <sql name="QryCusInf"><!--查询用户是否存在-->
+            select c.USR_STATUS,b.PAY_AC_NO as payacno,a.CUST_STATUS,a.CUST_CRED_TYPE,a.CUST_CRED_NO 
+            from STPCUSINF a,ARP_AC_CUST_REL b ,STPUSRINF c
+            where a.cust_id=b.cust_id and b.cust_id=c.cust_id and CUST_CRED_TYPE='0' and CUST_CRED_NO=#{USER_CER_NO}
+        </sql>
+        <sql name="QryCusBank"><!--查询该用户是否绑定了该预付卡-->
+            select CARD_STATUS,CARD_NO from STPBANKTB where CUST_ID=#{payacno} and CARD_TYPE='04' and CARD_NO=#{CARDNO}
+        </sql>
+        <sql name="QryCusPayInf"><!--查询该用户的虚拟账户-->
+            select TO_CHAR(to_number(CASH_AC_BAL)/100,'9999999999990.00') as CASH, 
+                   TO_CHAR(to_number(FROZ_BALANCE)/100,'9999999999990.00') as FROZBALANCE
+            from ARP_AC_PROFILE where PAY_AC_NO=#{payacno} 
+        </sql>
+        <process>
+            <!-- 对APP数据进行解密 -->
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams_old"/>
+            
+            <!--检测必输项-->
+            <if condition="OR(ISNULL(CARDNO),ISNULL(USER_CER_TYPE),ISNULL(USER_CER_NO))">
+                <set name="RspCod"    value="800001"/>
+                <set name="RspMsg"    value="传入数据不完整！"/>
+                <return/>
+            </if>
+           
+            <!-- 用户信息 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCusInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="您查询的用户信息不存在或未进行身份认证，请确认后查询！"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            
+            <if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')"><!--验证认证状态-->
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="当前用户实名认证未通过"/>
+                <return/>
+            </if>  
+            
+            <!-- 绑定信息 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCusBank" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="您查询的用户未绑定盖预付卡号"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            
+            <if condition="IS_NOEQUAL_STRING(CARD_STATUS,'0')"><!--验证绑定状态-->
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="当前用户与该预付卡号已解绑"/>
+                <return/>
+            </if>
+            
+            <!-- 账户信息 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCusPayInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="您查询的用户账户信息不存在"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+
+            <set name="payOrdNo"  expr="payOrdNo"/>
+            <set name="RspCod"    value="000000"/>
+            <set name="RspMsg"    value="查询成功！"/>
+        </process>
+    </transaction>
+    
+    <transaction code="900001" desc="用户虚拟账户给预付卡充值_预付卡充值接口">
+        <sql name="QryUsrInf"><!--查询用户是否存在-->
+            select a.cust_id as USRID,a.CUST_NAME as USRNAME,c.USR_STATUS,b.PAY_AC_NO as payacno,a.CUST_STATUS,a.CUST_CRED_TYPE,a.CUST_CRED_NO 
+            from STPCUSINF a,ARP_AC_CUST_REL b ,STPUSRINF c
+            where a.cust_id=b.cust_id and b.cust_id=c.cust_id and CUST_CRED_TYPE='0' and CUST_CRED_NO=#{USER_CER_NO}
+        </sql>
+        <sql name="QryCusBank"><!--查询该用户是否绑定了该预付卡-->
+            select CARD_STATUS,CARD_NO from STPBANKTB where CUST_ID=#{payacno} and CARD_TYPE='04' and CARD_NO=#{CARDNO}
+        </sql>
+        <sql name="SelAccInf"><!-- 查询客户账户信息:状态和余额-->
+            select a.PAY_AC_NO as PAY_AC_NO,a.CASH_AC_BAL,a.AC_STATUS from ARP_AC_PROFILE a,STPUSRINF b where b.CUST_ID=#{USERID} and (b.CUST_ID =substr(a.PAY_AC_NO,0,14))
+        </sql>
+        <sql name="QryBnkSubject"> <!--查询银行科目表-->
+          SELECT gl_code FROM FCS_ACC_SUBJECT WHERE gl_name LIKE '%银行存款%${glname}%'
+        </sql> 
+        <sql name="QryPayInf"> <!--查询客户支付信息 -->
+          SELECT distinct #{seqno1} ACC_SEQ,#{payacno} PAY_AC_NO,'' ACC_SUBJECT, a.txAmt TXN_AMT,'CNY' CCY,'D' DR_CR_FLAG,'I' OPP_ACC_SIGN,'' OPP_ACC_NO FROM StpCasInf a,ARP_AC_CUST_REL b WHERE a.casOrdNo=#{casOrdNo} and (b.CUST_ID)=(a.CUST_ID)
+          union
+          SELECT #{seqno2} ACC_SEQ,'' PAY_AC_NO,#{ACC_SUBJECT} ACC_SUBJECT, a.txAmt TXN_AMT,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN,#{payacno} OPP_ACC_NO FROM StpCasInf a WHERE a.casOrdNo=#{casOrdNo}
+        </sql>
+        <sql name="QryCasByNewPayCardNo"><!--查询提供的充值订单号是否已存在-->
+           select ordstatus from StpCasInf where Filed1=#{LOGNO}
+        </sql>
+        <sql name="UpdateCasInfo">
+           update StpCasInf set ordstatus='02' where CasOrdNo=#{CasOrdNo}
+        </sql>
+        <process>
+            <!-- 对APP数据进行解密 -->
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams_old"/>
+            
+            <if condition="OR(IS_EQUAL_STRING(LOGNO,''),IS_EQUAL_STRING(CARDNO,''),IS_EQUAL_STRING(USER_CER_TYPE,''),IS_EQUAL_STRING(USER_CER_NO,''),IS_EQUAL_STRING(TXNAMT,''))">
+                <set name="RspCod"      value="02036"      />
+                <set name="RspMsg"      value="传送参数不完整" />
+                <return/>
+            </if>
+            
+            <!-- 用户信息 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryUsrInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="您查询的用户信息不存在或未进行身份认证，请确认后查询！"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')"><!--验证认证状态-->
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="当前用户实名认证未通过"/>
+                <return/>
+            </if>
+            <if condition="AND(IS_NOEQUAL_STRING(CUST_STATUS,'0'),IS_NOEQUAL_STRING(CUST_STATUS,'1'))">
+                <set name="RspCod"    value="08040"         />
+                <set name="RspMsg"    value="客户状态不正常"/>
+                <return/>
+            </if>
+            
+            <!-- 绑定信息 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCusBank" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="您查询的用户未绑定盖预付卡号"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(CARD_STATUS,'0')"><!--验证绑定状态-->
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="当前用户与该预付卡号已解绑"/>
+                <return/>
+            </if>
+            
+            <!-- 检查预付卡系统提供的该充值订单号是否已存在 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCasByNewPayCardNo" />
+            </do>
+            <if condition="#RetCod==0">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="提供的支付订单号已存在"/>
+                <return/>
+            </if>
+            <if condition="#RetCod!=2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            
+            <set name="userId"     expr="USRID"/>
+            <quote name="chkAcc"/><!--客户账户状态检查-->
+            <quote name="getPublicInfo"/>
+            
+            <if condition="OR(ISNULL(TXNAMT),INTCMP(TXNAMT,2,0))">
+                <set name="RspCod"    value="20014"/>
+                <set name="RspMsg"    value="金额不符合规范！"/>
+                <return/>
+            </if>
+            <!--记录日志头部-->
+            <set name="RCS_USER_CODE"       expr="USERID"/><!--用户ID-->
+            <set name="RCS_PAY_TYPE"        value="用户提现"/><!--本次交易码，最好用desc-->
+            
+            <!--限额检查  start --> 
+            <set name="Amt"           expr="TXNAMT"/> <!--交易金额-->
+            <set name="PAY_TYPE"      value="04"/><!--支付方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付-->
+            <set name="TRAN_TYPE"     value="7"/><!--交易类型 0 其他 1 充值 2消费 3撤销 4预授权完成 5预授权完成撤销 6转账(虚拟帐号间) 7提现 8退款-->
+            <set name="cust_type"     value="1"/>  <!--效验客户类型(1用户 2 商户 0 两者)-->
+            <set name="User_code"     expr="userID"/><!--用户编号-->
+            <set name="Time"          expr="GETDATETIME()"/>
+            <set name="DATE"          expr="GETDATE()"/>
+            <set name="ServiceCode"   value="680518"/>  
+            <quote name="chkLimAmt"/>
+           <!--限额检查   end--> 
+              
+           <!--获取序号 -->
+           <do func="GetSeqNo"  error="IGNORE">
+              <para name="TblNam" value="stpseqrec"/>
+              <para name="KeyNam" value="KeyNam"/>
+              <para name="KeyVal" expr="STRCAT('StpCasInf','CasOrdNo')"/>
+              <para name="SeqNam" value="KeyVal"/>
+              <para name="Len"    value="8"/>
+              <para name="Circle" value="1"/>
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09001"/>
+              <set name="RspMsg"    value="获取序号错误"/>
+              <return/>
+           </if>
+           <set name="bankCode"      value="JCZN"/><!--预付卡机构 绑定交易维护的BANKCODE为JCZN-->
+           <set name="CasOrdNo"      expr="STRCAT('C',SUBSTR(ActDat,2,7),KeyVal)"/> 
+           <set name="ActDat"        expr="GETDATETIME()"/> 
+           <set name="CUST_ID"       expr="USRID"/>
+           <set name="bankPayUserNm" expr="USRNAME"/>
+           <set name="OrdStatus"     value="00"/> 
+           <set name="bankPayAcNo"   expr="CARDNO"/>
+           <set name="TXCCY"         value="CNY"/>
+           <set name="TXAMT"         expr="TXNAMT"/>
+           <set name="Filed1"        expr="LOGNO"/> <!--维护预付卡系统的充值订单字段LOGNO-->
+           <!--登记提现订单信息-->  
+           <do func="InsertRecord" error="IGNORE">
+              <para name="TblNam"  value="StpCasInf" />
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="数据库操作错误"/>
+              <return/>
+           </if>
+           
+           <!--查询银行相应科目-->
+           <quote name="BankCod2Nam"/>
+           <quote name="selBnkSubject"/>
+           
+           
+           <!--冻结用户提现金额 -->  
+           <do func="Freeze" error="IGNORE">
+              <para name="PAY_AC_NO"  expr="PAYACNO" />
+              <para name="Money"      expr="TXNAMT" />
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="RspCod"    value="07001"/>
+              <set name="RspMsg"    value="虚拟帐户余额不足,提现失败!"/>
+              <!--记录日志-->
+              <set name="RCS_PRD_NO"          expr="CasOrdNo"/><!--订单号，如果不涉及置空-->
+              <set name="RCS_TCODE"           expr="RspMsg"/>
+              <set name="RCS_STATUS"          value="0" />
+              <quote name="tranByRightTime"/>
+              <return/>
+           </if> 
+           
+           <!--账务处理 借用户备付金 贷应付银行款项--> 
+           <set name="seqno1"      value="001"/>  
+           <set name="seqno2"      value="002"/> 
+           <set name="payacno"     expr="PAYACNO"/>  
+           <set name="ACC_SUBJECT" expr="gl_code"/> 
+           <do func="QueryInGroup" error="IGNORE">
+              <para name="SqlCmd"      sql="QryPayInf" />
+              <para name="RecordName"  value="ACC_GROUP" />
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="RspCod"    value="07002"/>
+              <set name="RspMsg"    value="提现订单信息不存在"/>
+              <return/>
+           </if>     
+           
+           <!--记账处理-->
+           <set name="TXN_COD"          value="880301"/>           <!--交易码 用户转账-->
+           <set name="TXN_SUB_COD"      value="003"/>              <!--交易子码-->
+           <set name="NOTENUM"          expr="RECNUM"/>            <!--传票数-->
+           <set name="TXN_TLR"          expr="USRID"/>             <!--柜员号-->
+           <quote name="accProcess_old"/>
+           <if condition="#RetCod!=0">
+              <set name="RspCod"    value="07001"/>
+              <set name="RspMsg"    value="提现失败"/>
+              <return/>
+           </if> 
+           
+           <!--更新提现订单-->
+           <do func="ExecSql" error="IGNORE">
+               <para name="SqlCmd"  sql="UpdateCasInfo" />
+           </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+           <!--通知风控系统登记订单信息-->
+           <set name="ServiceCode" value="680517"/>
+           <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+           <set name="TCODE"       expr="CasOrdNo"/>           <!--平台流水号 转账订单号-->
+           <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+           <set name="CLIENTCODE"  expr="USRID"/>     <!--客户编号-->
+           <set name="CLIENTNAME"  expr="USRNAME"/>
+           <set name="MOBILEPHONE" expr="USRMP"/>
+           <set name="TRANTYPE"    value="7"/>                 <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+           <set name="TAMT"        expr="TXNAMT"/>
+           <set name="REGDTTIME"   expr="GETDATETIME()"/>
+           <set name="Time"        expr="SUBSTR(REGDTTIME,1,8)"/>
+           <quote name="noticRcs"/>
+           
+           <set name="MsgTyp"    value="N"/>
+           <set name="RspCod"    value="000000"/>
+           <set name="RspMsg"    value="交易成功"/>
+           
+           <!--记录日志-->
+           <set name="RCS_PRD_NO"          expr="CasOrdNo"/><!--订单号，如果不涉及置空-->
+           <set name="RCS_TCODE"           expr="RspMsg"/>
+           <set name="RCS_STATUS"          value="1" />
+           <quote name="tranByRightTime"/>
+        </process>
+    </transaction>
+    
+    <transaction code="900002" desc="用户虚拟账户给预付卡充值撤销_预付卡充值撤销接口">
+        <sql name="QryUsrInf"><!--查询用户是否存在-->
+            select a.cust_id as USRID,a.CUST_NAME as USRNAME,c.USR_STATUS,b.PAY_AC_NO as payacno,a.CUST_STATUS,a.CUST_CRED_TYPE,a.CUST_CRED_NO 
+            from STPCUSINF a,ARP_AC_CUST_REL b ,STPUSRINF c
+            where a.cust_id=b.cust_id and b.cust_id=c.cust_id and CUST_CRED_TYPE='0' and CUST_CRED_NO=#{USER_CER_NO}
+        </sql>
+        <sql name="QryCusBank"><!--查询该用户是否绑定了该预付卡-->
+            select CARD_STATUS,CARD_NO from STPBANKTB where CUST_ID=#{payacno} and CARD_TYPE='04' and CARD_NO=#{CARDNO}
+        </sql>
+        <sql name="SelAccInf"><!-- 查询客户账户信息:状态和余额-->
+            select a.PAY_AC_NO as PAY_AC_NO,a.CASH_AC_BAL,a.AC_STATUS from ARP_AC_PROFILE a,STPUSRINF b where b.CUST_ID=#{USERID} and (b.CUST_ID =substr(a.PAY_AC_NO,0,14))
+        </sql>
+        <sql name="QryBnkSubject"> <!--查询银行科目表-->
+          SELECT gl_code FROM FCS_ACC_SUBJECT WHERE gl_name LIKE '%银行存款%${glname}%'
+        </sql> 
+        <sql name="QryCasInf"> <!--查询客户提现信息 退回支付账号 -->
+          SELECT distinct #{seqno2} ACC_SEQ,b.PAY_AC_NO PAY_AC_NO,'' ACC_SUBJECT, a.txAmt TXN_AMT,'CNY' CCY,'C' DR_CR_FLAG,'I' OPP_ACC_SIGN,'' OPP_ACC_NO FROM StpCasInf a,ARP_AC_CUST_REL b WHERE a.casOrdNo=#{casOrdNo} and (b.CUST_ID)=(a.CUST_ID)
+           union
+          SELECT distinct #{seqno1} ACC_SEQ,'' PAY_AC_NO,#{ACC_SUBJECT1} ACC_SUBJECT, a.txAmt TXN_AMT,'CNY' CCY,'D' DR_CR_FLAG,'I' OPP_ACC_SIGN,'' OPP_ACC_NO FROM StpCasInf a WHERE a.casOrdNo=#{casOrdNo}
+        </sql>
+        <sql name="QryCasByNewPayCardNo"><!--查询提供的充值订单号是否已存在-->
+           select ordstatus,CASORDNO,TXAMT as CASAMT from StpCasInf where Filed1=#{LOGNO}
+        </sql>
+        <sql name="UpdateCasInfo">
+           update StpCasInf set ordstatus='04' where CasOrdNo=#{CasOrdNo}
+        </sql>
+        <process>
+            <!-- 对APP数据进行解密 -->
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams_old"/>
+            
+            <if condition="OR(IS_EQUAL_STRING(LOGNO,''),IS_EQUAL_STRING(CARDNO,''),IS_EQUAL_STRING(USER_CER_TYPE,''),IS_EQUAL_STRING(USER_CER_NO,''),IS_EQUAL_STRING(TXNAMT,''))">
+                <set name="RspCod"      value="02036"      />
+                <set name="RspMsg"      value="传送参数不完整" />
+                <return/>
+            </if>
+            
+            <!-- 用户信息 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryUsrInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="您查询的用户信息不存在或未进行身份认证，请确认后查询！"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')"><!--验证认证状态-->
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="当前用户实名认证未通过"/>
+                <return/>
+            </if>
+            <if condition="AND(IS_NOEQUAL_STRING(CUST_STATUS,'0'),IS_NOEQUAL_STRING(CUST_STATUS,'1'))">
+                <set name="RspCod"    value="08040"         />
+                <set name="RspMsg"    value="客户状态不正常"/>
+                <return/>
+            </if>
+            
+            <!-- 绑定信息 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCusBank" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="您查询的用户未绑定盖预付卡号"/>
+                <return/>
+            </if>
+            <if condition="#RetCod==-1">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(CARD_STATUS,'0')"><!--验证绑定状态-->
+                <set name="RspCod"    value="20019"/>
+                <set name="RspMsg"    value="当前用户与该预付卡号已解绑"/>
+                <return/>
+            </if>
+            
+            <!-- 检查预付卡系统提供的该充值订单号是否能做撤销 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCasByNewPayCardNo" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="提供的支付订单号不存在存在"/>
+                <return/>
+            </if>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(ordstatus,'02')"><!--验证订单状态-->
+                <set name="RspCod"    value="20020"/>
+                <set name="RspMsg"    value="该提现订单状态不能进行撤销操作"/>
+                <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(CASAMT,TXNAMT)"><!--验证订单金额，目前只能全额撤销-->
+                <set name="RspCod"    value="20020"/>
+                <set name="RspMsg"    value="撤销金额和订单金额不一致！"/>
+                <return/>
+            </if>
+            
+            
+            <set name="userId"     expr="USRID"/>
+            <quote name="chkAcc"/><!--客户账户状态检查-->
+            <quote name="getPublicInfo"/>
+            
+            <if condition="OR(ISNULL(TXNAMT),INTCMP(TXNAMT,2,0))">
+                <set name="RspCod"    value="20014"/>
+                <set name="RspMsg"    value="金额不符合规范！"/>
+                <return/>
+            </if>
+            <!--记录日志头部-->
+            <set name="RCS_USER_CODE"       expr="USERID"/><!--用户ID-->
+            <set name="RCS_PAY_TYPE"        value="用户提现"/><!--本次交易码，最好用desc-->
+            
+           <set name="bankCode"   value="JCZN"/><!--预付卡机构 绑定交易维护的BANKCODE为JCZN-->
+           <!--查询银行相应科目-->
+           <quote name="BankCod2Nam"/>
+           <quote name="selBnkSubject"/>
+           
+           <!--账务处理 借用户备付金 贷应付银行款项--> 
+           <set name="seqno1"      value="001"/>  
+           <set name="seqno2"      value="002"/> 
+           <set name="payacno"     expr="PAYACNO"/>  
+           <set name="ACC_SUBJECT1" expr="gl_code"/> 
+           <do func="QueryInGroup" error="IGNORE">
+              <para name="SqlCmd"      sql="QryCasInf" />
+              <para name="RecordName"  value="ACC_GROUP" />
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="RspCod"    value="07002"/>
+              <set name="RspMsg"    value="提现订单信息不存在"/>
+              <return/>
+           </if>     
+           
+           <!--记账处理-->
+           <set name="TXN_COD"          value="880303"/>           <!--交易码 用户转账-->
+           <set name="TXN_SUB_COD"      value="005"/>              <!--交易子码-->
+           <set name="NOTENUM"          expr="RECNUM"/>            <!--传票数-->
+           <set name="TXN_TLR"          expr="USRID"/>             <!--柜员号-->
+           <quote name="accProcess_old"/>
+           <if condition="#RetCod!=0">
+              <set name="RspCod"    value="07001"/>
+              <set name="RspMsg"    value="提现失败"/>
+              <return/>
+           </if> 
+           
+           <!--更新提现订单-->
+           <do func="ExecSql" error="IGNORE">
+               <para name="SqlCmd"  sql="UpdateCasInfo" />
+           </do>
+           <if condition="#RetCod!=0">
+                <set name="RspCod"        value="002008"        />
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+           </if>
+           <!--通知风控系统登记订单信息-->
+            <set name="ServiceCode" value="680517"/>
+            <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+            <set name="TCODE"       expr="casOrdNo"/>           <!--平台流水号 提现订单号-->
+            <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+            <set name="CLIENTCODE"  expr="USRID"/>     <!--客户编号-->
+            <set name="CLIENTNAME"  expr="USRNAME"/>
+            <set name="MOBILEPHONE" expr="USRMP"/>
+            <set name="TRANWAY"     value="04"/>   <!--01网银、02终端、03消费卡、04虚拟账户、05快捷支付-->
+            <set name="TRANTYPE"    value="7"/>                 <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+            <set name="TAMT"        expr="TXNAMT"/>
+            <set name="REGDTTIME"   expr="GETDATETIME()"/>
+            <set name="Time"        expr="SUBSTR(REGDTTIME,1,8)"/>
+            <quote name="noticRcs"/>
+         
+            <set name="MsgTyp"               value="N"/>
+            <set name="RspCod"               value="000000"/>
+            <set name="RspMsg"               value="撤销成功"/>
+        </process>
+    </transaction>
+    
+    <transaction code="800043" desc="移动端预付卡列表查询">
+        <sql name="QryCusInf"><!-- 查询客户信息-->
+            SELECT cus.CUST_STATUS,cus.CUST_ID as USERID,usr.USR_STATUS as USRSTATUS FROM STPUSRINF usr,STPCUSINF cus WHERE usr.CUST_ID = cus.CUST_ID AND usr.CUST_LOGIN = #{USRMP}
+        </sql>
+        <sql name="QryStpBankCd"> <!-- 查询用户绑定的预付卡 -->
+            SELECT b.BAK_SEQ,b.CUST_ID,b.CARD_NO,b.BAK_CUST_ID, 
+            (select enm_dat_des from lyxdicenm n where sys_id='0001' and trim(enm_en_nam) like 'bankNam' and b.CARD_BANK=trim(n.enm_dat_opt)) as bank_no,
+            substr(b.CARD_NO,(length(b.CARD_NO)-3),4) as CANO,
+            To_Char(to_date(b.BAK_OPEN_DATE,'yyyymmdd'),'yyyy-mm-dd') as CARD_DATE,
+            To_Char(to_date(b.BAK_OPEN_TIME,'hh24miss'),'hh24:mi:ss') as CARD_TIME, 
+            b.CARD_STATUS, (select enm_dat_des from lyxdicenm m where sys_id='0001' and trim(enm_en_nam) like 'bankCardType' and b.card_type=trim(m.Enm_Dat_Opt)) as banknotype 
+            FROM STPBANKTB b 
+            WHERE b.CUST_ID like #{USERID} and CARD_TYPE='04' 
+            ORDER BY BAK_OPEN_DATE DESC,BAK_OPEN_TIME DESC
+        </sql>
+        <sql name="QryPPCardNum"> <!-- 查询绑定的预付卡数量 -->
+            SELECT count(*) as PPNum from STPBANKTB WHERE CUST_ID like #{USERID} and CARD_TYPE='04'
+        </sql>
+        <process>
+            <!-- 对APP数据进行解密 -->
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams"/>
+            
+            <set name="USRMP" expr="DELBOTHSPACE(USRMP)" />
+            <if condition="IS_EQUAL_STRING(USRMP,'')">
+                <set name="RspCod" value="02035" />
+                <set name="RspMsg" value="手机号为空" />
+                <return />
+            </if>
+            
+            <quote name="usrChk"/>
+            <set name="USERID" expr="STRCAT(USERID,'%')" />
+
+            <do func="QueryInGroup" error="IGNORE">
+               <para name="SqlCmd"      sql="QryStpBankCd" />
+               <para name="RecordName"  value="GRP" />
+              </do>
+            <if condition="#RetCod==2">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="请先添加银行卡信息！"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod==-1">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09999"/>
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </elseif>
+            <elseif condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09998"/>
+                <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+                <return/>
+            </elseif>
+            
+            <!--查询预付卡的绑定数量 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryPPCardNum" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp" value="E" />
+                <set name="RspCod" value="09999" />
+                <set name="RspMsg" value="数据库错误" />
+                <return />
+            </if>
+            
+            <set name="MsgTyp"          value="N"/>
+            <set name="RspCod"          value="000000"/>
+            <set name="RspMsg"          value="交易成功"/>
+        </process>
+    </transaction>
+    
+    <transaction code="800044" desc="移动端预付卡绑定">
+     <sql name="QryCusInf"><!-- 查询客户信息-->
+       SELECT cus.CUST_STATUS,cus.CUST_ID as USERID,usr.USR_STATUS as USRSTATUS FROM STPUSRINF usr,STPCUSINF cus WHERE usr.CUST_ID = cus.CUST_ID AND usr.CUST_LOGIN = #{USRMP}
+     </sql>
+     <sql name="QryUsrIdInf"> <!--  查询用户注册信息  -->
+       SELECT s.*,c.CUST_CRED_TYPE,CUST_CRED_NO,a.password,a.PAY_AC_NO as payacno FROM STPUSRINF s,STPCUSINF c,ARP_AC_CUST_REL a   WHERE s.cust_id=a.cust_id AND s.cust_id=c.cust_id
+        AND s.cust_id=#{USERID}
+     </sql>
+     <sql name="QryUserBank"><!--  检测用户是否绑定了该卡  -->
+       SELECT * FROM STPBANKTB WHERE  CARD_NO=#{BANKNOP}
+     </sql>
+     <sql name="InsUserBankInf"><!--  插入用户绑定银行卡  -->
+       INSERT INTO STPBANKTB (BAK_SEQ,CUST_ID,CARD_BANK,CARD_TYPE,CARD_STATUS,CARD_NO,BAK_OPEN_NUM,BAK_OPEN_DATE,BAK_OPEN_TIME,BAK_UPD_DATE,BAK_UPD_TIME,REV_FLAG)  
+       VALUES(#{KEYVAL},#{PAYACNO},'JCZN','04','0',#{BANKNOP},'1',#{CardDate},#{CardTime},#{CardDate},#{CardTime},#{REV_FLAG})
+     </sql>
+     <process>
+       <set name="sPwds"    value="PAYPWD:G_RANDOM"/>
+       <quote name="ParseRequestParams"/>
+       
+       <if condition="IS_EQUAL_STRING(USRMP,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02035"/>
+         <set name="RspMsg"        value="手机号为空"/>
+         <return/>
+       </if>
+       <quote name="usrChk"/>
+       <!-- 检查支付密码是否冻结 add by gyl 20140212-->
+       <set name="RCS_PWD_TYPE"        value="3"           />
+       <set name="RCS_USER_CODE"       expr="USERID"        />
+       <set name="RCS_PAY_TYPE"        expr="TRANCODE"     />
+       <set name="RCS_PRD_NO"          value=""            />
+       <set name="RCS_TCODE"           value="5"           />
+       <set name="RCS_STATUS"          value="0"           />
+       <quote name="tranPwdLock"/> 
+       
+       <!-- 检查持卡人是否为空 -->
+       <if condition="IS_EQUAL_STRING(CARDNAME,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02077"/>
+         <set name="RspMsg"        value="持卡人为空"/>
+         <return/>
+       </if>
+       <!-- 检查预付卡号是否为空 -->
+       <set name="BANKNOP"         expr="DELBOTHSPACE(BANKNOP)"/>
+       <if condition="IS_EQUAL_STRING(BANKNOP,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02077"/>
+         <set name="RspMsg"        value="卡号为空"/>
+         <return/>
+       </if>
+       <!-- 支付密码是否为空 -->
+       <set name="PAYPASS"      expr="DELBOTHSPACE(PAYPWD)"/>
+       <if condition="IS_EQUAL_STRING(PAYPASS,'')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02078"/>
+         <set name="RspMsg"        value="支付密码为空"/>
+         <return/>
+       </if>
+
+       <!-- 查询用户信息-->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUsrIdInf" />
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="用户信息不存在"/>
+         <return/>
+       </if>
+       
+       <if condition="IS_NOEQUAL_STRING(PASSWORD,PAYPASS)">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="支付密码错误"/>
+         <return/>
+       </if>
+       
+       <!-- 检查用户认证信息 -->
+       <if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="用户认证未通过"/>
+         <return/>
+       </if>
+
+       <!--这里要请求预付卡系统查询该预付卡号是否存在 add by gyl 20140114-->
+       <if condition="IS_NOEQUAL_STRING(CUST_CRED_TYPE,'0')"><!--目前只支持身份证验证-->
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02008"/>
+         <set name="RspMsg"        value="用户未进行身份证实名认证！"/>
+         <return/>
+       </if>
+       <set name="CUST_CRED_TYPE" expr="CUST_CRED_TYPE"/>
+       <set name="CUST_CRED_NO"   expr="CUST_CRED_NO"/>
+       <!--读取预付卡接口路径 -->
+       <set name="ConfigName" value="HttpGetPost" />
+       <quote name="ReadXmlCfg" />
+       <do func="HttpPost" error="IGNORE">
+         <para name="url"         expr="HttpPost"/>
+         <para name="parameter"   expr="STRCAT('CARDNO=',BANKNOP,'&amp;USER_CER_TYPE=',CUST_CRED_TYPE,'&amp;USER_CER_NO=',CUST_CRED_NO)" />
+       </do>
+       <if condition="#RetCod==0">
+         <if condition="IS_EQUAL_STRING(RSPCOD,'000000')">
+           <set name="RspMsg"        value="检查通过"/>
+         </if>
+         <else>
+            <set name="MsgTyp"        value="E"/>
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="此预付卡不存在或不属于本用户，绑定失败"/>
+            <return/>
+         </else>
+       </if>
+       <if condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="此预付卡不存在或不属于本用户，绑定失败"/>
+         <return/>
+       </if> 
+      
+       <set name="USRMP"          expr="USRMP"/>
+       <set name="PAYACNO"        expr="PAYACNO"/>
+   
+       <!--查询用户是否绑定过该卡-->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd"   sql="QryUserBank" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RspMsg"        value="无记录,用户可以绑定银行卡"/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod==0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02085"/>
+         <set name="RspMsg"        value="绑定失败，此卡已被绑定"/>
+         <return/>
+       </elseif>
+       <else>
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+         <return/>
+       </else>
+
+       <!-- 获取序号 -->
+       <!--由于这里维护的银行卡绑定记录表，所以获取序列应该跟561114绑银行卡的一致-->    
+       <do func="GetSeqNo" error="IGNORE">
+          <para name="TblNam" value="stpseqrec" />
+          <para name="KeyNam" value="KeyNam" />
+          <para name="KeyVal" value="bank_id" />
+          <para name="SeqNam" value="KeyVal" />
+          <para name="Len" value="5" />
+          <para name="Circle" value="1" />
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="MsgTyp" value="E" />
+          <set name="RspCod" value="09001" />
+          <set name="RspMsg" value="获取序号错误" />
+          <return />
+       </if>
+ 
+       <!--  记录预付卡绑定信息  -->
+       <set name="CardDate"        expr="GETDATETIME('YYYYMMDD')"/>
+       <set name="CardTime"        expr="GETDATETIME('HHSSMI')"/>
+       <set name="REV_FLAG"        expr="memberNo"/><!--预付卡会员ID-->
+       <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="InsUserBankInf" />
+       </do>
+       <if condition="#RetCod!=0">
+          <set name="MsgTyp"       value="E"/>
+          <set name="RspCod"       value="09999"/>
+          <set name="RspMsg"       value="系统错误,请稍后再试或联系客服"/>
+          <return/>
+       </if>
+
+       <set name="MsgTyp"          value="E"/>
+       <set name="RspCod"          value="000000"/>
+       <set name="RspMsg"          value="绑定成功"/>
+     </process>
+    </transaction>
+    
+    <transaction code="800045" desc="移动端预付卡解绑">
+        <sql name="QryUsrInf"> <!--  查询用户注册信息  -->
+            SELECT u.USR_STATUS as AUTSTAT,c.CUST_NAME as U_NAME,p.password,p.PAY_AC_NO
+            FROM STPUSRINF u,STPCUSINF c,arp_ac_cust_rel p
+            WHERE u.CUST_ID=#{CUST_ID} and u.CUST_ID=c.CUST_ID and u.CUST_ID=p.CUST_ID
+        </sql>
+        <sql name="QryCustId"> <!--  根据手机号查询CUST_ID  -->
+            SELECT CUST_ID
+            FROM STPUSRINF 
+            WHERE  CUST_LOGIN=#{UsrMp}
+        </sql>
+        <sql name="QryBankInf"> <!--  查询用户绑定的银行卡  -->
+            SELECT * 
+            FROM STPBANKTB 
+            WHERE CUST_ID=#{PAY_AC_NO} AND CARD_NO=#{BANKNOP}
+        </sql>
+        <sql name="DelBankInf"> <!--  删除银行卡信息  -->
+            DELETE FROM STPBANKTB  
+            WHERE CUST_ID=#{PAY_AC_NO} AND CARD_NO=#{BANKNOP}
+        </sql>
+        <process>
+            <set name="sPwds"    value="PAYPWD:G_RANDOM"/>
+            <quote name="ParseRequestParams"/>
+           
+            <!-- 根据手机号查询CUST_ID -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryCustId" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="用户信息不存在"/>
+                <return/>
+            </if>
+            
+            <!-- 检查支付密码是否冻结 add by gyl 20140212-->
+            <set name="RCS_PWD_TYPE"        value="3"           />
+            <set name="RCS_USER_CODE"       expr="CUST_ID"        />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"     />
+            <set name="RCS_PRD_NO"          value=""            />
+            <set name="RCS_TCODE"           value="5"           />
+            <set name="RCS_STATUS"          value="0"           />
+            <quote name="tranPwdLock"/> 
+
+            <!-- 检查用户注册信息是否存在 -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryUsrInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="用户信息不存在"/>
+                <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(AUTSTAT,'2')">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="用户认证未通过"/>
+                <return/>
+            </if>
+            
+            <set name="PASSWORD"        expr="PASSWORD"/>
+            <set name="PASSWD"          expr="PAYPWD"/>        
+            <if condition="IS_NOEQUAL_STRING(PASSWORD,PASSWD)">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="支付密码错误"/>
+                <return/>
+            </if>
+
+            <!--  查询用户是否绑定过该卡  -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryBankInf" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="请先添加银行卡信息！"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod==-1">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09999"/>
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </elseif>
+            <elseif condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09998"/>
+                <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+                <return/>
+            </elseif>
+
+            <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="DelBankInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"        value="09999"/>
+                <set name="RspMsg"        value="数据库操作错误"/>
+                <return/>
+            </if>
+            
+            <set name="MsgTyp"          value="N"/>
+            <set name="RSPCOD"          value="000000"/>
+            <set name="RSPMSG"          value="解绑成功"/>
+        </process>
+    </transaction>
+    
+    <transaction code="800046" desc="移动端预付卡挂失">
+        <sql name="QryUserBank"><!--  检测用户是否存在该卡  -->
+            SELECT c.cust_id FROM STPBANKTB a,ARP_AC_CUST_REL b,stpusrinf c
+            WHERE  a.cust_id=b.pay_ac_no and b.cust_id=c.cust_id and CARD_NO=#{BANKNOP} and c.cust_login=#{USRMP}
+        </sql>
+        <sql name="QryAccInfo"><!--查询 客户主档案表和 账户主档案表-->
+            SELECT a.PAY_AC_NO,CUST_STATUS,AC_STATUS,CASH_AC_BAL,PASSWORD FROM  STPCUSINF S,ARP_AC_CUST_REL R ,ARP_AC_PROFILE A WHERE s.cust_id=r.cust_id AND r.pay_ac_no=a.pay_ac_no
+            AND s.cust_id=#{userID}
+        </sql>
+        <sql name="QryStpBankinfo"><!--获取预付卡系统的会员ID-->
+            SELECT REV_FLAG FROM STPBANKTB WHERE CUST_ID like #{userID}
+        </sql>
+        <sql name="UpdateBanktb"><!--修改预付卡状态  挂失-->
+            UPDATE STPBANKTB SET CARD_STATUS=#{cardStatus} WHERE CARD_NO=#{BANKNOP}
+        </sql>
+        <process>
+            <set name="sPwds"    value="PAYPWD:G_RANDOM"/>
+            <quote name="ParseRequestParams"/>
+            
+            <if condition="IS_EQUAL_STRING(BANKNOP,'')"><!-- 检查预付卡号是否为空 -->
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02077"/>
+                <set name="RspMsg"        value="卡号为空"/>
+                <return/>
+            </if>
+            
+            <!--  查询用户是否绑定过该卡  -->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryUserBank" />
+            </do>
+            <if condition="#RetCod==0">
+                <set name="RspMsg"        value="存在该预付卡，用户可以挂失预付卡"/> 
+            </if>
+            <elseif condition="#RetCod==2">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02085"/> 
+                <set name="RspMsg"        value="该预付卡不存在，不可以挂失预付卡！"/>
+                <return/>
+            </elseif>
+            <else>
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09998"/>
+                <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+                <return/>
+            </else>
+              
+            <set name="userID"           expr="cust_id"/>
+              
+            <!-- 检查支付密码是否冻结 add by gyl 20140212-->
+            <set name="RCS_PWD_TYPE"        value="3"           />
+            <set name="RCS_USER_CODE"       expr="userID"        />
+            <set name="RCS_PAY_TYPE"        expr="TRANCODE"     />
+            <set name="RCS_PRD_NO"          value=""            />
+            <set name="RCS_TCODE"           value="5"           />
+            <set name="RCS_STATUS"          value="0"           />
+            <quote name="tranPwdLock"/> 
+              
+            <do func="ReadRecord"     error="IGNORE">
+                <para name="SqlCmd" sql="QryAccInfo"/>
+            </do>
+            <if condition="#RetCod==2">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="01003"/>
+                <set name="RspMsg"    value="无符合条件记录"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09998"/>
+                <set name="RspMsg"    value="系统错误"/>
+                <return/>
+            </elseif>
+            
+            <set name="PASSWORD"        expr="PASSWORD"/>
+            <set name="PASSWD"          expr="PAYPWD"/>        
+            <if condition="IS_NOEQUAL_STRING(PASSWORD,PASSWD)">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="支付密码错误"/>
+                <return/>
+            </if>
+            
+            <set name="cardStatus"        value="2"/>
+            <do func="ExecSql" error="IGNORE">
+                <para name="SqlCmd" sql="UpdateBanktb" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="数据库操作错误"/>
+                <return/>
+            </if>  
+                   
+            <set name="MsgTyp"          value="E"/>
+            <set name="RspCod"          value="000000"/>
+            <set name="RspMsg"          value="挂失成功"/>    
+        </process>
+    </transaction>
+    
+    <transaction code="800047" desc="移动端预付卡校验">
+        <sql name="QryCusInf"><!-- 查询客户信息-->
+            SELECT cus.CUST_STATUS,cus.CUST_ID as USERID,usr.USR_STATUS as USRSTATUS FROM STPUSRINF usr,STPCUSINF cus WHERE usr.CUST_ID = cus.CUST_ID AND usr.CUST_LOGIN = #{USRMP}
+        </sql>
+        <sql name="QryUsrIdInf"> <!--  查询用户注册信息  -->
+            SELECT s.*,c.CUST_CRED_TYPE,CUST_CRED_NO,a.password,a.PAY_AC_NO as payacno FROM STPUSRINF s,STPCUSINF c,ARP_AC_CUST_REL a   WHERE s.cust_id=a.cust_id AND s.cust_id=c.cust_id
+            AND s.cust_id=#{USERID}
+        </sql>
+        <process>
+            <set name="sPwds"    value=""/>
+            <quote name="ParseRequestParams"/>
+            
+            <if condition="IS_EQUAL_STRING(USRMP,'')">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02035"/>
+                <set name="RspMsg"        value="手机号为空"/>
+                <return/>
+            </if>
+            <quote name="usrChk"/> 
+            
+            <!-- 检查持卡人是否为空 -->
+            <if condition="IS_EQUAL_STRING(CARDNAME,'')">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02077"/>
+                <set name="RspMsg"        value="持卡人为空"/>
+                <return/>
+            </if>
+            <!-- 检查预付卡号是否为空 -->
+            <set name="BANKNOP"         expr="DELBOTHSPACE(BANKNOP)"/>
+            <if condition="IS_EQUAL_STRING(BANKNOP,'')">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02077"/>
+                <set name="RspMsg"        value="卡号为空"/>
+                <return/>
+            </if>
+            
+            <!-- 查询用户信息-->
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd"   sql="QryUsrIdInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="用户信息不存在"/>
+                <return/>
+            </if>
+            
+            <!-- 检查用户认证信息 -->
+            <if condition="IS_NOEQUAL_STRING(USR_STATUS,'2')">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="用户认证未通过"/>
+                <return/>
+            </if>
+            
+            <!--这里要请求预付卡系统查询该预付卡号是否存在 add by gyl 20140114-->
+            <if condition="IS_NOEQUAL_STRING(CUST_CRED_TYPE,'0')"><!--目前只支持身份证验证-->
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="02008"/>
+                <set name="RspMsg"        value="用户未进行身份证实名认证！"/>
+                <return/>
+            </if>
+            <set name="CUST_CRED_TYPE" expr="CUST_CRED_TYPE"/>
+            <set name="CUST_CRED_NO"   expr="CUST_CRED_NO"/>
+            <!--读取预付卡接口路径 -->
+            <set name="ConfigName" value="HttpGetPost" />
+            <quote name="ReadXmlCfg" />
+            <do func="HttpPost" error="IGNORE">
+                <para name="url"         expr="HttpPost"/>
+                <para name="parameter"   expr="STRCAT('CARDNO=',BANKNOP,'&amp;USER_CER_TYPE=',CUST_CRED_TYPE,'&amp;USER_CER_NO=',CUST_CRED_NO)" />
+            </do>
+            <if condition="#RetCod==0">
+                <if condition="IS_EQUAL_STRING(RSPCOD,'000000')">
+                    <set name="RspMsg"        value="检查通过"/>
+                </if>
+                <else>
+                    <set name="MsgTyp"        value="E"/>
+                    <set name="RspCod"        value="09999"/>
+                    <set name="RspMsg"        value="此预付卡不存在或不属于本用户，绑定失败"/>
+                    <return/>
+                </else>
+            </if>
+            <if condition="#RetCod!=0">
+                <set name="MsgTyp"        value="E"/>
+                <set name="RspCod"        value="09999"/>
+                <set name="RspMsg"        value="此预付卡不存在或不属于本用户，绑定失败"/>
+                <return/>
+            </if> 
+            
+            <set name="MsgTyp"          value="E"/>
+            <set name="RspCod"          value="000000"/>
+            <set name="RspMsg"          value="校验通过"/>
+        </process>
+    </transaction>
+    
+    
+</application>

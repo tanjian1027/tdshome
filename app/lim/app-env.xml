@@ -1,0 +1,5 @@
+<?xml version="1.0"?>
+<!DOCTYPE configure SYSTEM "configure.dtd">
+<configure>
+	<put name="serverId" type="String">800000</put>
+</configure>

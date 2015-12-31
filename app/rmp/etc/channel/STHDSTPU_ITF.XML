@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="STP" log_level="INFO">
+
+    <!-- 594105  查询物业费用账单交易去第三方 -->
+    <transaction code="594105" desc="查询物业费用账单交易--去第三方">
+        <pack cache="true">
+            <item name="code"         length="06"   value="594105"/><!--交易码-->
+            <item name="CUST_ID"      length="20"   expr="DELBOTHSPACE(CUST_ID)"   desc="用户编码"/>
+        </pack>
+        <unpack>
+            <item name="STP_RspCod"      length="06"   expr="DELBOTHSPACE(STP_RspCod)"/>
+            <item name="STP_RspMsg"      length="120"  expr="DELBOTHSPACE(STP_RspMsg)"/>
+            <item name="PrdOrdNo"        length="50"   expr="DELBOTHSPACE(PrdOrdNo)"   desc="账单信息登记时，插入的订单号"/>
+        </unpack>
+    </transaction>
+    
+    <!-- 594106  缴费成功回写第三方 -->
+    <transaction code="594106" desc="查询物业费用账单交易--去第三方">
+        <pack cache="true">
+            <item name="code"         length="06"   value="594106"/><!--交易码-->
+            <item name="CUST_ID"      length="20"   expr="DELBOTHSPACE(CUST_ID)"   desc="用户编码"/>
+            <item name="PrdOrdNo"     length="50"   expr="DELBOTHSPACE(PrdOrdNo)"  desc="缴费批次号"/>
+        </pack>
+        <unpack>
+            <item name="STP_RspCod"      length="06"   expr="DELBOTHSPACE(STP_RspCod)"/>
+            <item name="STP_RspMsg"      length="120"  expr="DELBOTHSPACE(STP_RspMsg)"/>
+        </unpack>
+    </transaction>
+    
+    <!-- 594107  商品订单建立-->
+    <transaction code="594107" desc="商品订单建立">
+        <pack cache="true">
+            <item name="code"         length="06"   value="594107"/><!--交易码-->
+            <item name="CUST_ID"      length="20"   expr="DELBOTHSPACE(CUST_ID)"   desc="用户编码"/>
+            <item name="PrdOrdNo"     length="50"   expr="DELBOTHSPACE(PrdOrdNo)"  desc="缴费批次号"/>
+        </pack>
+        <unpack>
+            <item name="STP_RspCod"      length="06"   expr="DELBOTHSPACE(STP_RspCod)"/>
+            <item name="STP_RspMsg"      length="120"  expr="DELBOTHSPACE(STP_RspMsg)"/>
+            <item name="OrdAmt"          length="15"   expr="DELBOTHSPACE(OrdAmt)"/>
+        </unpack>
+    </transaction>
+    
+    
+
+</channel>

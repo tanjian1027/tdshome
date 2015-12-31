@@ -1,0 +1,315 @@
+﻿<?xml version="1.0" encoding="UTF-8"?> 
+<publicmacro name="PUBMACRO">     
+   <!--****************parameters文件夹下的OFRTBIZ1****************--> 
+   <macro name="getAddFeeSec">
+     <do func="DataAdd" error="ignore">
+        <para name="TableName"    value="FeeSection"/>
+        <para name="Method"       value="Insert"/>
+        <para name="Columns"      value="*"/>
+     </do>
+     <if condition="#RetCod !=0">
+       <do func="RollBackWork"/>
+       <set name="RSPCOD"            value="02038"/>
+       <set name="RSPMSG"            value="新增费率档次失败!"/>
+       <set name="DWZ_STATUS_CODE"   expr="DWZ_ERROR_CODE"/>
+       <set name="DWZ_CALLBACK_TYPE" value="forward"/>
+       <set name="DWZ_FORWARD_URL"   value="412060.stp"/>
+       <set name="DWZ_RSP_MSG"       expr="RSPMSG"/>
+       <return/>
+     </if>
+  </macro>
+  
+  <!--交易费率信息的输入正确性-->
+  <macro name="CheckFeeInfo">
+    <!--判断费用名称的正确性-->
+    <if condition="OR(ISNULL(FEE_NAME),IS_EQUAL_STRING(DELSPACE(FEE_NAME,'all'),''))">
+      <set name="RSPCOD"          value="02040"/>
+      <set name="RSPMSG"          value="费用名称不能空,请重新输入"/>
+      <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+      <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+      <return/>
+    </if>
+    
+    <!--货币类型检查-->
+    <if condition="OR(ISNULL(CCY),IS_EQUAL_STRING(DELSPACE(CCY,'all'),''))">
+      <set name="RSPCOD"          value="02040"/>
+      <set name="RSPMSG"          value="货币不能空,请重新输入"/>
+      <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+      <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+      <return/>
+    </if>
+    
+    <!--计费方式和分档方法-->
+    <if condition="OR(IS_EQUAL_STRING(CAL_MODE1,'-1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'-1'))">
+      <set name="RSPCOD"          value="02041"/>
+      <set name="RSPMSG"          value="请正确选择计费方式和分档方法类型!"/>
+      <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+      <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+      <return/>
+    </if>
+    
+    <!--判断最高收费的正确性-->
+    <if condition="OR(ISNULL(MAX_FEE),ISNUMBER(MAX_FEE))">
+      <set name="RSPCOD"          value="02042"/>
+      <set name="RSPMSG"          value="最高收费金额格式输入错误,请重新输入!"/>
+      <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+      <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+      <return/>
+    </if>
+
+    <!--判断最低收费的正确性-->
+    <if condition="OR(ISNULL(MIN_FEE),ISNUMBER(MIN_FEE))">
+      <set name="RSPCOD"          value="02044"/>
+      <set name="RSPMSG"          value="最低收费金额格式输入错误,请重新输入!"/>
+      <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+      <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+      <return/>
+    </if>
+    
+    <!--判断起费额的正确性-->
+    <if condition="OR(ISNULL(START_CAL_AMT),ISNUMBER(START_CAL_AMT))">
+      <set name="RSPCOD"          value="02045"/>
+      <set name="RSPMSG"          value="最低收费金额格式输入错误,请重新输入!"/>
+      <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+      <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+      <return/>
+    </if>
+    
+    <!--判断相应费率项是否选中相应费率档次-->
+    <if condition="AND(IS_EQUAL_STRING(CAL_MODE1,'0'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'0'))">
+      <!--计费方式: 定额收费 分档方法:不套档-->
+      <if condition="IS_EQUAL_STRING(MAX_AMT1,'')">
+        <set name="RSPCOD"          value="02046"/>
+        <set name="RSPMSG"          value="请输入计费量上限!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if>
+      <set name="MAX_AMT1"       expr="DELCHAR(MAX_AMT1,44)"/>
+      <set name="MAX_AMT1"       expr="DELCHAR(MAX_AMT1,44)"/>
+      <set name="MAX_AMT1"       expr="DELCHAR(MAX_AMT1,44)"/>
+      <set name="MAX_AMT1"       expr="DELCHAR(MAX_AMT1,46)"/>      
+      <!--
+      <set name="MAX_AMT1"       expr="AMTPOWER(REPALLSTR(MAX_AMT1, '.' ),2)"/>
+      -->
+      <if condition="IS_EQUAL_STRING(FEE_AMT1,'')">
+        <set name="RSPCOD"          value="02046"/>
+        <set name="RSPMSG"          value="费用金额为必输入项!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if>
+      <set name="FEE_AMT1"       expr="FEE_AMT1"/>
+      <set name="FEE_AMT1"       expr="AMTPOWER(REPALLSTR(FEE_AMT1,',',''),2)"/>
+     
+      <!-- 计费量上限为0 时，费用金额为0 12.26 up zh -->
+      <if condition="DOUBLECMP(MAX_AMT1,3,'0')">
+        <if condition="DOUBLECMP(FEE_AMT1,6,'0')">
+           <set name="MAX_AMT1"       value="9999999999999"/>
+        </if>        
+      </if>
+      <!-- 计费量上限不为0 时，计费量上限转为最大值，费用金额可为任意数量 -->
+      <elseif condition="DOUBLECMP(MAX_AMT1,6,'0')">
+        <set name="MAX_AMT1"              value="9999999999999"/> 
+        <if condition="DOUBLECMP(FEE_AMT1,2,'0')">
+          <set name="RSPCOD"          value="02047"/>
+          <set name="RSPMSG"          value="费用金额不能小于零,请重新输入!"/>
+          <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+          <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+          <return/>
+        </if>
+      </elseif>
+      <else>
+        <set name="RSPCOD"          value="02046"/>
+        <set name="RSPMSG"          value="计费量上限不能小于零,请重新输入!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/> 
+      </else>
+     
+    </if>
+    <if condition="AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'0'))">
+      <!--计费方式: 按比例收费 分档方法:不套档-->
+      <if condition="IS_EQUAL_STRING(MAX_AMT2,'')">
+        <set name="RSPCOD"          value="02046"/>
+        <set name="RSPMSG"          value="请输入计费量上限!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if>
+      <set name="MAX_AMT2"       expr="AMTPOWER(REPALLSTR(MAX_AMT2,',',''),2)"/>                     
+      
+      <if condition="DOUBLECMP(MAX_AMT2,1,0)">
+        <set name="RSPCOD"          value="02048"/>
+        <set name="RSPMSG"          value="计费量上限不能小于零,请重新输入!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if>
+      <elseif condition="DOUBLECMP(MAX_AMT2,3,0)"> 
+         <if condition="DOUBLECMP(FEE_RATIO2,6,0)">
+        <set name="MAX_AMT2"         value="9999999999999"/>
+        </if>
+      </elseif>
+      <else>
+        <!-- 不套档 计费量上限定为最大金额 -->
+        <set name="MAX_AMT2"           value="9999999999999"/>
+      </else>
+      
+      <if condition="OR(DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO2,',',''),2),1,0),DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO2,',',''),2),6,10000))">
+        <set name="RSPCOD"          value="02049"/>
+        <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if>
+    </if>
+    <if condition="OR(AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'1')),AND(IS_EQUAL_STRING(CAL_MODE1,'1'),IS_EQUAL_STRING(MULTI_SECTION_MODE1,'2')))">
+      <if condition="AND(ISNULL(MAX_AMT3),ISNULL(MAX_AMT4),ISNULL(MAX_AMT5),ISNULL(MAX_AMT6),ISNULL(MAX_AMT7),ISNULL(MAX_AMT8),ISNULL(MAX_AMT9),ISNULL(MAX_AMT10))">
+        <set name="RSPCOD"          value="02050"/>
+        <set name="RSPMSG"          value="该种费率模式下,最少设置一种费率档次!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if>
+      
+      <if condition="AND(ISNULL(FEE_RATIO3),ISNULL(FEE_RATIO4),ISNULL(FEE_RATIO5),ISNULL(FEE_RATIO6),ISNULL(FEE_RATIO7),ISNULL(FEE_RATIO8),ISNULL(FEE_RATIO9),ISNULL(FEE_RATIO10))">
+        <set name="RSPCOD"          value="02049"/>
+        <set name="RSPMSG"          value="该种费率模式下,最少设置一种费率比例!"/>
+        <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+        <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+        <return/>
+      </if>
+      
+      <if condition="NOT(ISNULL(FEE_RATIO3))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO3,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+      <if condition="NOT(ISNULL(FEE_RATIO4))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO4,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+      <if condition="NOT(ISNULL(FEE_RATIO5))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO5,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+      <if condition="NOT(ISNULL(FEE_RATIO6))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO6,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+      <if condition="NOT(ISNULL(FEE_RATIO7))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO7,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+      <if condition="NOT(ISNULL(FEE_RATIO8))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO8,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+      <if condition="NOT(ISNULL(FEE_RATIO9))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO9,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+      <if condition="NOT(ISNULL(FEE_RATIO10))">
+        <if condition="NOT(ISNUMBER(REPALLSTR(FEE_RATIO3,'.','')))">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例输入不合法"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/> 
+        </if>
+        <if condition="DOUBLECMP(AMTPOWER(REPALLSTR(FEE_RATIO10,',',''),2),6,10000)">
+           <set name="RSPCOD"          value="02049"/>
+           <set name="RSPMSG"          value="费率比例请设置在0到100之间,请重新输入!"/>
+           <set name="DWZ_STATUS_CODE" expr="DWZ_ERROR_CODE"/>
+           <set name="DWZ_RSP_MSG"     expr="RSPMSG"/>
+           <return/>
+        </if>
+      </if>
+    </if>
+  </macro>
+  
+</publicmacro>

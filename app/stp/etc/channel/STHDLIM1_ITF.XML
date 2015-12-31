@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="STP" log_level="INFO">
+   
+   <transaction code="568039" timeout="300" desc="内部系统退出" >
+    <pack>
+      <writeelement name="request">
+         <writeattr name="code" expr="TxnCod"/>
+         <writeelement name="item">
+            <writeattr name="name"  value="sys_id"/>
+            <writeattr name="value" expr="SYS_ID"/>
+         </writeelement>
+         <writeelement name="item">
+            <writeattr name="name"  value="user_id"/>
+            <writeattr name="value" expr="USER_ID"/>
+         </writeelement>
+         <writeelement name="item">
+            <writeattr name="name"  value="account"/>
+            <writeattr name="value" expr="ACCOUNT"/>
+         </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+         <readelement name="status">
+             <readattr name="value" expr="status"/>
+         </readelement>
+         
+         <if condition="IS_EQUAL_INT(status,1)">
+           <!--登录成功-->
+           <readelement name="user">
+               <readattr name="loginUrl" 	expr="loginUrl"/>        <!--成功跳转页面--> 
+               <readattr name="outUrl" 		expr="outUrl"/>          <!--失败跳转页面--> 
+               <readattr name="staleSign" expr="staleSign"/>       <!--状态--> 
+           </readelement>
+           <readelement name="menu">
+                     <readgroupelement name="node">
+                        <readattr  name="menuid"     expr="PAGID"/>
+                        <readattr  name="parmenuid"  expr="PAREID"/>
+                        <readattr  name="name"       expr="PAGNAM"/>
+                        <readattr  name="href"       expr="PAGURL"/>
+                        <readattr  name="nodetype"   expr="PAGMENU"/>
+                     </readgroupelement>
+           </readelement>
+
+         </if>
+         <else>
+           <readelement name="retMsg">
+               <readattr name="value" expr="retMsg"/><!--失败信息-->
+           </readelement>
+           <readelement name="outUrl">
+               <readattr name="value" expr="outUrl"/><!--失败信息-->
+           </readelement>
+         </else>
+    </unpack>
+   </transaction>
+    
+  <transaction code="568032"      desc="商户,代理,分销商开户">
+    <pack>
+      <writeelement name="request">
+        <writeattr name="code"     expr="limTxnCod" />             <!--接口交易码--> 
+        <writeelement name="item">
+          <writeattr name="name"   value="SYS_ID" />          <!--系统ID-->
+          <writeattr name="value"  expr="SysId" />       
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="ACCOUNT" />         <!--业务系统用户ID-->
+          <writeattr name="value"   expr="account" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="USER_NAM" />         <!--用户名称-->
+          <writeattr name="value"   expr="userName" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="USER_ID" />         <!--用户名称-->
+          <writeattr name="value"   expr="admin" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="BUSNAME" />         <!--商户名称-->
+          <writeattr name="value"   expr="BUSNAME" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="merlogin_id" />         <!--商户登录名-->
+          <writeattr name="value"   expr="login_id" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="merlogin_pwd" />         <!--商户密码-->
+          <writeattr name="value"   expr="login_pwd" />
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <readelement name="status">
+        <readattr name="value" expr="status" />             <!--成功或失败的标志  1成功  0 失败-->
+      </readelement>
+      <if condition="IS_EQUAL_INT(status,1)">
+        <readelement name="user">
+          <readattr name="sys_id"      expr="sysid" />          
+          <readattr name="role_id"     expr="roleId" />
+          <readattr name="login_id"    expr="loginName" />
+          <readattr name="login_pwd"   expr="loginPwd" />
+          <readattr name="account"     expr="account" />
+        </readelement>
+      </if>
+      <else>
+        <readelement name="retMsg">
+          <readattr name="value" expr="retMsg" />             <!--返回信息-->
+        </readelement>
+      </else>
+    </unpack>
+  </transaction>
+  
+  <transaction code="568034"      desc="商户,代理,分销商开户注销">
+    <pack>
+      <writeelement name="request">
+        <writeattr name="code"     expr="limTxnCod" />             <!--接口交易码--> 
+        <writeelement name="item">
+          <writeattr name="name"    value="USER_ID" />         <!--用户名称-->
+          <writeattr name="value"   expr="loginName" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="SYS_ID" />         <!--用户名称-->
+          <writeattr name="value"   expr="SysId" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="ACCOUNT" />         <!--用户名称-->
+          <writeattr name="value"   expr="custNo" />
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <readelement name="status">
+        <readattr name="value" expr="status" />             <!--成功或失败的标志  1成功  0 失败-->
+      </readelement>
+      <readelement name="status">
+        <readattr name="value" expr="retmsg" />             <!--成功或失败的标志  1成功  0 失败-->
+      </readelement>
+    </unpack>
+  </transaction>
+  
+  <transaction code="568101"      desc="企业客户开户">
+    <pack>
+      <writeelement name="request">
+        <writeattr name="code"     value="568101" />             <!--接口交易码--> 
+        <writeelement name="item">
+          <writeattr name="name"   value="SYS_ID" />          <!--系统ID-->
+          <writeattr name="value"  expr="SYSCOD" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="ACCOUNT" />         <!--企业客户ID-->
+          <writeattr name="value"   expr="MER_CUSTNO" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="BusName" />          <!--企业客户名称-->
+          <writeattr name="value"   expr="MER_NAM" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="login_id" />         <!--操作员-->
+          <writeattr name="value"   expr="MER_LOGNAM" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="USER_NAM" />       <!--操作员姓名-->
+          <writeattr name="value"   expr="MER_CONTENT" />
+        </writeelement>
+        <writeelement name="item">
+          <writeattr name="name"    value="login_pwd" />        <!--登录密码-->
+          <writeattr name="value"   expr="MER_LOGPWD" />
+        </writeelement>
+      </writeelement>
+    </pack>
+    <unpack>
+      <readelement name="status">
+        <readattr name="value" expr="status" />             <!--成功或失败的标志  1成功  0 失败-->
+      </readelement>
+      <readelement name="retMsg">
+        <readattr name="value" expr="retMsg" />             <!--返回信息-->
+      </readelement>
+    </unpack>
+  </transaction>
+  
+</channel>

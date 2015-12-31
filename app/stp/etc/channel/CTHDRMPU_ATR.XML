@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="CTHDRMPU" log_level="INFO" minThreads="100" maxThreads="300">
+    <listener name="listener1" class="tangdi.comm.tcp.TdSystemChannelListener">
+        <para name="localPort" value="60018"/>
+    </listener>
+    <process>
+        <unpack dataType="bin">
+            <item name="TxnCod" length="06" />
+            <do func="unpack">
+                <para name="charset"    value="utf-8"   />
+                <para name="code"       expr="TxnCod"   />
+                <para name="ITF"        value="etc/channel/CTHDRMPU_ITF.XML" />
+            </do>
+        </unpack>
+        <do func="callservice">
+            <para name="service" expr="TxnCod"></para>
+        </do>
+        <do expr="@tangdi.engine.context.Msg@dump()" />
+        <do func="pack">
+            <para name="charset"    value="utf-8"       />
+            <para name="code"       expr="TxnCod"       />
+            <para name="ITF"        value="etc/channel/CTHDRMPU_ITF.XML" />
+        </do>
+    </process>
+</channel>

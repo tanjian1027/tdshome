@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<application name="CTHDMNG4" code="100" log_level="INFO">
+   <!-- 企业客户-权限主控 -->
+   <before>
+      <do func="DumpMsg" />
+      <do func="GetIP"/>
+      <set name="TermCode"   expr="Ip"/>
+   </before>
+   <after>
+      <do func="DumpMsg" />
+   </after>
+  
+   <transaction code="568101"  desc="企业客户创建操作员">
+     <sql name="queryUserExist">
+       select count(user_id) as USERCOUNT from limuseinf where account=#{ACCOUNT} and user_id=#{login_id}
+     </sql>
+     <sql name="querySysAbbr">
+       select sys_abbr from limsysinf where sys_id=#{OAA_SYS_ID}
+     </sql>
+     <sql name="queryRoleqx"><!--模板角色权限菜单集合-->
+       select  menu_id from limrmrele where account=#{OAA_ACCOUNT} and role_id=#{OAA_ROLE_ID}
+     </sql>
+     <sql name="insertRoleInf"><!--添加角色-->
+       insert into limrolinf (account, role_id, role_nam, role_state, sys_id, crea_sign) values
+       (#{ACCOUNT}, #{ROLE_ID}, '超级管理员','1', #{OAA_SYS_ID}, '0')
+     </sql>
+     <sql name="insertUserInf"><!--创建用户-->
+       insert into limuseinf (account, user_id, user_nam, user_pwd, sys_id, crea_sign, user_date, state,PRESET1,USER_EXPIRED_TIME,last_uppwd_date) values
+       (#{ACCOUNT}, #{login_id}, #{USER_NAM}, #{login_pwd}, #{OAA_SYS_ID}, '0', #{USER_DATE}, '1',#{BUSNAME},'90',#{last_uppwd_date})
+     </sql>
+     <sql name="insertUrRele"><!--添加用户角色关联信息-->
+       insert into limwurinf (user_account,role_account,role_id,user_id) values(#{ACCOUNT},#{OAA_ACCOUNT},#{ROLE_ID},#{login_id})     
+     </sql> 
+     <process>
+        <!--防止创建人的ID和别创建人的用户ID重复-->
+        <set name="YUN_USER_ID" expr="login_id"/>
+        <if condition="OR(ISNULL(SYS_ID),ISNULL(ACCOUNT),ISNULL(YUN_USER_ID),ISNULL(USER_NAM),ISNULL(BUSNAME))">
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="发送报文不完整，输入项不能为空!"/>
+          <return/>
+        </if>
+        <!--查询对应系统基本信息-->
+        <if condition="IS_EQUAL_STRING(SYS_ID,'1120')"> <!--后台发起-->
+           <set name="OAA_SYS_ID"  value="2204"/>            <!--企业客户系统ID-->
+           <set name="OAA_ACCOUNT" value="400000"/>         <!-- 企业会员角色账户号-->
+           <set name="OAA_ROLE_ID" value="CME20120410001"/>
+        </if>
+        <else>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="系统编号错误,不能开户!"/>
+           <return/>
+        </else>
+        
+        <if condition="ISNULL(login_pwd)">
+        	 <set name="status" value="0"/>
+           <set name="RSPMSG" value="密码为空,不能开户!"/>
+           <return/>
+        </if>
+        <set name="USER_ID" expr="login_id"/>
+        <!--验证账户下有没有该用户-->
+        <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="queryUserExist"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="验证该账户下是否存在该用户失败!"/>
+           <return/>
+        </if>
+        <if condition="INTCMP(USERCOUNT,4,0)">
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="该已经为该账户开户过,不能再开户!"/>
+           <return/>
+        </if>
+        <!--查询对应系统简称-->
+        <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="querySysAbbr"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <if condition="#RetCod==-1">
+           	  <do func="RollBackWork"/>
+              <set name="status" value="0"/>
+              <set name="RSPMSG" value="查询您创建用户的系信息失败!"/>
+              <return/>
+           </if>
+           <elseif condition="#RetCod==2">
+           	  <do func="RollBackWork"/>
+              <set name="status" value="0"/>
+              <set name="RSPMSG" value="找不到对应的系统,无法继续创建用户!"/>
+              <return/>
+           </elseif>
+           <else>
+           	  <do func="RollBackWork"/>
+              <set name="status" value="0"/>
+              <set name="RSPMSG" value="寻找用户对应系统时,发生未知异常!"/>
+              <return/>
+           </else>
+        </if>
+        
+        <set name="USER_DATE"         expr="GETDATE()"/>  <!--添加用户时使用-->
+        <set name="last_uppwd_date"   expr="GETDATETIME('YYYYMMDDHHMISS')"/>
+        <set name="cuerrTime"         expr="SUBSTR(GETDATE(),3,6)"/>
+        
+        <!--被创建人的角色ID-->
+        <set name="ROLE_ID" expr="OAA_ROLE_ID"/>  <!--角色ID-->
+        <!--查询模板角色权限-->
+        <do func="QueryInGroup" error="IGNORE">
+           <para name="SqlCmd"     sql="queryRoleqx"/>
+           <para name="RecordName" value="ROLEQX_LST"/>
+        </do>
+        <if condition="#RetCod==-1">
+        	<do func="RollBackWork"/>
+          <set name="status" value="0"/>
+          <set name="RSPMSG" value="获取该账户对应角色操作数据有误!"/>
+          <return/>
+        </if>
+        
+        <!--创建用户-->
+        <do func="ExecSql" error="IGNORE">
+           <para name="SqlCmd" sql="insertUserInf"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <do func="RollBackWork"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="录入用户信息时,系统操作失败!"/>
+           <return/>
+        </if>
+        <!--挂钩角色用户关联信息-->
+        <do func="ExecSql" error="IGNORE">
+          <para name="SqlCmd" sql="insertUrRele"/>
+        </do>
+        <if condition="#RetCod!=0">
+           <do func="RollBackWork"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="录入用户角色关联信息时,系统操作失败!"/>
+           <return/>
+        </if>
+        <!--为新建用户赋权-->
+        <foreach name="ROLEQX_LST" iterator="#tmp">
+           <set name="MENU_ID"    expr="#tmp.MENU_ID"/>
+           <do func="InsertRecord">
+             <para name="TblNam"  value="limumrele"/>
+           </do>
+        </foreach>
+        <if condition="#RetCod!=-1">
+           <set name="status" value="1"/>
+           <set name="RSPMSG" value="创建用户成功!"/>
+           <return/>
+        </if>
+        <else>
+        	 <do func="RollBackWork"/>
+           <set name="status" value="0"/>
+           <set name="RSPMSG" value="为创建用户赋权时,操作数据库有误,创建用户失败!"/>
+           <return/>
+        </else>
+     </process>
+   </transaction>
+   
+   <transaction code="568102" desc="修改登录密码">
+     <sql name="UdPASS"><!--修改密码-->
+       update limuseinf set USER_PWD=#{new_pwd} where USER_ID=#{USER_ID} and ACCOUNT=#{ACCOUNT}
+     </sql>
+     <sql name="mer_qry"><!--验证原密码-->
+       select USER_PWD PASSWORD from limuseinf where USER_ID=#{USER_ID} and ACCOUNT=#{ACCOUNT}
+     </sql>
+     <process>
+       <!--检查登录平台是否正确-->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'2204')">
+         <set name="status"    value="0"/>
+         <set name="RspMsg"    value="商户登录平台不正确"/>
+         <return/>
+       </if>
+       <!--查询密码-->
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="mer_qry"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="status"   value="0"/>
+         <set name="RspMsg"   value="企业客户不存在"/>
+         <return/>
+       </if>
+       <if condition="IS_NOEQUAL_STRING(PASSWORD,USER_PWD)">
+         <set name="status"    value="0"/>
+         <set name="RspMsg"    value="登录密码错误,不能修改密码!"/>
+         <return/>
+       </if>
+       
+       <!--更新密码-->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="UdPASS"/>
+       </do>
+       <if condition="#RetCod!=0">
+         <set name="status"    value="0"/>
+         <set name="RspMsg"    value="修改密码失败!"/>
+         <return/>
+       </if>
+       <set name="status"    value="1"/>
+       <set name="RspMsg"    value="修改密码成功!"/>
+     </process>
+   </transaction>
+   
+   <transaction code="568103" desc="企业客户找回登录密码">
+      <sql name="UpdCuInfoInf"> <!--重置登录密码-->
+           UPDATE limuseinf SET USER_PWD=#{NUSRPWD} WHERE USER_ID=#{USER_ID} and ACCOUNT=#{ACCOUNT}
+      </sql>
+      <sql name="QryUsrIdInf"> <!--查询用户注册信息-->
+           SELECT USER_ID usrid FROM limuseinf WHERE USER_ID=#{USER_ID} and ACCOUNT=#{ACCOUNT}
+      </sql>
+      <process>
+         <if condition="IS_NOEQUAL_STRING(SysCod,'2204')">
+            <set name="status"    value="0"/>
+            <set name="RspMsg"    value="登录平台不正确"/>
+            <return/>
+         </if>
+         <!--  查询用户注册信息  -->
+         <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd"  sql="QryUsrIdInf" />
+         </do>
+         <if condition="#RetCod==2">
+            <set name="status"    value="0"/>
+            <set name="RspMsg"    value="用户信息不存在"/>
+            <return/>
+         </if>
+         <elseif condition="#RetCod!=0">
+            <set name="status"    value="0"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </elseif>
+         
+         <!-- 重置登录密码 -->
+         <do func="ExecSql" error="IGNORE">        
+            <para name="SqlCmd" sql="UpdCuInfoInf"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="02010"/>
+            <set name="RspMsg"    value="重置登录密码错误"/>
+            <return/>
+         </if>
+         <set name="status"    value="1"/>
+         <set name="RspMsg"    value="找回密码成功!"/>
+      </process>
+   </transaction>
+   
+</application>

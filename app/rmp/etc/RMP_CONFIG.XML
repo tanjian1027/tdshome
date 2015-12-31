@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+    <!--全局变量配置-->
+    <config name="G_VARIABLE">
+        <!-- 每页显示条数 -->
+        <G_NumPerPag>5</G_NumPerPag>
+    </config>
+   <!-- 检测密码次数 -->
+   <config name="G_CheckPwd">
+        <!-- 错误次数 -->
+        <G_ERRORCOUNT>5</G_ERRORCOUNT>
+        <!-- 锁定分钟数 -->
+        <G_LOCK_MIN>60</G_LOCK_MIN>
+   </config>
+   
+    <!--手机超时时间-->
+    <config name="PhoneOutTime">
+       <PhoneOutTime>60.0D</PhoneOutTime>
+    </config>
+    <config name="BeforeCfg">
+        <!--短信发送配置--> 
+     	  <LOSEDATE>5</LOSEDATE>
+        <sendUrl>http://59.41.60.158:8914/TradeAppServer/user/sms.jf</sendUrl>
+        <sendId>12</sendId>
+    </config>
+    <!--手机wap支付配置文件-->
+    <config name="phonePayConfig">
+        <version>5.0.0</version><!--版本号-->
+        <encoding>UTF-8</encoding><!--字符集编码 默认"UTF-8"-->
+        <signMethod>01</signMethod><!--签名方法 01 RSA-->
+        <txnType>01</txnType><!--交易类型 01-消费-->
+        <txnSubType>01</txnSubType><!--交易子类型 01:自助消费 02:订购 03:分期付款-->
+        <bizType>000201</bizType><!--业务类型-->
+        <channelType>08</channelType><!--渠道类型，07-PC，08-手机-->
+        
+        <frontUrl>http://59.41.60.154:8090/RMobPay/888889.tran</frontUrl><!--TEST-->
+        <!--frontUrl>https://www.56zhifu.com/user/888889.tran</frontUrl--><!--前台通知地址 ，控件接入方式无作用-->
+        
+        <!--backUrl>https://www.56zhifu.com/RMobPay/bankcallback.tran</backUrl--><!--后台通知地址-->
+        <backUrl>http://59.41.60.154:8090/user/565102.tran</backUrl>
+        
+        <accessType>0</accessType><!--接入类型，商户接入填0 0- 商户 ， 1： 收单， 2：平台商户-->
+        <!--merId>777290058112539</merId--><!--商户号码，请改成自己的商户号-->
+        <merId>700000000000001</merId>
+        <currencyCode>156</currencyCode><!--交易币种-->
+        <pageUrl>/home/payment/apache-tomcat-7.0.64/webapps/user/html/upopwaphtml/</pageUrl><!--跳转页面路径-->
+        
+        <accessUrl>http://59.41.60.154:8090/user/html/upopwaphtml/</accessUrl>
+        <!--accessUrl>https://www.56zhifu.com/user/html/upopwaphtml/</accessUrl-->
+        
+    </config>
+        <!--手机wap支付配置文件-->
+    <config name="phonePayConfigNoUser">
+        <version>5.0.0</version><!--版本号-->
+        <encoding>UTF-8</encoding><!--字符集编码 默认"UTF-8"-->
+        <signMethod>01</signMethod><!--签名方法 01 RSA-->
+        <txnType>01</txnType><!--交易类型 01-消费-->
+        <txnSubType>01</txnSubType><!--交易子类型 01:自助消费 02:订购 03:分期付款-->
+        <bizType>000201</bizType><!--业务类型-->
+        <channelType>08</channelType><!--渠道类型，07-PC，08-手机-->
+        
+        <frontUrl>http://59.41.60.154:8090/RMobPay/888889.tran</frontUrl><!--TEST-->
+        <!--frontUrl>https://www.56zhifu.com/user/888889.tran</frontUrl--><!--前台通知地址 ，控件接入方式无作用-->
+        
+        <!--backUrl>https://www.56zhifu.com/RMobPay/bankcallback.tran</backUrl--><!--后台通知地址-->
+        <backUrl>http://59.41.60.154:8090/user/565302.tran</backUrl>
+        
+        <accessType>0</accessType><!--接入类型，商户接入填0 0- 商户 ， 1： 收单， 2：平台商户-->
+        <!--merId>777290058112539</merId--><!--商户号码，请改成自己的商户号-->
+        <merId>700000000000001</merId>
+        <currencyCode>156</currencyCode><!--交易币种-->
+        <pageUrl>/home/payment/apache-tomcat-7.0.64/webapps/user/html/upopwaphtml/</pageUrl><!--跳转页面路径-->
+        
+        <accessUrl>http://59.41.60.154:8090/user/html/upopwaphtml/</accessUrl>
+        <!--accessUrl>https://www.56zhifu.com/user/html/upopwaphtml/</accessUrl-->
+        
+    </config>
+    <!--手机wap充值配置文件-->
+    <config name="phoneTopupConfig">
+        <version>5.0.0</version><!--版本号-->
+        <encoding>UTF-8</encoding><!--字符集编码 默认"UTF-8"-->
+        <signMethod>01</signMethod><!--签名方法 01 RSA-->
+        <txnType>01</txnType><!--交易类型 01-消费-->
+        <txnSubType>01</txnSubType><!--交易子类型 01:自助消费 02:订购 03:分期付款-->
+        <bizType>000201</bizType><!--业务类型-->
+        <channelType>08</channelType><!--渠道类型，07-PC，08-手机-->
+        
+        <frontUrl>http://59.41.60.154:8090/RMobPay/888889.tran</frontUrl><!--前台通知地址 ，控件接入方式无作用-->
+        <!--frontUrl>https://www.56zhifu.com/user/888889.tran</frontUrl--><!--前台通知地址 ，控件接入方式无作用-->
+        
+        <!--backUrl>https://www.56zhifu.com/RMobPay/bankcallback.tran</backUrl--><!--后台通知地址-->
+        
+        <backUrl>http://59.41.60.154:8090/user/565102.tran</backUrl>
+        <!--backUrl>https://www.56zhifu.com/user/565102.tran</backUrl-->
+        
+        <accessType>0</accessType><!--接入类型，商户接入填0 0- 商户 ， 1： 收单， 2：平台商户-->
+        <merId>700000000000001</merId>
+        <currencyCode>156</currencyCode><!--交易币种-->
+        <pageUrl>/home/payment/apache-tomcat-7.0.64/webapps/user/html/upopwaphtml/</pageUrl><!--跳转页面路径-->
+        
+        <accessUrl>http://59.41.60.154:8090/user/html/upopwaphtml/</accessUrl>
+        <!--accessUrl>https://www.56zhifu.com/user/html/upopwaphtml/</accessUrl-->
+        
+    </config>
+     <!--银联代付参数配置-->
+             <!--手机wap充值配置文件-->
+    <config name="phoneTopupConfigNoUser">
+        <version>5.0.0</version><!--版本号-->
+        <encoding>UTF-8</encoding><!--字符集编码 默认"UTF-8"-->
+        <signMethod>01</signMethod><!--签名方法 01 RSA-->
+        <txnType>01</txnType><!--交易类型 01-消费-->
+        <txnSubType>01</txnSubType><!--交易子类型 01:自助消费 02:订购 03:分期付款-->
+        <bizType>000201</bizType><!--业务类型-->
+        <channelType>08</channelType><!--渠道类型，07-PC，08-手机-->
+        
+        <!--frontUrl>https://www.56zhifu.com/RMobPay/888889.tran</frontUrl--><!--前台通知地址 ，控件接入方式无作用-->
+        <!--backUrl>https://www.56zhifu.com/user/565302.tran</backUrl--><!--后台通知地址-->
+         <frontUrl>http://59.41.60.154:8090/RMobPay/888889.tran</frontUrl><!--前台通知地址 ，控件接入方式无作用-->
+        <backUrl>http://59.41.60.154:8090/user/565302.tran</backUrl>
+        <accessType>0</accessType><!--接入类型，商户接入填0 0- 商户 ， 1： 收单， 2：平台商户-->
+        <merId>105440141319981</merId><!--商户号码，请改成自己的商户号-->
+        <currencyCode>156</currencyCode><!--交易币种-->
+        <pageUrl>/home/payment/apache-tomcat-7.0.64/webapps/user/html/upopwaphtml/</pageUrl><!--跳转页面路径-->
+        
+        <!--accessUrl>https://www.56zhifu.com/user/html/upopwaphtml/</accessUrl-->
+        <accessUrl>http://59.41.60.154:8090/user/html/upopwaphtml/</accessUrl>
+    </config>
+     
+        <!--银联参数配置支付-退货-->
+   <config name="UPOPCfgRef">
+      <upopversion>5.0.0</upopversion>
+      <upopencoding>UTF-8</upopencoding>
+      <UPOPSIGNMETHOD>01</UPOPSIGNMETHOD>
+      <upopMerNo>700000000000001</upopMerNo>  <!--银联b2c支付对账商户号码,需修改-->
+      <upopfrontUrl>http://59.41.60.154:8090/user/565103.tran</upopfrontUrl>  <!--前台通知地址-->
+      <upopbackUrl>http://59.41.60.154:8090/user/565103.tran</upopbackUrl>    <!--后台通知地址-->
+   </config>
+
+ 	  <config name="UPDFCfg"> 
+		  <updfmerno>700000000000001</updfmerno>    <!--银联商户号-->
+		  <version>5.0.0</version>
+		  <encoding>UTF-8</encoding>	
+      <signMethod>01</signMethod><!--签名方式-->
+		  <txnType>12</txnType><!--交易类型 代付支付-->
+		  <txnSubType>00</txnSubType><!--交易子类型 默认00-->
+		  <bizType>000401</bizType><!--产品类型 代付-->
+		  <channelType>07</channelType><!--渠道类型 07 互联网-->
+		  <accessType>0</accessType><!--产品类型 代付-->
+		  <currencyCode>156</currencyCode><!--产品类型 代付-->  
+		  <paidAmt>1</paidAmt><!--此参数在绑定银行卡时通过代付一分钱方式用-->
+    </config>  
+    <!--信使平台短信发送配置-->
+    <config name="SendSms">
+        <!-- 请求的地址 -->
+        <sendUrl>http://59.41.60.158:8914/TradeAppServer/user/sms.jf</sendUrl>
+        <!-- 序列号 -->
+        <softwareSerialNo>linan-jufeng</softwareSerialNo>
+        <!--密码-->
+        <smspassword>linan-@jufeng</smspassword>
+        <SendId>12</SendId>
+    </config>
+    <config name="selfUpdateApi">
+        <updateApp_url>http://www.56zhifu.com:8087/user/mobile/index.jsp</updateApp_url>
+        <updateApp_geturl>http://www.56zhifu.com:8087/user/mobile/</updateApp_geturl>
+        <updateApp_geturl_ios>http://www.56zhifu.com:8087/user/mobile/ios/ios.plist</updateApp_geturl_ios>
+    </config>
+    <!-- 银行图标路径 -->
+    <config name="G_BANK_INF">
+        <!-- 相对路径 -->
+        <G_BANKLOGO_PATH>images/logo/</G_BANKLOGO_PATH>
+    </config>
+    <!--移动端用户自定义头像路径 -->
+    <config name="uploadImgConfig">
+        <phone>/home/payment/apache-tomcat-7.0.64/webapps/RMobPay/images/userhead/</phone>
+ 
+    </config>
+  
+    <!-- 整改后 使用tomcat容器 addby20150902 -->
+  	<config name="uploadIdImageConfig">
+  			<resinDir>/home/payment/apache-tomcat-7.0.64/webapps/pay/dat/upload/</resinDir>
+  			<tdsDir>/home/payment/tdshome/app/stp/dat/upload/</tdsDir>
+  	</config>
+  	
+   <!-- 实际存在却无法通过身份证实名认证的姓名和身份证号码 -->
+   <config name="SpecialNameCardNoEntrys">
+      <!-- 姓名身份证号码数据条目，条目格式为"姓名|身份证号码"，如果有多个条目则每个条目以","作为分隔符 -->
+      <!-- 如<Name_CardNo_Entrys>姓名1|身份证号码1,姓名2|身份证号码2</Name_CardNo_Entrys> -->
+      <Name_CardNo_Entrys>陈俊祎|622701199010114515</Name_CardNo_Entrys>
+   </config>
+
+   <!--建行银企直连代付参数配置-->
+   <config name="StpBnkPayCfg">
+      <!--银行客户号-->
+      <BNK_CUST_ID>GDP567937849#001</BNK_CUST_ID>
+      <!--银行操作员-->
+      <USER_ID>WLPT01</USER_ID>
+      <!--操作员密码-->
+      <PASSWORD>123456</PASSWORD>
+      
+      <!--本方企业账户 付款账户-->
+      <ACC_NO1>D345473CC8152A32E1D45EF0D025B07B5CE6885E4F587BAC</ACC_NO1>
+      <!--行内转账收款账户户名校验 1:校验 0：不校验-->
+      <CHK_RECVNAME>1</CHK_RECVNAME>
+      <!--用途编号-->
+      <USEOF>用户转出到余额</USEOF>
+      <USEOF1>商户结算</USEOF1>
+      <!--币种-->
+      <CUR_TYPE>01</CUR_TYPE>
+      <!--交易类型 0-建行转他行,预留标志位，以后可扩展-->
+      <TRAN_TYPE>0</TRAN_TYPE>
+   </config>
+   
+   <!-- 无账户登陆是否启用标志 -->
+   <config name="NoCusPayOpenConfig">
+   		<NoCusOpenFlg>O</NoCusOpenFlg>
+   </config>
+   
+   <!--银联B2C产品_交易状态查询交易请求配置-->
+   <config name="UPOPB2cQueryOrdStatus">
+      <B2cQuery_version>5.0.0</B2cQuery_version>                          <!--版本号-->
+			<B2cQuery_encoding>UTF-8</B2cQuery_encoding>                        <!--编码方式-->
+			<B2cQuery_signMethod>01</B2cQuery_signMethod>                       <!--签名方法01-->
+			<B2cQuery_txnType>00</B2cQuery_txnType>                             <!--交易类型00-->
+			<B2cQuery_txnSubType>00</B2cQuery_txnSubType>                       <!--交易子类00-->
+			<B2cQuery_bizType>000201</B2cQuery_bizType>                         <!--产品类型000201-->
+			<B2cQuery_accessType>0</B2cQuery_accessType>                        <!--接入类型0-->
+			<B2cQuery_merId>105440141319983</B2cQuery_merId>                    <!--商户代码-->
+   </config>
+   <!--银联对账文件商户号码获取-->
+ 	 <config name="UpopCfgMerIdB2C"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--银联b2c支付对账商户号码-->
+ 	 </config>
+ 	 <config name="UpopCfgMerIdWap"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--手机wap支付对账商户号码-->
+ 	 </config>
+	 <config name="UpopCfgMerIdB2CTopUP"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--B2C充值商户号码-->
+ 	 </config>
+	 <config name="UpopCfgMerIdWapTopUP"> 
+ 	 	 <upopMerNo>700000000000001</upopMerNo> <!--WAP充值商户号码-->
+ 	 </config>
+</root>

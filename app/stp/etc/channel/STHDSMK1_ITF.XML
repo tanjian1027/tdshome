@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="SMK" log_level="INFO">
+  
+   <transaction code="272000" desc="付款后通知商城">
+      <pack>
+         <writeelement name="root">
+            <writeelement name="versionId"          expr="versionId"/>              <!-- 服务版本号  --> 
+            <writeelement name="merchantId"         expr="merchantId"/>             <!-- 商户编号 -->      
+            <writeelement name="orderId"            expr="prdOrdNoTmp"/>               <!-- 商品订单号  -->        
+            <writeelement name="settleDate"         expr="actDat"/>                 <!-- 对账日期  -->
+            <writeelement name="completeDate"       expr="actDat"/>                 <!-- 完成时间  --> 
+            <writeelement name="status"             expr="Status"/>                 <!-- 账单状态 1 成功  2 失败 -->
+            <writeelement name="notifyTyp"          value="0"/>                     <!-- 通知类型 0 付款  1 退款 -->
+            <writeelement name="payOrdNo"           expr="payOrdNo"/>               <!-- 支付系统交易号  -->
+            <writeelement name="orderAmt"           expr="txAmt"/>                  <!-- 订单总金额  -->
+            <writeelement name="notifyUrl"          expr="notifyUrl"/>              <!--  异步通知URL-->
+            <writeelement name="signType"           expr="signType"/>               <!--  加密方式 MD5 CFCA ZJCA-->
+            <writeelement name="signature"          expr="signature"/>              <!-- 验证摘要字符串 --> 
+         </writeelement>
+      </pack>
+      <unpack>
+         <readelement name="merchantRes">
+            <readattr name="versionId"      expr="versionId"/>                  <!-- 服务版本号 -->
+            <readattr name="merchantId"     expr="merchantId"/>                 <!-- 商户编号 -->
+            <readattr name="orderId"        expr="orderId"/>                    <!-- 商品订单号 -->  
+            <readattr name="status"         expr="status"/>                     <!-- 消息处理状态 -->
+            <if condition="IS_NOEQUAL_STRING(versionId,'3')">
+               <readattr name="verifystring"   expr="verifystring"/>               <!-- 验证摘要字符串 -->
+               <readattr name="cause"          expr="cause"/>                      <!-- 接收回执消息处理失败原因 -->
+            </if>
+            <else>
+               <readattr name="cause"          expr="cause"/>                      <!-- 接收回执消息处理失败原因 -->
+               <readattr name="signType"       expr="signType"/>                   <!-- 3版本 加密方式 -->
+               <readattr name="signature"      expr="signature"/>                  <!-- 验证摘要字符串 -->
+            </else>
+         </readelement>
+      </unpack>
+   </transaction>
+   
+   <transaction code="M272000" desc="付款后通知商城(超时处理)">
+      <pack> 
+         <writeelement name="versionId"          expr="#MAP.versionNo"/>         <!-- 服务版本号  --> 
+         <writeelement name="merchantId"         expr="#MAP.merNo"/>             <!-- 商户编号 -->      
+         <writeelement name="orderId"            expr="#MAP.prdOrdNo"/>          <!-- 商品订单号  -->        
+         <writeelement name="settleDate"         expr="actDat"/>                 <!-- 对账日期  -->
+         <writeelement name="completeDate"       expr="#MAP.ClearDat"/>          <!-- 完成时间  --> 
+         <writeelement name="status"             expr="#MAP.OrdStatus"/>         <!-- 账单状态  -->
+         <writeelement name="verifystring"       expr="#MAP.verifystring"/>      <!-- 验证摘要字符串  -->
+         <writeelement name="notifyTyp"          value="0"/>                     <!-- 通知类型  -->
+         <writeelement name="payOrdNo"           expr="#MAP.payOrdNo"/>          <!-- 支付系统交易号  -->
+         <writeelement name="orderAmt"           expr="#MAP.txAmt"/>             <!-- 订单总金额  -->
+      </pack> 
+      <unpack>
+         <if condition="IS_NOEQUAL_STRING(versionId,'1')">
+            <readelement name="merchantRes">
+               <readattr name="versionId"      expr="versionId"/>                  <!-- 服务版本号 -->
+               <readattr name="merchantId"     expr="merchantId"/>                 <!-- 商户编号 -->
+               <readattr name="orderId"        expr="orderId"/>                    <!-- 商品订单号 -->  
+               <readattr name="status"         expr="status"/>                     <!-- 消息处理状态 -->
+               <readattr name="cause"          expr="cause"/>                      <!-- 接收回执消息处理失败原因 -->
+               <readattr name="verifystring"   expr="verifystring"/>               <!-- 验证摘要字符串 --> 
+            </readelement>
+         </if>                                                         
+      </unpack>
+   </transaction>
+
+  
+</channel>

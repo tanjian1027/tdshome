@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="APP" timeout="120" log_level="INFO">
+
+     <transaction code="568031" desc="内部系统用户权限查询接口">
+       <pack>
+         <if condition="IS_EQUAL_INT(status,1)">
+           <writeelement name="response">
+               <writeelement name="status">
+                   <writeattr name="value"                       expr="status"/>                <!--操作成功或失败标志 1 成功 0失败-->
+               </writeelement>
+               <writeelement name="user">
+                   <writeattr name="id"                          expr="user_id"/>               <!--用户ID-->
+                   <writeattr name="name"                        expr="user_nam"/>              <!--用户名-->
+                   <writeattr name="roleName"                    expr="role_nam"/>              <!--角色名称-->
+                   <writeattr name="maxNode"                     expr="sys_rootid"/>            <!--最大根节点-->
+                   <writeattr name="loginUrl"                    expr="denglu_url"/>            <!--成功指向路径-->
+                   <writeattr name="outUrl"                      expr="outUrl"/>                <!--退出路径-->
+                   <writeattr name="systemId"                    expr="systemId"/>              <!--系统ID-->
+                   <writeattr name="random"                      expr="random"/>                <!--随机数-->
+               </writeelement>
+               <writeelement name="menu">
+                  <foreach name="PAG_LST" iterator="#main">
+                  <writeelement name="node">
+                    <writeattr name="menuid"                     expr="#main.menu_id"/>        <!--菜单ID-->
+                    <writeattr name="parmenuid"                  expr="#main.menu_par_id"/>    <!--父菜单ID-->
+                    <writeattr name="name"                       expr="#main.menu_nam"/>       <!--菜单名称-->
+                    <writeattr name="href"                       expr="#main.menu_url"/>       <!--菜单路径-->
+                    <writeattr name="nodetype"                   expr="#main.node_type"/>      <!--菜单类型-->
+                    </writeelement>
+                  </foreach>
+               </writeelement>
+               <writeelement name="ext">
+               <foreach name="MAN_LST" iterator="#waiwei">
+                   <writeelement name="node">
+                   <writeattr name="menuid"                      expr="#waiwei.menu_id"/>      <!--菜单ID-->
+                   <writeattr name="parmenuid"                   expr="#waiwei.menu_par_id"/>  <!--父菜单ID-->
+                   <writeattr name="name"                        expr="#waiwei.menu_nam"/>     <!--菜单名称-->
+                   <writeattr name="href"                        expr="#waiwei.sys_url"/>      <!--系统web初始访问路径-->
+                   <writeattr name="sysid"                       expr="#waiwei.sys_id"/>       <!--系统ID-->
+                   <writeattr name="sysstate"                    expr="#waiwei.sys_state"/>    <!--系统状态-->
+                   <writeattr name="nodetype"                    expr="#waiwei.node_type"/>    <!--菜单类型-->
+                   </writeelement>
+                </foreach>
+              </writeelement>
+            </writeelement>
+         </if>
+         <else>
+            <writeelement name="response">
+              <writeelement name="status">
+                  <writeattr name="value"                        expr="status"/>               <!--失败标志-->
+              </writeelement>
+              <writeelement name="retMsg">
+                   <writeattr name="value"                       expr="RSPMSG"/>               <!--失败返回信息-->
+              </writeelement>
+              <writeelement name="outUrl">
+                   <writeattr name="value"                       expr="outUrl"/>               <!--失败跳转路径-->
+              </writeelement>
+            </writeelement>
+         </else>
+       </pack>
+     </transaction>
+
+     <transaction code="568032" desc="外部系统用户创建">
+       <pack>
+         <if condition="IS_EQUAL_INT(status,1)">
+           <writeelement    name="response">
+              <writeelement name="status">
+                <writeattr  name="value"                         expr="status"/>               <!--操作成功或失败标志 1 成功 0失败-->
+              </writeelement>
+              <writeelement name="user">
+                <writeattr  name="sys_id"                        expr="sys_id"/>               <!--被创建者所属的系统ID-->
+                <writeattr  name="role_id"                       expr="role_id"/>              <!--被创建者所属的角色ID-->
+                <writeattr  name="login_id"                      expr="login_id"/>             <!--被创建者所属的用户登录ID-->
+                <writeattr  name="login_pwd"                     expr="login_pwd"/>            <!--被创建者所属的登录密码-->
+                <writeattr  name="account"                       expr="account"/>              <!--被创建者所属的账户号-->
+                <writeattr  name="merlogin_id"                   expr="merlogin_id"/>         <!--被创建者所属的账户号-->
+                <writeattr  name="merlogin_pwd"                  expr="merlogin_pwd"/>         <!--被创建者所属的账户号-->
+              </writeelement>
+           </writeelement>
+         </if>
+         <else>
+           <writeelement name="response">
+              <writeelement name="status">
+                <writeattr name="value"                          expr="status"/>               <!--失败标志-->
+              </writeelement>
+              <writeelement name="retMsg">
+                <writeattr name="value"                          expr="RSPMSG"/>               <!--失败返回信息-->   
+              </writeelement>
+           </writeelement>
+         </else>
+       </pack>
+     </transaction>
+
+     <transaction code="568038" desc="用户退出">
+       <pack>
+          <writeelement name="response">
+             <writeelement name="status">
+                  <writeattr name="value"                        expr="STATUS"/>               <!--返回状态-->
+             </writeelement>                                                                   
+             <writeelement name="retMsg">                                                      
+                  <writeattr name="value"                        expr="RSPMSG"/>               <!--返回信息-->
+             </writeelement>                                                                   
+             <writeelement name="outUrl">                                                      
+                  <writeattr name="value"                        expr="OUTURL"/>               <!--退出路径-->
+             </writeelement>
+         </writeelement>
+       </pack>
+     </transaction>
+
+     <transaction code="568039" desc="外部系统用户权限查询接口">
+       <pack>
+         <if condition="IS_EQUAL_INT(status,1)">
+           <writeelement name="response">
+               <writeelement name="status">
+                   <writeattr name="value"                       expr="status"/>               <!--返回状态-->
+               </writeelement>
+               <writeelement name="user">
+                   <writeattr name="loginUrl"                    expr="denglu_url"/>           <!--登录URL-->
+                   <writeattr name="outUrl"                      expr="outUrl"/>               <!--失败退出的路径-->
+                   <writeattr name="staleSign"                   expr="staleSign"/>            <!--密码过期标志 1:过期 0:正常-->
+                </writeelement>
+               <writeelement name="menu">
+                  <foreach name="PAG_LST" iterator="#main">
+                  <writeelement name="node">
+                    <writeattr name="menuid"                     expr="#main.menu_id"/>        <!--菜单ID-->
+                    <writeattr name="parmenuid"                  expr="#main.menu_par_id"/>    <!--父菜单ID-->
+                    <writeattr name="name"                       expr="#main.menu_nam"/>       <!--菜单名称-->
+                    <writeattr name="href"                       expr="#main.menu_url"/>       <!--菜单url路径-->
+                    <writeattr name="nodetype"                   expr="#main.node_type"/>      <!--菜单类型-->
+                    </writeelement>
+                  </foreach>
+               </writeelement>
+            </writeelement>
+         </if>
+         <else>
+            <writeelement name="response">
+              <writeelement name="status">
+                   <writeattr name="value"                       expr="status"/>               <!--失败标志 0失败-->
+              </writeelement>
+              <writeelement name="retMsg">
+                   <writeattr name="value"                       expr="RSPMSG"/>               <!--操作失败返回信息-->
+              </writeelement>
+              <writeelement name="outUrl">
+                   <writeattr name="value"                       expr="outUrl"/>
+              </writeelement>
+            </writeelement>
+         </else>
+      </pack>
+     </transaction>
+
+     <transaction code="568034" desc="用户注销">
+       <pack>
+           <writeelement name="response">
+              <writeelement name="status">
+                 <writeattr name="value"                         expr="status"/>
+              </writeelement>
+              <writeelement name="retMsg">
+                 <writeattr name="value"                         expr="RSPMSG"/>
+              </writeelement>
+           </writeelement>
+       </pack>
+     </transaction>
+     
+     <transaction code="568035" desc="查询用户名称">
+       <pack>
+        <if condition="IS_EQUAL_INT(status,1)">
+           <writeelement name="response">
+             <writeelement name="status">
+                 <writeattr name="value"                         expr="status"/>               <!--返回状态-->
+             </writeelement>
+             <writeelement name="username">
+                <writeattr name="value"                          expr="user_nam"/> 
+             </writeelement>
+           </writeelement>
+        </if>
+        <else>
+           <writeelement name="response">
+                 <writeelement name="status">
+                    <writeattr name="value"                      expr="status"/>
+                 </writeelement>
+                 <writeelement name="retMsg">
+                    <writeattr name="value"                      expr="RSPMSG"/>
+                 </writeelement>
+           </writeelement>
+        </else>
+       </pack>
+     </transaction>
+     
+     <transaction code="568101" desc="企业用户系统用户创建">
+       <pack>
+         <writeelement name="response">
+            <writeelement name="status">
+              <writeattr name="value"                            expr="status"/>               <!--失败标志-->
+            </writeelement>
+            <writeelement name="retMsg">
+              <writeattr name="value"                            expr="RSPMSG"/>               <!--失败返回信息-->   
+            </writeelement>
+         </writeelement>
+       </pack>
+     </transaction>
+     
+     <transaction code="568102" desc="企业客户登录密码修改">
+       <pack>
+         <writeelement name="response">
+            <writeelement name="status">
+              <writeattr name="value"                            expr="status"/>               <!--失败标志-->
+            </writeelement>
+            <writeelement name="retMsg">
+              <writeattr name="value"                            expr="RSPMSG"/>               <!--失败返回信息-->   
+            </writeelement>
+         </writeelement>
+       </pack>
+     </transaction>
+     
+     <transaction code="568103" desc="企业客户登录密码找回">
+       <pack>
+         <writeelement name="response">
+            <writeelement name="status">
+              <writeattr name="value"                            expr="status"/>               <!--失败标志-->
+            </writeelement>
+            <writeelement name="retMsg">
+              <writeattr name="value"                            expr="RSPMSG"/>               <!--失败返回信息-->   
+            </writeelement>
+         </writeelement>
+       </pack>
+     </transaction>
+     
+     <transaction code="568104" desc="企业客户设置邮箱为第二登录名">
+       <pack>
+         <writeelement name="response">
+            <writeelement name="status">
+              <writeattr name="value"                            expr="status"/>               <!--失败标志-->
+            </writeelement>                                                                    
+            <writeelement name="retMsg">                                                       
+              <writeattr name="value"                            expr="RSPMSG"/>               <!--失败返回信息-->   
+            </writeelement>
+         </writeelement>
+       </pack>
+     </transaction>
+     
+     <transaction code="568327" desc="查询系统菜单">
+       <pack>
+          <writeelement name="response">
+              <writeelement name="RETURN_CODE"                   expr="RspCod"/>
+              <writeelement name="RETURN_MSG"                    expr="RspMsg"/>
+              <foreach name="SYS_MENU_LST" iterator="#main">
+                <writeelement name="MENUS">
+                  <writeelement name="SYS_ID"                    expr="#main.SYS_ID"/>         <!--系统ID-->
+                  <writeelement name="MENU_ID"                   expr="#main.MENU_ID"/>        <!--菜单ID-->
+                  <writeelement name="MENU_URL"                  expr="#main.MENU_URL"/>       <!--菜单地址-->
+                  <writeelement name="MENU_NAME"                 expr="#main.MENU_NAM"/>       <!--菜单名称-->
+                  <writeelement name="ACC_CONTROL"               expr="#main.ACC_CONTROL"/>    <!--访问控制-->
+                </writeelement>
+              </foreach>
+          </writeelement>
+       </pack>
+     </transaction>
+     
+     <transaction code="568328" desc="查询用户菜单">
+       <pack>
+          <writeelement name="response">
+              <writeelement name="RETURN_CODE"                   expr="RspCod"/>
+              <writeelement name="RETURN_MSG"                    expr="RspMsg"/>
+              <foreach name="USER_MENU_LST" iterator="#main">
+                <writeelement name="MENUS">
+                  <writeelement name="SYS_ID"                    expr="#main.SYS_ID"/>         <!--系统ID-->
+                  <writeelement name="MENU_ID"                   expr="#main.MENU_ID"/>        <!--菜单ID-->
+                  <writeelement name="MENU_URL"                  expr="#main.MENU_URL"/>       <!--菜单地址-->
+                  <writeelement name="MENU_NAME"                 expr="#main.MENU_NAM"/>       <!--菜单名称-->
+                </writeelement>
+              </foreach>
+          </writeelement>
+       </pack>
+     </transaction>
+</channel>

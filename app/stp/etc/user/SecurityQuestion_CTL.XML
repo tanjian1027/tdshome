@@ -1,0 +1,1178 @@
+﻿<?xml version="1.0" encoding="UTF-8"?> 
+<application name="STP" code="100" log_level="DEBUG">           
+   <!--交易日志-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   
+   <!-- 交易前处理 -->
+   <before>
+     <set name="TermCode"   expr="_REQUESTATTR.REQIP"/>
+     <do expr="@tangdi.engine.context.Msg@dump()"/>
+   </before>
+
+   <!-- 交易后处理 -->
+   <after>
+      <do expr="@tangdi.engine.context.Msg@dump()"/>
+   </after>
+   
+   <transaction code="562568" desc="所有密保问题列表查询">
+     <sql name="SelProInf"> <!--  查询密码保护问题  -->
+        select enm_dat_opt as QUESNO, enm_dat_des as QUESNAME
+            from lyxdicenm
+            where trim(sys_id)='0001' and trim(enm_en_nam) like 'QuesName'
+            order by quesno asc
+     </sql> 
+     <process>
+        <set name="USRID"  expr="SESSIONS.USRID"/>     
+        <set name="USRMP"  expr="SESSIONS.USRMP"/> 
+       <!--if condition="ISNULL(USRID)">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="01002"/>
+         <set name="RspMsg"         value="您还没有登录，请先登录！"/>
+         <return/>
+       </if-->
+       
+       <!--查询所有密保问题-->
+       <do func="QueryInGroup"       error="ignore">
+         <para name="SqlCmd"         sql="SelProInf" /> 
+         <para name="RecordName"     value="GRP"/>
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspCod"        value="01013"/>
+         <set name="RspMsg"        value="未设置安全问题"/>  
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+         <return/>
+       </elseif>
+        
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>       
+     </process>
+   </transaction>
+   
+   <transaction code="562560" desc="用户密保问题查询"> 
+     <sql name="SelMerInf"> <!--  查询客户信息  -->
+        select l.enm_dat_opt quesno,l.enm_dat_des pap_ques,pap_answ 
+        from STPMERPAP p,lyxdicenm l where p.pap_ques=l.enm_dat_opt 
+        and PAP_BUS_ID=#{USRID} and trim(sys_id)='0001' and trim(enm_en_nam) like 'QuesName'
+     </sql>
+     <sql name="SelProInf"> <!--  查询密码保护问题  -->
+         select enm_dat_opt as quesno, enm_dat_des as quesname
+            from lyxdicenm
+            where trim(sys_id)='0001' and trim(enm_en_nam) like 'QuesName'
+            order by quesno asc
+     </sql> 
+     <process>   
+        <do func="DumpEtf"/>
+        <set name="USRID"  expr="SESSIONS.USRID"/>
+        <set name="reqip" expr="GetRequestAttr('REQIP')"/>
+
+        <if condition="ISNULL(SESSIONS.USRMP)">
+           <set name="MsgTyp"    value="E"/>
+           <set name="RspCod"    value="01002"/>
+           <set name="RspMsg"         value="您还没有登录，请先登录！"/>
+           <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+           <return/>
+        </if>
+        <!-- 检测输入项 -->
+        <if condition="IS_EQUAL_STRING(USRID,'')">
+          <set name="RspCod"        value="01020"/>
+          <set name="RspMsg"        value="用户编号不能为空"/>
+          <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+          <return/>
+        </if>  
+       <set name="_REQUESTATTR.FORWARDURL"       value="html/zh-CN/security/setsecurity.jsp"/>
+        <!-- 查询客户信息 -->
+        <do func="ReadRecord"       error="IGNORE">
+          <para name="SqlCmd"       sql="SelMerInf" />
+        </do>
+        <if condition="#RetCod==2"> 
+          <set name="RspCod"        value="02009"/>
+          <set name="RspMsg"        value="无会员信息"/>
+          <return/>
+        </if> 
+        <elseif condition="#RetCod==-1">
+          <set name="RspCod"        value="09999"/>
+          <set name="RspMsg"        value="系统错误"/>
+          <return/>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+          <set name="RspCod"        value="09999"/>
+          <set name="RspMsg"        value="系统错误"/>
+          <return/>
+        </elseif> 
+        
+        <do func="ReadRecord"       error="ignore">
+          <para name="SqlCmd"       sql="SelProInf" /> 
+        </do>
+        <if condition="#RetCod==2"> 
+          <set name="RspMsg"        value="会员未设置安全问题"/>  
+          <set name="_REQUESTATTR.FORWARDURL"       value="html/zh-CN/security/setsecurity.jsp"/>
+        </if>
+        <elseif condition="#RetCod==0"> 
+          <if condition="IS_NOEQUAL_STRING(LASTDATE,'')">
+            <set name="Difdate"      expr="DIFFDATE(SUBSTR(LASTDATE,1,8),GETDATETIME('YYYYMMDD'))"/>
+            <if condition="INTCMP(Difdate,6,30)">
+              <set name="DifFlag"        value="Y"/>
+            </if>
+            <set name="_REQUESTATTR.FORWARDURL"      expr="STRCAT('/html/', SESSIONS.LANGUAGE, '/security/confirmidentity.jsp')"/> 
+          </if>
+          <elseif condition="IS_EQUAL_STRING(LASTDATE,'')">
+            <set name="RspMsg"        value="会员未设置安全问题"/>  
+            <set name="_REQUESTATTR.FORWARDURL"       value="/html/zh-CN/security/setsecurity.jsp"/>
+          </elseif>
+        </elseif>
+        <elseif condition="#RetCod!=0">
+          <set name="MsgTyp"        value="E"/>
+          <set name="RspCod"        value="09999"/>
+          <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+          <return/>
+        </elseif>
+         
+        <!-- 随机待定 -->
+        <set name="RspCod"          value="00000"/>
+        <set name="RspMsg"          value="交易成功"/>       
+     </process>
+   </transaction>
+   
+   <transaction code="562561" desc="用户密保问题设置"> 
+     <sql name="SelMerInf"> <!--  查询客户信息  -->
+        SELECT CUST_ID AS MERNAM FROM STPUSRINF WHERE CUST_ID=#{USRID}
+     </sql>
+     <process>   
+       <do func="DumpEtf"/>
+       <set name="USRID"  expr="SESSIONS.USRID"/>
+       <set name="reqip" expr="GetRequestAttr('REQIP')"/>  
+       
+       <!-- 检测输入项 -->
+       <if condition="IS_EQUAL_STRING(USRID,'')">
+         <set name="RspCod"        value="01020"/>
+         <set name="RspMsg"        value="会员编号不能为空"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+         <return/>
+       </if>  
+       
+       <!-- 查询客户信息 -->
+       <do func="ReadRecord"       error="IGNORE">
+         <para name="SqlCmd"       sql="SelMerInf" />
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="无会员信息"/>
+         <return/>
+       </if> 
+       <elseif condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <set name="seqno"      value="1"/>
+       <foreach name="question"  iterator="#tmp">
+         <set name="ques"      expr="#tmp"/>
+         <set name="seqno2"    value="1"/>
+         <foreach name="answer"  iterator="#tmp2">
+           <if condition="IS_EQUAL_STRING(seqno2,seqno)">
+             <if condition="AND(IS_NOEQUAL_STRING(ques,''),IS_NOEQUAL_STRING(#tmp2,''))"> 
+               <do func="GetSeqNo"  error="IGNORE">
+                  <para name="TblNam" value="stpseqrec"/>
+                  <para name="KeyNam" value="KeyNam"/>
+                  <para name="KeyVal" expr="STRCAT('STPMERPAPPAP_ID',GETDATE())"/>
+                  <para name="SeqNam" value="KeyVal"/>
+                  <para name="Len"    value="5"/>
+                  <para name="Circle" value="1"/>
+               </do>
+               <if condition="#RetCod!=0">
+                  <set name="MsgTyp"    value="E"/>
+                  <set name="RspCod"    value="09001"/>
+                  <set name="RspMsg"    value="获取序号错误"/>
+                  <return/>
+               </if>
+               <set name="PAP_ID"         expr="STRCAT(GETDATETIME('YYMMDD'),KeyVal)"/>
+               <set name="PAP_BUS_ID"     expr="USRID"/>
+               <set name="PAP_SEQ"        expr="seqno"/>
+               <set name="PAP_QUES"       expr="ques"/>
+               <set name="PAP_ANSW"       expr="#tmp2"/> 
+               <set name="PAP_DATE"       expr="GETDATETIME('YYYYMMDDHHMISS')"/>
+               <set name="PAP_LAST_DATE"  expr="GETDATETIME('YYYYMMDDHHMISS')"/>
+               
+               <!--密保答案加密-->
+               <!--set name="PAP_ANSW"   expr="DES_ENCRYPT(PAP_ANSW)"  /-->
+               
+               <do func="InsertRecord" >
+                  <para name="TblNam"  value="STPMERPAP" />
+               </do>
+               <if condition="#RetCod==3">
+                  <set name="RspCod"    value="09996"/>
+                  <set name="RspMsg"    value="数据库主键冲突"/>
+                  <return/>
+               </if>
+               <elseif condition="#RetCod!=0">
+                  <set name="RspCod"    value="09999"/>
+                  <set name="RspMsg"    value="系统错误"/>
+                  <return/>
+               </elseif>
+               <set name="seqno2"     expr="ADD(seqno2,1)"/> 
+             </if>
+           </if>
+           <else>
+             <set name="seqno2"     expr="ADD(seqno2,1)"/> 
+           </else>
+         </foreach> 
+         <set name="seqno"     expr="ADD(seqno,1)"/>
+       </foreach>
+       <set name="MSGTYP"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="您的密码保护问题设置成功"/> 
+        <set name="_REQUESTATTR.FORWARDURL"       value="html/zh-CN/security/setsuccess.jsp"/>     
+     </process>
+   </transaction>
+   
+   <transaction code="562569" desc="密保问题查询-需验证"> 
+     <sql name="SelMerInf"> <!--  查询客户信息  -->
+        SELECT CUST_ID AS MERNAM FROM STPUSRINF WHERE CUST_ID=#{USRID}
+     </sql>
+     <sql name="SelProInf"> <!--  查询密码保护问题  --> 
+        select p.PAP_ID,l.enm_dat_opt QUESNO,l.enm_dat_des PAP_QUES,pap_answ 
+        from STPMERPAP p,lyxdicenm l where p.pap_ques=l.enm_dat_opt 
+        and PAP_BUS_ID=#{USRID} and trim(sys_id)='0001' 
+        and trim(enm_en_nam) like 'QuesName' 
+     </sql> 
+     <process>   
+       <do func="DumpEtf"/>
+       <set name="USRID"  expr="SESSIONS.USRID"/>
+       <set name="reqip" expr="GetRequestAttr('REQIP')"/>
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>    
+       
+       <!-- 检测输入项 -->
+       <if condition="IS_EQUAL_STRING(USRID,'')"> 
+         <set name="RspCod"        value="01020"/>
+         <set name="RspMsg"        value="会员编号不能为空"/>
+         <set name="_REQUESTATTR.FORWARDURL"        value="html/login/login.jsp"/>
+         <return/>
+       </if>  
+       
+       <!-- 查询客户信息 -->
+       <do func="ReadRecord"       error="IGNORE">
+         <para name="SqlCmd"       sql="SelMerInf" />
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="无会员信息"/>
+         <return/>
+       </if> 
+       <elseif condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <if condition="OR(ISNULL(PageNum),IS_EQUAL_STRING(PageNum,'0'))">
+         <set name="PageNum"       value="1"/>
+       </if>
+       <if condition="ISNULL(NumPerPag)">
+         <set name="NumPerPag"     value="5"/>
+       </if>
+        
+       <do func="PagedQuery"       error="ignore">
+         <para name="PageNum"      expr="PageNum"/>
+         <para name="NumPerPag"    expr="NumPerPag"/>
+         <para name="Sql"          sql="SelProInf"/>
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspMsg"        value="会员未设置安全问题"/>  
+         <set name="_REQUESTATTR.FORWARDURL"       value="/html/zh-CN/security/setsecurity.jsp"/>
+       </if>
+       <elseif condition="#RetCod==0">  
+        <set name="_REQUESTATTR.FORWARDURL"      expr="STRCAT('/html/', SESSIONS.LANGUAGE, '/security/confirmidentity.jsp')"/> 
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+         <return/>
+       </elseif>
+        
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>       
+     </process>
+   </transaction>
+   
+   <transaction code="562562" desc="用户密保问题验证"> 
+     <sql name="SelMerInf"> <!--  查询客户信息  -->
+        SELECT CUST_ID AS MERNAM FROM STPUSRINF WHERE CUST_ID=#{USRID}
+     </sql>
+     <sql name="SelProInf"> <!--  查询密码保护问题  -->
+        SELECT PAP_ANSW FROM STPMERPAP WHERE PAP_ID=#{ques}
+     </sql> 
+     <sql name="DelProInf"> <!--  删除保护问题  -->
+        DELETE FROM STPMERPAP WHERE PAP_BUS_ID=#{USRID}
+     </sql>
+     <process>   
+        <do func="DumpEtf"/>
+       <set name="USRID"  expr="SESSIONS.USRID"/>
+       <set name="reqip" expr="GetRequestAttr('REQIP')"/>
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       <set name="MSGTYP"          value="E"/>
+       <!-- 检测输入项 -->
+       <if condition="IS_EQUAL_STRING(USRID,'')">
+         <set name="RspCod"        value="01020"/>
+         <set name="RspMsg"        value="会员编号不能为空"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+         <return/>
+       </if>  
+       
+       <!-- 查询客户信息 -->
+       <do func="ReadRecord"       error="IGNORE">
+         <para name="SqlCmd"       sql="SelMerInf" />
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="无会员信息"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <set name="num"     value="0"/>
+       <set name="num2"     value="0"/>
+       <set name="num1"     value="0"/>
+       <foreach name="questionId"  iterator="#tmp">
+          <set name="ques"      expr="#tmp"/>
+          <do func="ReadRecord"       error="IGNORE">
+            <para name="SqlCmd"       sql="SelProInf" />
+          </do>
+          <if condition="#RetCod!=0"> 
+            <set name="RspCod"        value="09999"/>
+            <set name="RspMsg"        value="数据库操作失败"/>
+            <return/>
+          </if> 
+          <set name="num1"    value="0"/>
+          <set name="num"     expr="ADD(num,1)"/>
+          <foreach name="answer"  iterator="#tmp2">
+            <set name="num1"      expr="ADD(num1,1)"/>
+            <set name="answ"      expr="#tmp2"/>
+            <!--密保答案加密-->
+            <!--set name="answ"   expr="DES_ENCRYPT(answ)"  /-->
+            <if condition="#RetCod!=0"> 
+              <set name="RspCod"        value="09999"/>
+              <set name="RspMsg"        value="系统错误"/>
+              <return/>
+            </if> 
+
+            <if condition="AND(IS_EQUAL_STRING(num,num1),IS_EQUAL_STRING(PAP_ANSW,answ))"> 
+              <set name="num2"     expr="ADD(num2,1)"/>
+            </if>
+          </foreach>
+       </foreach>
+       <if condition="IS_EQUAL_STRING(num,num2)">  
+         <if condition="IS_EQUAL_STRING(flag,'upd')">
+           <set name="RspMsg"          value="修改密保问题成功"/> 
+           <set name="_REQUESTATTR.FORWARDURL"       value="/html/zh-CN/security/confirmsecurity.jsp"/>
+         </if>
+         <elseif condition="IS_EQUAL_STRING(flag,'dl')">
+           <!--  删除用户验证码表中的记录  -->
+           <do func="ExecSql" error="IGNORE">
+             <para name="SqlCmd" sql="DelProInf" />
+           </do>
+           <if condition="#RetCod==2">
+             <set name="RspMsg"        value="无安全问题"/>
+           </if>
+           <elseif condition="#RetCod==-1">
+             <set name="RspCod"        value="09999"/>
+             <set name="RspMsg"        value="系统错误"/>
+             <return/>
+           </elseif>
+           <elseif condition="#RetCod!=0">
+             <set name="RspCod"        value="09998"/>
+             <set name="RspMsg"        value="系统错误"/>
+             <return/>
+           </elseif> 
+            <set name="MSGTYP"          value="N"/>
+           <set name="RspMsg"          value="删除密保问题成功"/> 
+           <set name="_REQUESTATTR.FORWARDURL"       value="/html/zh-CN/security/updatesecurity.jsp"/>
+         </elseif>
+         <elseif condition="IS_EQUAL_STRING(flag,'che')"> 
+           <set name="RspMsg"          value="验证成功"/> 
+           <set name="MSGTYP"          value="E"/>
+           <set name="_REQUESTATTR.FORWARDURL"      value="/html/zh-CN/security/updatesecurity.jsp"/>
+         </elseif>
+         <set name="RspCod"          value="00000"/>
+       </if>  
+       <else> 
+         <set name="RspCod"          value="01872"/>
+         <set name="RspMsg"          value="验证失败"/>
+         <set name="_REQUESTATTR.FORWARDURL"        value="/html/zh-CN/security/checkerror.jsp"/>
+       </else>
+     </process>
+   </transaction>
+   
+   <transaction code="562570" desc="密保问题修改"> 
+     <sql name="SelMerInf"> <!--  查询客户信息  -->
+       SELECT CUST_ID AS MERNAM FROM STPUSRINF WHERE CUST_ID=#{USRID}     
+     </sql>
+     <sql name="DelProInf"> <!--  查询密码保护问题  -->
+       DELETE FROM STPMERPAP WHERE PAP_BUS_ID=#{USRID}
+     </sql>
+     <process>   
+       <do func="DumpEtf"/>
+       <set name="USRID"  expr="SESSIONS.USRID"/>
+       <set name="reqip" expr="GetRequestAttr('REQIP')"/>
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>    
+       
+       <!-- 检测输入项 -->
+       <if condition="IS_EQUAL_STRING(USRID,'')">
+         <set name="RspCod"        value="01020"/>
+         <set name="RspMsg"        value="会员编号不能为空"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/login.jsp"/>
+         <return/>
+       </if>  
+       
+       <!-- 查询客户信息 -->
+       <do func="ReadRecord"       error="IGNORE">
+         <para name="SqlCmd"       sql="SelMerInf" />
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="无会员信息"/>
+         <return/>
+       </if> 
+       <elseif condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <!--  删除用户验证码表中的记录  -->
+       <do func="ExecSql" error="IGNORE">
+         <para name="SqlCmd" sql="DelProInf" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="RspMsg"        value="无安全问题"/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif> 
+           
+       <set name="seqno"      value="1"/>
+       <foreach name="question"  iterator="#tmp">
+         <set name="ques"      expr="#tmp"/>
+         <set name="seqno2"    value="1"/>
+         <foreach name="answer"  iterator="#tmp2">
+           <if condition="IS_EQUAL_STRING(seqno2,seqno)">
+             <if condition="AND(IS_NOEQUAL_STRING(ques,''),IS_NOEQUAL_STRING(#tmp2,''))"> 
+               <do func="GetSeqNo"  error="IGNORE">
+                  <para name="TblNam" value="stpseqrec"/>
+                  <para name="KeyNam" value="KeyNam"/>
+                  <para name="KeyVal" expr="STRCAT('STPMERPAPPAP_ID',GETDATE())"/>
+                  <para name="SeqNam" value="KeyVal"/>
+                  <para name="Len"    value="5"/>
+                  <para name="Circle" value="1"/>
+               </do>
+               <if condition="#RetCod!=0">
+                  <set name="MsgTyp"    value="E"/>
+                  <set name="RspCod"    value="09001"/>
+                  <set name="RspMsg"    value="获取序号错误"/>
+                  <return/>
+               </if>
+               <set name="PAP_ID"         expr="STRCAT(GETDATETIME('YYMMDD'),KeyVal)"/>
+               <set name="PAP_BUS_ID"     expr="USRID"/>
+               <set name="PAP_SEQ"        expr="seqno"/>
+               <set name="PAP_QUES"       expr="ques"/>
+               <set name="PAP_ANSW"       expr="#tmp2"/> 
+               <set name="PAP_DATE"       expr="GETDATETIME('YYYYMMDDHHMISS')"/>
+               <set name="PAP_LAST_DATE"  expr="GETDATETIME('YYYYMMDDHHMISS')"/>
+               
+               <!--密保答案加密-->
+               <!--set name="PAP_ANSW"   expr="DES_ENCRYPT(PAP_ANSW)"  /-->
+               
+               <do func="InsertRecord" >
+                  <para name="TblNam"  value="STPMERPAP" />
+               </do>
+               <if condition="#RetCod==3">
+                  <set name="RspCod"    value="09996"/>
+                  <set name="RspMsg"    value="数据库主键冲突"/>
+                  <return/>
+               </if>
+               <elseif condition="#RetCod!=0">
+                  <set name="RspCod"    value="09999"/>
+                  <set name="RspMsg"    value="系统错误"/>
+                  <return/>
+               </elseif>
+               <set name="seqno2"     expr="ADD(seqno2,1)"/> 
+             </if>
+           </if>
+           <else>
+             <set name="seqno2"     expr="ADD(seqno2,1)"/> 
+           </else>
+         </foreach>
+         <set name="seqno"     expr="ADD(seqno,1)"/>
+       </foreach>
+       
+       <set name="MSGTYP"          value="N"/>
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="您的密码保护问题设置成功"/> 
+       <set name="_REQUESTATTR.FORWARDURL"       value="html/zh-CN/security/setsuccess.jsp"/>     
+     </process>
+   </transaction>
+   
+   
+   <transaction code="562563" desc="找回密码 验证密保问题">          
+     <sql name="mibao"> 
+      SELECT PAP_ANSW FROM STPMERPAP WHERE PAP_QUES=#{QUESTION1} AND PAP_ANSW=#{ANSWER1}
+     </sql>
+     <sql name="mibaoa">
+      SELECT PAP_ANSW FROM STPMERPAP WHERE PAP_QUES=#{QUESTION2} AND PAP_ANSW=#{ANSWER2}
+      </sql>
+     <sql name="QryUsrInf"> <!--  查询用户注册数据  -->
+       SELECT CUST_ID 
+       FROM STPUSRINF 
+       WHERE CUST_ID=#{USRID}
+     </sql>
+     <process>
+       <do func="DumpEtf"/>
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'0004'))">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       
+       <!--密保答案加密-->
+       <!--set name="ANSWER1"   expr="DES_ENCRYPT(ANSWER1)"  />
+       <set name="ANSWER2"   expr="DES_ENCRYPT(ANSWER2)"  /-->
+       
+       <!--  查询密保问题  -->
+       <if condition="IS_NOEQUAL_STRING(QUESTION1,'')">                      
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="mibao" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="密保验证错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <if condition="IS_NOEQUAL_STRING(QUESTION2,'')">       
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="mibaoa" />
+         </do>
+         <if condition="#RetCod==2">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="02009"/>
+           <set name="RspMsg"        value="密保验证错误"/>
+           <return/>
+         </if>
+         <elseif condition="#RetCod==-1">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09998"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <set name="checkFlag"       value="Y"/>
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/>
+         <return/> 
+         </if>                                                     
+         <set name="checkFlag"       value="Y"/>
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/> 
+         <return/>                     
+       </if>                                          
+       <if condition="IS_NOEQUAL_STRING(QUESTION2,'')">       
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="mibaoa" />
+         </do> 
+         <if condition="#RetCod==2">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="02009"/>
+           <set name="RspMsg"        value="密保验证错误"/>
+           <return/>
+         </if>
+         <elseif condition="#RetCod==-1">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09998"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <set name="checkFlag"       value="Y"/>
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/>
+         <return/> 
+       </if>           
+       <set name="checkFlag"       value="N"/>
+       <set name="MsgTyp"          value="E"/>                                                                        
+       <set name="RspCod"          value="00001"/>
+       <set name="RspMsg"          value="验证失败"/>
+    </process>
+   </transaction>
+   
+   <transaction code="562567" desc="找回密码 验证密保问题--验证并跳转">          
+     <sql name="mibao"> 
+      SELECT PAP_ANSW FROM STPMERPAP WHERE PAP_QUES=#{QUESTION1} AND PAP_ANSW=#{ANSWER1}
+     </sql>
+     <sql name="mibaoa">
+      SELECT PAP_ANSW FROM STPMERPAP WHERE PAP_QUES=#{QUESTION2} AND PAP_ANSW=#{ANSWER2}
+      </sql>
+     <sql name="QryUsrInf"> <!--  查询用户注册数据  -->
+       SELECT CUST_ID 
+       FROM STPUSRINF 
+       WHERE CUST_ID=#{USRID}
+     </sql>
+     <process>
+       <do func="DumpEtf"/>
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'0004'))">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>
+       
+       <!--密保答案加密-->
+       <!--set name="ANSWER1"   expr="DES_ENCRYPT(ANSWER1)"  />
+       <set name="ANSWER2"   expr="DES_ENCRYPT(ANSWER2)"  /-->
+       
+       <!--  查询密保问题  -->
+       <if condition="IS_NOEQUAL_STRING(QUESTION1,'')">                      
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="mibao" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="密保验证错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <if condition="IS_NOEQUAL_STRING(QUESTION2,'')">       
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="mibaoa" />
+         </do>
+         <if condition="#RetCod==2">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="02009"/>
+           <set name="RspMsg"        value="密保验证错误"/>
+           <return/>
+         </if>
+         <elseif condition="#RetCod==-1">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09998"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <set name="checkFlag"       value="Y"/>
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/findPwdNext.jsp"/>
+         <return/> 
+         </if>                                                     
+         <set name="checkFlag"       value="Y"/>
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/> 
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/findPwdNext.jsp"/>
+         <return/>                     
+       </if>                                          
+       <if condition="IS_NOEQUAL_STRING(QUESTION2,'')">       
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="mibaoa" />
+         </do> 
+         <if condition="#RetCod==2">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="02009"/>
+           <set name="RspMsg"        value="密保验证错误"/>
+           <return/>
+         </if>
+         <elseif condition="#RetCod==-1">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09998"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <set name="checkFlag"       value="Y"/>
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/>
+         <set name="_REQUESTATTR.FORWARDURL"       value="html/login/findPwdNext.jsp"/>
+         <return/> 
+       </if>           
+       <set name="checkFlag"       value="N"/>
+       <set name="MsgTyp"          value="E"/>                                                                        
+       <set name="RspCod"          value="00001"/>
+       <set name="RspMsg"          value="验证失败"/>
+    </process>
+   </transaction>
+   
+   <transaction code="562564" desc="找回密码 验证密保问题">          
+     <sql name="mibao"> 
+      SELECT PAP_ANSW FROM STPMERPAP WHERE PAP_ID=#{QUESTION1} AND PAP_ANSW=#{ANSWER1} AND PAP_BUS_ID=#{USRID}
+     </sql>
+     <sql name="mibaoa">
+      SELECT PAP_ANSW FROM STPMERPAP WHERE PAP_ID=#{QUESTION2} AND PAP_ANSW=#{ANSWER2} AND PAP_BUS_ID=#{USRID}
+      </sql>
+     <sql name="QryUsrInf"> <!--  查询用户注册数据  -->
+       SELECT CUST_ID 
+       FROM STPUSRINF 
+       WHERE CUST_ID=#{USRID}
+     </sql>
+     <process>
+       <!-- 检查用户登录平台是否正确 -->
+       <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'0004'))">
+         <set name="RspCod"        value="01001"/>
+         <set name="RspMsg"        value="用户登录平台不正确"/>
+         <return/>
+       </if>                   
+       <!--  查询密保问题  -->
+       <set name="USRID"  expr="SESSIONS.USRID"/>
+       
+       <!--密保答案加密-->
+       <!--set name="ANSWER1"   expr="DES_ENCRYPT(ANSWER1)"  />
+       <set name="ANSWER2"   expr="DES_ENCRYPT(ANSWER2)"  /-->
+       
+      <if condition="IS_NOEQUAL_STRING(QUESTION1,'')">                      
+       <do func="ReadRecord" error="IGNORE">
+         <para name="SqlCmd" sql="mibao" />
+       </do>
+       <if condition="#RetCod==2">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="密保验证错误"/>
+         <return/>
+       </if>
+       <elseif condition="#RetCod==-1">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09998"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif>
+       
+       <if condition="IS_NOEQUAL_STRING(QUESTION2,'')">       
+         <do func="ReadRecord" error="IGNORE">
+           <para name="SqlCmd" sql="mibaoa" />
+         </do>
+         <if condition="#RetCod==2">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="02009"/>
+           <set name="RspMsg"        value="密保验证错误"/>
+           <return/>
+         </if>
+         <elseif condition="#RetCod==-1">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+         <elseif condition="#RetCod!=0">
+           <set name="MsgTyp"        value="E"/>
+           <set name="RspCod"        value="09998"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif>
+           <set name="checkFlag"       value="Y"/>
+           <set name="MsgTyp"          value="N"/>
+           <set name="RspCod"          value="00000"/>
+           <set name="RspMsg"          value="交易成功"/>
+           <return/> 
+         </if>                                                     
+         <set name="checkFlag"       value="Y"/>
+         <set name="MsgTyp"          value="N"/>
+         <set name="RspCod"          value="00000"/>
+         <set name="RspMsg"          value="交易成功"/> 
+         <return/>                     
+       </if>                                          
+              
+       <set name="checkFlag"       value="N"/>
+       <set name="MsgTyp"          value="E"/>                                                                        
+       <set name="RspCod"          value="00001"/>
+       <set name="RspMsg"          value="验证失败"/>
+    </process>
+   </transaction>
+   
+   <transaction code="562565" desc="密保验证找回密码，密保问题查询"> 
+     <sql name="SelMerInf"> <!--  查询客户信息  -->
+        SELECT u.USR_STATUS as AUTSTAT,c.cust_status,c.cust_id  FROM STPUSRINF u,STPCUSINF c 
+        WHERE u.cust_id=#{USRID} and u.cust_id=c.cust_id
+     </sql>
+     <sql name="SelProInf"> <!--  查询密码保护问题  -->
+        SELECT PAP_ID,PAP_QUES FROM STPMERPAP WHERE PAP_BUS_ID=#{cust_id}
+        
+     </sql> 
+     <process>   
+        <set name="USRID"  expr="SESSIONS.USRID"/>     
+        <set name="USRMP"  expr="SESSIONS.USRMP"/> 
+       <if condition="ISNULL(USRID)">
+         <set name="MsgTyp"    value="E"/>
+         <set name="RspCod"    value="01002"/>
+         <set name="RspMsg"         value="您还没有登录，请先登录！"/>
+         <return/>
+       </if>
+       
+       <!-- 查询客户信息 -->
+       <do func="ReadRecord"       error="IGNORE">
+         <para name="SqlCmd"       sql="SelMerInf" />
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspCod"        value="02009"/>
+         <set name="RspMsg"        value="无会员信息"/>
+         <return/>
+       </if> 
+       <elseif condition="#RetCod!=0">
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误"/>
+         <return/>
+       </elseif> 
+
+       <set name="cust_id" expr="cust_id"/>
+       <!--查询所有密保问题-->
+       <do func="QueryInGroup"       error="ignore">
+         <para name="SqlCmd"         sql="SelProInf" /> 
+         <para name="RecordName"     value="GRP"/>
+       </do>
+       <if condition="#RetCod==2"> 
+         <set name="RspCod"        value="01013"/>
+         <set name="RspMsg"        value="未设置安全问题"/>  
+         <return/>
+       </if>
+       <elseif condition="#RetCod!=0">
+         <set name="MsgTyp"        value="E"/>
+         <set name="RspCod"        value="09999"/>
+         <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+         <return/>
+       </elseif>
+        
+       <set name="RspCod"          value="00000"/>
+       <set name="RspMsg"          value="交易成功"/>       
+     </process>
+   </transaction>
+   
+   <transaction code="vfAnsw" desc="找回密码 验证密保问题">    <!-- 原562564 -->
+      <sql name="mibaoa">
+        SELECT PAP_ANSW FROM STPMERPAP WHERE
+        PAP_QUES=#{QUESTION1} AND
+        PAP_ANSW=#{ANSWER1} AND PAP_BUS_ID=#{USRID}
+      </sql>
+      <sql name="mibaob">
+        SELECT PAP_ANSW FROM STPMERPAP WHERE
+        PAP_QUES=#{QUESTION2} AND
+        PAP_ANSW=#{ANSWER2} AND PAP_BUS_ID=#{USRID}
+      </sql>
+      <process>
+          <!-- 检查用户登录平台是否正确 -->
+          <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'0004'))">
+            <set name="RspCod" value="01001" />
+            <set name="RspMsg" value="用户登录平台不正确" />
+            <return />
+          </if>
+          <!-- 查询密保问题 -->
+          <set name="USRID" expr="SESSIONS.USRID" />
+          <!--密保答案加密-->
+          <!--set name="ANSWER1"   expr="DES_ENCRYPT(ANSWER1)"  />
+          <set name="ANSWER2"   expr="DES_ENCRYPT(ANSWER2)"  /-->
+          
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="mibaoa" />
+          </do>
+          <if condition="#RetCod==2">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="02009" />
+            <set name="RspMsg" value="密保验证错误" />
+            <return />
+          </if>
+          <elseif condition="#RetCod!=0">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="09998" />
+            <set name="RspMsg" value="系统错误" />
+            <return />
+          </elseif>
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="mibaob" />
+          </do>
+          <if condition="#RetCod==2">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="02009" />
+            <set name="RspMsg" value="密保验证错误" />
+            <return />
+          </if>
+          <elseif condition="#RetCod!=0">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="09998" />
+            <set name="RspMsg" value="系统错误" />
+            <return />
+          </elseif>
+          
+          <set name="checkFlag" value="Y" />
+          <set name="MsgTyp" value="N" />
+          <set name="RspCod" value="00000" />
+          <set name="RspMsg" value="交易成功" />
+          <set name="SESSIONS.VFANSW" value="VFANSW" />
+          <return/>
+      </process>
+   </transaction>
+   
+   <transaction code="toUpdPayPwd" desc="跳转到支付密码修改页面">
+      <process>
+          <set name="VFANSW" expr="SESSIONS.VFANSW" />
+          <if condition="ISNULL(VFANSW)">
+              <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('html/', SESSIONS.LANGUAGE, '/security/findPayPwds.jsp')" />
+              <return />
+          </if>
+          <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('html/', SESSIONS.LANGUAGE, '/security/upPayPwd.jsp')" />
+      </process>
+   </transaction>
+   
+   <transaction code="toFindLogPwd" desc="跳转到找回密码页面1">
+      <process>
+          <set name="_REQUESTATTR.FORWARDURL" expr="STRCAT('html/', SESSIONS.LANGUAGE, '/logpwd/findLogPwd.jsp')" />
+      </process>
+   </transaction>
+   
+   <transaction code="getPapQues" desc="密保验证找回密码，密保问题查询"> <!-- 原562565 改为 getPapQues -->
+       <sql name="SelMerInf"> <!--  查询客户信息  -->
+          SELECT u.USR_STATUS as AUTSTAT,c.cust_status,c.cust_id  FROM STPUSRINF u,STPCUSINF c 
+          WHERE u.CUST_LOGIN=#{USRMP} and u.cust_id=c.cust_id
+       </sql>
+       <sql name="SelProInf"> <!--  查询密码保护问题  -->
+          select PAP_BUS_ID,p.PAP_ID,l.enm_dat_opt QUESNO,l.enm_dat_des PAP_QUES,pap_answ 
+        from STPMERPAP p,lyxdicenm l where p.pap_ques=l.enm_dat_opt 
+        and PAP_BUS_ID=#{cust_id} and trim(sys_id)='0001' 
+        and trim(enm_en_nam) like 'QuesName' 
+       </sql> 
+       <process>   
+           <set name="USRID"  expr="USRMP"/>
+           
+           <if condition="ISNULL(USRMP)">
+             <set name="USRMP"  expr="SESSIONS.USRMP"/>
+           </if>
+           
+           <!-- 查询客户信息 -->
+           <do func="ReadRecord"       error="IGNORE">
+             <para name="SqlCmd"       sql="SelMerInf" />
+           </do>
+           <if condition="#RetCod==2"> 
+             <set name="RspCod"        value="02009"/>
+             <set name="RspMsg"        value="无会员信息"/>
+             <return/>
+           </if> 
+           <elseif condition="#RetCod!=0">
+             <set name="RspCod"        value="09999"/>
+             <set name="RspMsg"        value="系统错误"/>
+             <return/>
+           </elseif> 
+    
+           <set name="cust_id" expr="cust_id"/>
+           <!--查询所有密保问题-->
+           <do func="QueryInGroup"       error="ignore">
+             <para name="SqlCmd"         sql="SelProInf" /> 
+             <para name="RecordName"     value="GRP"/>
+           </do>
+           <if condition="#RetCod==2"> 
+             <set name="RspCod"        value="01013"/>
+             <set name="RspMsg"        value="未设置安全问题"/>  
+             <return/>
+           </if>
+           <elseif condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="09999"/>
+             <set name="RspMsg"        value="系统错误,请稍后再试或联系客服"/>
+             <return/>
+           </elseif>
+            
+           <set name="RspCod"          value="00000"/>
+           <set name="RspMsg"          value="交易成功"/>       
+       </process>
+   </transaction>
+   
+   <transaction code="vflogAnsw" desc="找回登录密码 验证密保问题">    <!-- 原562564 -->
+      <sql name="SelMerInf"> <!--  查询客户信息  -->
+        SELECT u.USR_STATUS as AUTSTAT,c.cust_status,c.cust_id  FROM STPUSRINF u,STPCUSINF c 
+        WHERE u.CUST_LOGIN=#{USRMP} and u.cust_id=c.cust_id
+      </sql>
+      <sql name="mibaoa">
+        SELECT PAP_ANSW FROM STPMERPAP WHERE
+        PAP_QUES=#{QUESTION1} AND
+        PAP_ANSW=#{ANSWER1} AND PAP_BUS_ID=#{USRID}
+      </sql>
+      <sql name="mibaob">
+        SELECT PAP_ANSW FROM STPMERPAP WHERE
+        PAP_QUES=#{QUESTION2} AND
+        PAP_ANSW=#{ANSWER2} AND PAP_BUS_ID=#{USRID}
+      </sql>
+      <process>
+          <!-- 检查用户登录平台是否正确 -->
+          <if condition="AND(IS_NOEQUAL_STRING(SysCod,'0001'),IS_NOEQUAL_STRING(SysCod,'0004'))">
+            <set name="RspCod" value="01001" />
+            <set name="RspMsg" value="用户登录平台不正确" />
+            <return />
+          </if>
+          <!-- 查询密保问题 -->
+          <set name="USRMP"  expr="USRMP"/>
+          <!--密保答案加密-->
+          <!--set name="ANSWER1"   expr="DES_ENCRYPT(ANSWER1)"  />
+          <set name="ANSWER2"   expr="DES_ENCRYPT(ANSWER2)"  /-->
+          
+         <!-- 查询客户信息 -->
+         <do func="ReadRecord"       error="IGNORE">
+           <para name="SqlCmd"       sql="SelMerInf" />
+         </do>
+         <if condition="#RetCod==2"> 
+           <set name="RspCod"        value="02009"/>
+           <set name="RspMsg"        value="无会员信息"/>
+           <return/>
+         </if> 
+         <elseif condition="#RetCod!=0">
+           <set name="RspCod"        value="09999"/>
+           <set name="RspMsg"        value="系统错误"/>
+           <return/>
+         </elseif> 
+          
+          <set name="USRID"  expr="cust_id"/> 
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="mibaoa" />
+          </do>
+          <if condition="#RetCod==2">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="02009" />
+            <set name="RspMsg" value="密保验证错误" />
+            <return />
+          </if>
+          <elseif condition="#RetCod!=0">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="09998" />
+            <set name="RspMsg" value="系统错误" />
+            <return />
+          </elseif>
+          
+          <do func="ReadRecord" error="IGNORE">
+            <para name="SqlCmd" sql="mibaob" />
+          </do>
+          <if condition="#RetCod==2">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="02009" />
+            <set name="RspMsg" value="密保验证错误" />
+            <return />
+          </if>
+          <elseif condition="#RetCod!=0">
+            <set name="MsgTyp" value="E" />
+            <set name="RspCod" value="09998" />
+            <set name="RspMsg" value="系统错误" />
+            <return />
+          </elseif>
+          
+          <set name="checkFlag" value="Y" />
+          <set name="MsgTyp" value="N" />
+          <set name="RspCod" value="00000" />
+          <set name="RspMsg" value="交易成功" />
+          <set name="SESSIONS.VFANSW" value="VFANSW" />
+          <return />
+      </process>
+   </transaction>
+
+
+</application>

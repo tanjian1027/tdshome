@@ -1,0 +1,2003 @@
+﻿<?xml version='1.0' encoding='UTF-8'?>
+<application name="STP" code="100" log_level="DEBUG">
+   <!-- 交易日志记录配置 -->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   <!-- 公共宏文件引入-->
+   <include file="etc/public/Order_MACRO.XML"/>
+
+   <before> 
+      <!--打印ETF树-->
+      <do func="DumpEtf"/>
+      <set name="MsgTyp"        value="N"/>
+      <set name="RspCod"        value="00000"/>
+      <set name="txCcy"         value="CNY"/>
+      
+      <!--取当前日期设置会计日期-->
+      <set name="NOWDate"        expr="GETDATE()"/>
+      <set name="NOWDatetime"    expr="GETDATETIME()"/>
+      <set name="TXN_ORG_NO"     value="000001"/>    <!--机构号-->
+      
+      <set name="NumPerPag"      value="19"/> <!--翻页每页显示的条数-->
+   </before>
+
+   <after>
+      <if condition="IS_EQUAL_STRING(RspCod,'00000')">
+         <set name="MsgTyp"       value="N"/>
+      </if>
+      <else>
+         <set name="MsgTyp"       value="E"/>
+      </else>
+      <do func="DumpEtf"/>
+   </after>
+
+   <macro name="checkAccInfTrue">  <!--活期理财账户检测-->
+       <!--客户状态检查-->     
+      <do func="ReadRecord" >
+        <para name="SqlCmd" sql="QryCusInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="客户信息不存在"/>
+         <continue/>
+      </if>
+      <if condition="AND(IS_NOEQUAL_STRING(CUST_STATUS,'0'),IS_NOEQUAL_STRING(CUST_STATUS,'1'))">
+         <set name="RspCod"    value="08040"/>
+         <set name="RspMsg"    value="客户状态不正常"/>
+         <continue/>
+      </if>
+      
+      <!--客户账户信息检查-->
+      <do func="ReadRecord" >
+        <para name="SqlCmd" sql="QryAccInf" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="客户账户信息不存在"/>
+         <continue/>
+      </if>
+      <if condition="IS_NOEQUAL_STRING(AC_STATUS,'0')">
+         <set name="RspCod"    value="08040"/>
+         <set name="RspMsg"    value="客户账户状态不正常"/>
+         <continue/>
+      </if>
+   </macro>
+   
+   <transaction code="QryInvestAcc" desc="查询用户理财账户信息">
+        <sql name="QryCusInf"> <!-- 查询用户信息 -->
+            SELECT U.CUST_LOGIN AS LOGNAM,C.CUST_NAME AS userNam,c.CUST_STATUS,U.USR_STATUS as AUTSTAT
+            FROM STPUSRINF U,STPCUSINF C
+            WHERE  U.CUST_ID=#{CUST_ID} AND C.CUST_ID = U.CUST_ID 
+        </sql>
+        <sql name="SelAccInf"><!-- 查询客户帐号信息 -->
+            select p.PAY_AC_NO as PAYACNO,AC_STATUS,p.ac_type,
+            nvl(CASH_AC_BAL,0) as CASHACBAL,
+            nvl(FROZ_BALANCE,0) as FROZBALANCE,
+            nvl(CASH_AC_BAL,0)-nvl(FROZ_BALANCE,0) as CASHBALFROZ,
+            TO_CHAR(to_number(nvl(CASH_AC_BAL,0))/100,'9999999999990.00') as
+            CASHBAL,
+            TO_CHAR(to_number(nvl(FROZ_BALANCE,0))/100,'9999999999990.00') as
+            FROZBAL,
+            TO_CHAR(to_number(nvl(CASH_AC_BAL,0)-nvl(FROZ_BALANCE,0))/100,'9999999999990.00')
+            as USRBAL
+            from ARP_AC_PROFILE p,arp_ac_cust_rel c
+            where p.pay_ac_no=c.pay_ac_no and c.cust_id = #{CUST_ID} and p.ac_type=#{ac_type}
+        </sql>
+        <sql name="QryEarnings">
+            select nvl(sum(FINANAMT),0) TATALAMT,nvl(sum(TOTALPROFIT),0) TOTALSPITAMT,
+            TO_CHAR(to_number(sum(nvl(FINANAMT,0)))/100,'9999999999990.00') as TATALAMTS,
+            TO_CHAR(to_number(sum(nvl(TOTALPROFIT,0)))/100,'9999999999990.00') as TOTALSPITAMTS
+            from FINANCIAL_PRDINF where   cust_id=#{CUST_ID}  group by cust_id
+        </sql>
+        <sql name="QryEarningsHIS">
+            select nvl(sum(GETPROFITAMT),0) GETAMTBYDAY, 
+            TO_CHAR(to_number(nvl(sum(GETPROFITAMT),0))/100,'9999999999990.00') as GETAMTBYDAYS
+            from FINANCIAL_INCOME_HIS where substr(GETPROFITTIME,1,8)=#{beforedate}  
+            and cust_id=#{CUST_ID} and PROFITSTATUS='01'  group by cust_id
+        </sql>
+        <sql name="QryUsrConPrd"><!--查询所有的理财订单信息--> <!--只显示活期理财产品-->
+            select p.ID CONPRDID,p.PRDSTATUS,to_char(to_date(SUBSTR(p.CREATEDATETIME,0,8),'yyyymmdd'),'yyyy-mm-dd') as GETAMTDATE ,u.PRDNAME,
+            TO_CHAR(to_number(nvl(p.FINANAMT,0))/100,'9999999999990.00') as FINANAMT
+            from FINANCIAL_PRDINF p,FINANCIAL_RATE_SET u where p.VERSIONID=u.VERSIONID
+            and p.cust_id=#{CUST_ID} and p.PRDSTATUS='01'   and p.versionid in (select VERSIONID from FINANCIAL_RATE_SET where INVESTTYPE = '2')
+        </sql>
+      <process>
+           <!--检查用户登录平台是否正确-->
+           <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="01001"/>
+              <set name="RspMsg"    value="用户登录平台不正确"/>
+              <return/>
+           </if>
+           <set name="USRID" expr="SESSIONS.CUSTNO" />
+           <set name="CUST_ID"  expr="SESSIONS.USRID"/>
+           <set name="PAYACNO"  expr="SESSIONS.PAYACNO"/>
+           <if condition="ISNULL(CUST_ID)">
+               <set name="MsgTyp" value="E" />
+               <set name="RspCod" value="01002" />
+               <set name="RspMsg" value="您还没有登录，请先登录！" />
+               <set name="_REQUESTATTR.FORWARDURL" value="index.jsp" />
+               <return/>
+           </if>
+           
+           <!-- 查询用户信息 -->
+           <quote name="usrChk"/>
+           
+           <!-- 查询用户活期期理财金额-->
+           <set name="ac_type" value="06"/>
+           <quote name="chkAcc"/>
+           <set name="RegulAmt"         expr="CASHBALFROZ"/>
+           <set name="RegulUSRBAL"      expr="USRBAL"/>
+           
+           <!-- 定期期理财帐号余额 -->
+           <set name="ac_type" value="07"/>
+           <quote name="chkAcc"/>
+           
+           <!-- 理财帐户余额重定义 -->
+           <set name="investCASHACBAL"   expr="CASHACBAL"/>
+           <set name="investFROZBALANCE" expr="FROZBALANCE"/>
+           <set name="investCASHBALFROZ" expr="CASHBALFROZ"/>
+           <set name="investCASHBAL"     expr="CASHBAL"/>
+           <set name="investFROZBAL"     expr="FROZBAL"/>
+           <set name="investUSRBAL"      expr="USRBAL"/>
+           <!-- 理财帐户余额重定义 -->
+           
+           <!-- 理财总金额活期加定期余额之和 -->
+           <set name="investUSRBAL" expr="AMTADDDOT(ADDAMT(investCASHBALFROZ,RegulAmt))"/>
+           
+           <!-- 虚拟帐号余额 -->
+           <set name="ac_type" value="01"/>
+           <quote name="chkAcc"/>
+           <do func="ReadRecord" error="IGNORE">
+              <para name="SqlCmd" sql="SelAccInf" />
+           </do>
+           <if condition="#RetCod!=0">
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="客户账户信息不存在"/>
+               <set name="CASHACBAL"          value="0"/>
+               <set name="FROZBALANCE"      value="0"/>
+               <set name="CASHBALFROZ"          value="0"/>
+               <set name="CASHBAL"      value="0.00"/>
+               <set name="FROZBAL"          value="0.00"/>
+               <set name="USRBAL"      value="0.00"/>
+           </if>
+           
+           <!-- 查询用户理财总收益  信息 -->
+           <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd"   sql="QryEarnings" />
+           </do>
+           <if condition="#RetCod==2">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="02018"/>
+             <set name="RspMsg"        value="该用户理财信息不存在"/>
+             <set name="TATALAMT"          value="0"/>
+             <set name="TOTALSPITAMT"      value="0"/>
+             <set name="TATALAMTS"          value="0.00"/>
+             <set name="TOTALSPITAMTS"      value="0.00"/>
+           </if>
+           <elseif condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="02008"/>
+             <set name="RspMsg"        value="数据库错误"/>
+             <return/>
+           </elseif>
+           
+           <set name="beforedate"  expr="CALCDATE(GETDATE(),'-','d','1')"/>
+           <!-- 查询用户理财收益历史表昨天收益 信息 -->
+           <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd"   sql="QryEarningsHIS" />
+           </do>
+           <if condition="#RetCod==2">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="02018"/>
+             <set name="RspMsg"        value="该用户理财收益信息不存在"/>
+             <set name="GETAMTBYDAY"       value="0"/>
+             <set name="GETAMTBYDAYS"       value="0.00"/>
+           </if>
+           <elseif condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="02008"/>
+             <set name="RspMsg"        value="数据库错误"/>
+             <return/> 
+           </elseif>
+           <!--查询当前用户下所有的理财订单-->
+           <do func="PagedQuery" error="ignore">
+               <para name="PageNum"             expr="pagenum"/>
+               <para name="NumPerPag"           expr="NUMPERPAG"/>
+               <para name="Sql"                 sql="QryUsrConPrd"/>
+           </do>
+           <if condition="#RetCod==2">
+               <set name="RspCod"               value="02001"/>
+               <set name="RspMsg"               value="无信息"/>
+           </if>
+           <elseif condition="#RetCod!=0">
+               <set name="RspCod"               value="09999"/>
+               <set name="RspMsg"               value="系统错误"/>
+               <return/>
+           </elseif>
+           
+           <set name="MsgTyp"    value="N"/>
+           <set name="RspCod"    value="00000"/>
+           <set name="RspMsg"    value="交易成功"/>
+           
+      </process>
+   </transaction>
+   
+   <transaction code="getFinNameRate" desc="查询理财产品信息">
+        <sql name="getFinPrdName">
+           <!--  select max(b.VERSIONID) as VERSIONID,prdname   from   (select  prdname,VERSIONID  FROM FINANCIAL_RATE_SET where TYPE=#{TYPE} and  INVESTTYPE=#{INVESTTYPE} and EFFECTTYPE=#{EFFECTTYPE}) b group by prdname -->
+             select  VERSIONID,prdname,FIXEDPERIOD,FIXEDRATE,FIXEDAMT  FROM FINANCIAL_RATE_SET 
+             where 1=1 and TYPE=#{TYPE} and INVESTTYPE=#{INVESTTYPE} and EFFECTTYPE=#{EFFECTTYPE}
+        </sql>
+      <process>
+           <!--检查用户登录平台是否正确-->
+           <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="01001"/>
+              <set name="RspMsg"    value="用户登录平台不正确"/>
+              <return/>
+           </if>
+           
+           <set name="TYPE"       value="1"/><!--1:线上/2:POS-->
+           <set name="INVESTTYPE" value="1"/><!--1:定期/2:活期-->
+           <set name="EFFECTTYPE" value="0"/><!--0：启动1：禁用-->
+           <!-- 查询用户理财产品 -->
+           <do func="QueryInGroup">
+              <para name="SqlCmd"      sql="getFinPrdName"/>
+              <para name="RecordName"  value="GRP" />
+           </do>
+           <if condition="#RetCod==2">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="02018"/>
+             <set name="RspMsg"        value="该用户理财信息不存在"/>
+             <return/> 
+           </if>
+           <elseif condition="#RetCod!=0">
+             <set name="MsgTyp"        value="E"/>
+             <set name="RspCod"        value="02008"/>
+             <set name="RspMsg"        value="数据库错误"/>
+             <return/> 
+           </elseif>
+           
+           <set name="MsgTyp"    value="N"/>
+           <set name="RspCod"    value="00000"/>
+           <set name="RspMsg"    value="交易成功"/>
+      </process>
+   </transaction>
+   
+   <transaction code="fundInto"   desc="建立订单-理财资金转入">
+      <sql name="SelAccInf"><!-- 查询客户账户信息-->
+         SELECT a.AC_STATUS,b.PAY_AC_NO PAYACNO,b.ac_type,CASH_AC_BAL,FROZ_BALANCE FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b 
+         WHERE b.CUST_ID=#{USERID} AND a.PAY_AC_NO=b.PAY_AC_NO  and b.ac_type=#{ac_type}
+      </sql>
+      <sql name="QryPassInf"><!-- 查询客户支付密码信息-->
+          SELECT PASSWORD,CUST_ID FROM ARP_AC_CUST_REL WHERE PAY_AC_NO=#{PAYACNO}
+      </sql>
+      <!--查询理财产品收益率 -->
+      <sql name="QryCustFF"> 
+         SELECT VERSIONID,PRDNAME,FIXEDAMT,TYPE,FIXEDPERIOD,FREQ
+              FROM FINANCIAL_RATE_SET
+              WHERE versionid=#{PRDNAME} and EFFECTTYPE=#{EFFECTTYPE}
+      </sql>
+      <sql name="QryInverOrd"> 
+         SELECT max(VERSIONID) VERSIONID FROM FINANCIAL_RATE_SET
+              WHERE INVESTTYPE=#{INVESTTYPE} and EFFECTTYPE=#{EFFECTTYPE} 
+      </sql>
+      <sql name="QryFinPRDInf"> <!-- 查询理财订单 -->
+        SELECT a.ID as FINANPrdNO,a.VERSIONID,CUST_ID,FINANAMT,TYPE,FIXEDRATE, FREQ, CONFIRMTIME,
+         EXPECTENDDATE,EXPECTPROFITDATE,TOTALPROFIT,PRDSTATUS ,EXPECTEDCYCLEPROFIT
+              FROM FINANCIAL_PRDINF  a left join  FINANCIAL_RATE_SET b on  a.versionid=b.versionid 
+              WHERE  PRDSTATUS=#{PRDSTATUS} and CUST_ID=#{CUST_ID}
+              and INVESTTYPE=#{INVESTTYPE} and EFFECTTYPE=#{EFFECTTYPE}
+      </sql>
+      <sql name="UpdordReg"> <!-- 更新订单表 -->
+        update CURRENTFINANINOUTHIS set PAYORDNO=#{payOrdNo},INOUTSTATUS=#{INOUTSTATUS},PAYTIME=#{PAYTIME} WHERE CURRENTFINANNO=#{CURRENTFINANNO} 
+      </sql>
+      <sql name="UpdpayReg"><!-- 更新支付订单号-->
+         update stppayinf set ordstatus= #{STATUS},netrecamt=#{txAmt}  WHERE payOrdNo=#{payOrdNo}
+      </sql>
+      <sql name="UpdstppayInf"><!-- 更新支付订单号-->
+         update stppayinf set FILED5= #{FILED5},FILED4=#{FILED4},FILED3=#{FILED3}  WHERE payOrdNo=#{payOrdNo}
+      </sql>
+       <sql name="UpFINANdordReg"> <!-- 更新理财订单表 -->
+        update FINANCIAL_PRDINF set PRDSTATUS = #{PRDSTATUS} ${WAITAMTdesc} WHERE ID=#{FINANPrdNO}
+      </sql>
+      <sql name="checkFinCount"><!--查看购买理财产品数量-->
+           select count(*) count from CURRENTFINANINOUTHIS where  cust_id = #{CUST_ID}  and versionid = #{versionid}
+        </sql>
+        <sql name="SelFRACTIONLIMIT">   <!--查看理财产品购买限制份数-->
+          select FRACTIONLIMIT,FRACTION from FINANCIAL_RATE_SET  where versionid = #{versionid}
+        </sql>
+        <sql name="checkTotalCount">   <!--查询该理财产品总共购入份数-->
+          select count(*) TotalCount from CURRENTFINANINOUTHIS where   versionid = #{versionid}
+        </sql>
+      <process>
+         <!--检查用户登录平台是否正确-->
+         <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="用户登录平台不正确"/>
+            <return/>
+         </if>
+         <set name="CUST_ID"          expr="SESSIONS.USRID"/>
+         <set name="userId"           expr="SESSIONS.USRID"/>  
+         <set name="INVESTTYPE"       expr="INVESTTYPE"/><!--1:定期/2:活期-->
+         <set name="PayPwd"           expr="USRPWD"/>
+         <set name="BankNo"           expr="BankNo"/>
+         
+         <!-- 虚拟帐号状态验证 -->
+         <set name="ac_type" value="01"/>
+         <quote name="chkAcc"/>
+         <set name="CASHACBAL"              expr="CASH_AC_BAL"    /><!--账户现金余额--> 
+         <set name="FROZBALANCE"            expr="FROZ_BALANCE"   /><!--账户冻结余额--> 
+         <set name="PAY_AC_NO"              expr="PAYACNO"      /><!--活期支付账户号--> 
+         <set name="CASHFROZ"               expr="SUBAMT(CASHACBAL,FROZBALANCE)"/>   
+         
+         <!--  转入 支付类型 ordpayTyp  00 虚拟帐号 01网银 -->
+         <if condition="IS_EQUAL_STRING(ordpayTyp,'00')">
+            <set name="RiskpayType"  value="04"/><!-- 风控支付类型 -->
+            <set name="TRAN_TYPE"    value="6"/><!--  风控交易类型-->
+            <set name="PAYWAY"       value="00"/><!-- 转入支付类型 -->
+            <set name="ordpayTyp"   value="00"/><!-- 支付订单表支付类型 -->
+            <set name="orderNo"    value=""/>
+            <!--验证码验证-->
+            <!-- 验证码转化为大写 -->
+            <set name="RAND" expr="TOUPPER(RAND)"/>
+            <quote name="RAChek"/>
+            <!--如果是虚拟账户支付校验 支付密码检查 start-->
+            <set name="paypwd" expr="PayPwd"/>
+            <set name="PAYACNO" expr="PAYACNO"/>
+            <quote name="chkPayPwd"/>
+            <!-- 现金金额是否足够扣款 -->
+            <if condition="DOUBLECMP(CASHFROZ,1,AMTPOWER(AMT,2))">
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="现金账户余额不足！"/>
+               <return/>
+            </if>
+         </if>
+         <elseif condition="IS_EQUAL_STRING(ordpayTyp,'01')">
+            <set name="RiskpayType"  value="01"/><!-- 风控支付类型 -->
+            <set name="TRAN_TYPE"    value="1"/><!--  风控交易类型-->
+            <set name="PAYWAY"       value="01"/><!-- 转入支付类型 -->
+            <set name="ordpayTyp"    value="01"/><!-- 支付订单表支付类型  -->
+            <set name="amt"          expr="INTOAMT"/>
+            <set name="orderNo"      expr="orderNo"/>
+            <!-- 查询银行卡号的编码 -->
+            <!--set name="bankCard"    expr="BANKNO"/>
+            <do func="GetCrdInfo" error="IGNORE">
+                <para name="CrdNo"  expr="bankCard" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="bankcode"  value=""/>
+            </if-->
+            <set name="BANKCOD"         expr="BANKCODE"/>
+            <set name="ISSBANKNAME"     expr="ISSNAM" />
+            <set name="BANKCODE"        expr="BANKCODE" />
+            <set name="BANKCARDTYPE"    expr="DCFLAG" />
+         </elseif>
+         
+         <set name="amt"        expr="AMT"/>
+         <set name="rand"       expr="rand"/>
+         
+         <!--验签-->
+         <set name="txnDat"     expr="TACCDT"/>
+         <set name="orderNo"    expr="orderNo"/>
+         <set name="txnAmt"     expr="amt"/>
+         <quote name="chkSign"/>
+         <!--验签-->
+         
+         <!-- 转化为 分 -->
+         <set name="txAmt"       expr="AMTPOWER(txnAmt,2)"/>
+         <if condition="OR(IS_EQUAL_STRING(txAmt,''),IS_EQUAL_STRING(txAmt,'0'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="金额不能为空或者为零！"/>
+            <return/>
+         </if>
+         <set name="EFFECTTYPE"  value="0"/><!--0：启动1：禁用-->
+         <set name="INVESTTYPE"  expr="INVESTTYPE"/><!--1:定期/2:活期-->
+         <if condition="IS_EQUAL_STRING(INVESTTYPE,'2')">
+             <set name="PRDSTATUS"    value="01"/><!--01 已支付-->
+             <set name="EFFECTTYPE"   value="0"/><!--0：启动1：禁用-->
+             <set name="ISFIrst"     value="1"/><!--是否第一次购买 0 首次 1多次-->
+             <!-- 判断是否以及已经购买活期理财产品-->
+             <do func="ReadRecord" error="IGNORE">
+                   <para name="SqlCmd" sql="QryFinPRDInf" />
+             </do>
+             <if condition="#RetCod==2">
+                 <set name="MsgTyp"    value="E"/>
+                 <set name="RspCod"    value="01003"/>
+                 <set name="RspMsg"    value="无符合条件记录,继续走"/>
+                 <!-- 如果购买的是活期理财，则查询理财产品中活期的最大的版本 -->
+                 <do func="ReadRecord" error="IGNORE">
+                   <para name="SqlCmd" sql="QryInverOrd" />
+                 </do>
+                 <if condition="#RetCod!=0">
+                     <set name="RspCod"    value="09999"/>
+                     <set name="RspMsg"    value="系统错误"/>
+                     <return/>
+                 </if>
+                 <set name="ISFIrst" value="0"/><!--是否第一次购买 0 首次 1多次-->
+             </if>
+             <elseif condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="系统错误"/>
+                <return/>
+             </elseif>
+             <set name="ac_types"     value="06"/><!--账户类型 06 活期理财账户 07 是定期理财账户-->
+             <set name="LI_ACC_TYP"  value="06"/><!--记账 理财账户类型-->
+         </if>
+         <elseif condition="IS_EQUAL_STRING(INVESTTYPE,'1')">
+            <set name="versionid"    expr="PRDNAME"/>
+            <set name="ac_types"     value="07"/><!--账户类型 06 活期理财账户 07 是定期理财账户-->
+            <set name="LI_ACC_TYP"   value="07"/><!--记账 理财账户类型-->
+            <set name="ISFIrst"      value="0"/><!--是否第一次购买 0 首次 1多次-->
+         </elseif>
+         
+         <!-- 理财帐号状态验证 -->
+         <set name="ac_type" expr="LI_ACC_TYP"/>
+         <quote name="chkAcc"/>
+         <set name="CASHFROZtyp"               expr="SUBAMT(CASH_AC_BAL,FROZ_BALANCE)"/>
+         
+         <!--记录用户系统主要交易实时日志-->
+         <set name="RCS_USER_CODE"       expr="userId"/><!--用户ID-->
+         <set name="RCS_PAY_TYPE"        value="用户理财资金转入"/><!--本次交易码，最好用desc-->
+         <set name="RCS_PRD_NO"          value=""/><!--订单号，这个限额是在建立订单前，所以没有订单号-->
+         
+         <!--限额检查  start -->
+         <set name="Amt"           expr="TXAMT"/> <!--交易金额-->
+         <set name="PAY_TYPE"      value="RiskpayType"/><!--支付方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付-->
+         <set name="TRAN_TYPE"     expr="TRAN_TYPE"/><!--交易类型 0 其他 1 充值 2消费 3撤销 4预授权完成 5预授权完成撤销 6转账(虚拟帐号间) 7提现 8退款-->
+         <set name="cust_type"     value="1"/>  <!--效验客户类型(1用户 2 商户 0 两者)-->
+         <set name="User_code"     expr="userId"/><!--用户编号-->
+         <set name="Time"          expr="NOWDatetime"/>
+         <set name="DATE"          expr="NOWDate"/>
+         <set name="ServiceCode"   value="680518"/>  
+         <quote name="chkLimAmt"/>
+         <!--限额检查   end-->
+         
+         <set name="PRDNAME"  expr="versionid"/>
+         <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="QryCustFF" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         
+         <set name="versionid"    expr="versionid"/>
+          <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="checkFinCount" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <else> 
+               <set name="count"     expr="count"/>
+         </else>
+          <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="SelFRACTIONLIMIT" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <else> 
+               <set name="FRACTIONLIMIT"     expr="FRACTIONLIMIT"/>
+               <set name="FRACTION"     expr="FRACTION"/>
+         </else>
+         <if condition="IS_EQUAL_STRING(INVESTTYPE,'1')">
+         <if condition="AND(NOT(ISNULL(count)),NOT(ISNULL(FRACTIONLIMIT)))">
+             <if condition="INTCMP(count,3,FRACTIONLIMIT)">
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="该理财产品购买已达到限制份数，不能再次购买！"/>
+               <return/>
+             </if>
+         </if>
+         </if>
+         <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="checkTotalCount" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <else>
+             <if condition="IS_EQUAL_STRING(INVESTTYPE,'1')">
+               <set name="TotalCount"     expr="TotalCount"/>
+               <if condition="INTCMP(FRACTION,3,TotalCount)">
+                   <set name="RspCod"    value="09999"/>
+                   <set name="RspMsg"    value="该理财产品已经售完，不能再次购买！"/>
+                   <return/>
+               </if>
+             </if>
+             <elseif condition="IS_EQUAL_STRING(INVESTTYPE,'2')">
+                <set name="FIXEDPERIOD"  expr="MUL(365,10)"/><!--默认是十年-->
+             </elseif>
+         </else>
+         
+         <if condition="IS_NOEQUAL_STRING(BANKCODE,'')">
+             <set name="BANKCODE" expr="GETWORDDELIMITER(BANKCODE,'_',1)"/>
+         </if>
+         <set name="BANKCODE"       expr="BANKCODE"/>
+         <set name="ActDat"        expr="NOWDatetime"/>
+         
+         <!-- 初次建立理财订单 -->
+         <if condition="ISNULL(FINANPrdNO)">
+            <!--获取序号 -->
+            <do func="GetSeqNoNew"  >
+               <para name="TblNam" value="stpseqrec"/>
+               <para name="KeyNam" value="KeyNam"/>
+               <para name="KeyVal" expr="STRCAT('FINANCIAL_PRDINF','SEQ_NO')"/>
+               <para name="SeqNam" value="KeyVal"/>
+               <para name="Len"    value="9"/>
+               <para name="Circle" value="1"/>
+            </do>
+            <if condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09001"/>
+               <set name="RspMsg"    value="获取序号错误"/>
+               <do func="RollBackWork"/>
+               <return/>
+            </if>
+           <set name="SYSTIME"     expr="GETDATETIME()"/><!--系统时间 -->   
+           <set name="ID"          expr="STRCAT('J',SUBSTR(SYSTIME,3,6),KeyVal)"   />   <!-- 主键ID--> 
+           <set name="FINANPrdNO"  expr="ID"/>
+           <set name="VERSIONID"   expr="VERSIONID"/>
+           <set name="CUST_ID"     expr="CUST_ID"/>
+           <set name="FINANAMT"    expr="TXAMT"/>
+           <set name="WAITAMT"     value="0"/>
+           <if condition="IS_EQUAL_STRING(INVESTTYPE,'2')">
+             <set name="FINANAMT"               value="0"/>
+             <set name="WAITAMT"                expr="TXAMT"/>
+           </if>
+           <set name="SPLITAMT"               value="0"/>
+           <set name="TOTALPROFIT"            value="0"/>
+           <set name="TRANDATETIME"           expr="ActDat"/>
+           <set name="PRDSTATUS"              value="00"/>
+           <set name="POSLOGNO"               value=""/>
+           <set name="CREATEDATETIME"         expr="GETDATE()"/><!--系统时间 -->
+           <set name="CONFIRMTIME"            value=""/>
+           <set name="EXPECTENDDATE"          expr="CALCDATE(GETDATE(),'+','d',FIXEDPERIOD)"/>
+           <set name="EXPECTPROFITDATE"       expr="CALCDATE(GETDATE(),'+','d',FREQ)"/>
+           <set name="EXPECTEDCYCLEPROFIT"    value=""/>
+           <set name="RCS_PRD_NO"      expr="ID"/>
+           <do func="InsertRecord" error="IGNORE">
+              <para name="TblNam"  value="FINANCIAL_PRDINF"/>
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+
+              <return/>
+           </if>
+         </if>
+         <else>
+            <!--订单号，这里用于生成商品订单号后开始更新，用于下面实时交易-->
+            <set name="RCS_PRD_NO"      expr="FINANPrdNO"/>
+         </else>
+         
+           <!--生成批次号-->
+           <do func="GetSeqNo"  error="IGNORE">
+              <para name="TblNam" value="stpseqrec"/>
+              <para name="KeyNam" value="KeyNam"/>
+              <para name="KeyVal" expr="STRCAT('CURRENTFINANINOUTHIS','BatNo')"/>
+              <para name="SeqNam" value="KeyVal"/>
+              <para name="Len"    value="8"/>
+              <para name="Circle" value="1"/>
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09001"/>
+              <set name="RspMsg"    value="获取序号错误"/>
+              <return/>
+           </if>
+           <set name="batNo"           expr="STRCAT('L',SUBSTR(ActDat,2,7),KeyVal)"/>
+           <set name="CURRENTFINANNO"  expr="batNo"/>
+           <set  name="VERSIONID"       expr="VERSIONID"/>
+           <set name="CUST_ID"         expr="SESSIONS.USRID"/>
+           <set name="INOUTAMT"        expr="txAmt"/>
+           <set name="CREATEDATE"      expr="NOWDatetime"/>
+           <set name="INOUTTYPE"       value="1"/><!-- 订单类型 1：转入  2：转出 -->
+           <set name="CCYTYPE"         value="CNY"/>
+           <set name="PAYWAY"          expr="PAYWAY"/><!--00 支付账户 01 网上银行-->
+           <set name="INOUTSTATUS"     value="00"/><!--00：待付款 01：交易成功 02：交易失败-->
+           <set name="Filed0"          expr="signature"/><!-- 验签信息存放 -->
+           <set name="Filed1"          expr="ISFIrst"/><!-- 是否第一次购买 0 首次 1多次 -->
+           <set name="Filed2"          expr="FINANPrdNO"/><!-- 存放购买的理财订单号 -->
+           <set name="BANKCODE"        expr="BANKCODE"/>
+           <set name="RCS_PRD_NO"      expr="CURRENTFINANNO"/>
+           <do func="InsertRecord"     error="IGNORE">
+              <para name="TblNam"  value="CURRENTFINANINOUTHIS" />
+           </do>
+           <if condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+              <return/>
+           </if>
+           <delete name="Filed0"/>
+           <delete name="Filed1"/>
+           <delete name="Filed2"/>
+         <!--获取序号 -->
+         <do func="GetSeqNo"  error="IGNORE">
+            <para name="TblNam" value="stpseqrec"/>
+            <para name="KeyNam" value="KeyNam"/>
+            <para name="KeyVal" expr="STRCAT('StpPayInf','PayOrdNo',GETDATE())"/>
+            <para name="SeqNam" value="KeyVal"/>
+            <para name="Len"    value="8"/>
+            <para name="Circle" value="1"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09001"/>
+            <set name="RspMsg"    value="获取序号错误"/>
+            <return/>
+         </if>
+         <set name="payOrdNo"    expr="STRCAT('P',SUBSTR(ActDat,2,7),KeyVal)"/>
+         <set name="txAmt"       expr="txAmt"/>  
+         <set name="txCcy"       value="CNY"/> 
+         <set name="ordstatus"   value="00"/>
+         <set name="bankCod"     expr="BANKCODE"/> 
+         <set name="PrdOrdNo"    expr="CURRENTFINANNO"/> <!-- 支付订单中的商品订单号即为充值订单号  -->  
+         <set name="ActDat"      expr="NOWDatetime"/>
+         <set name="prdordtype"  value="4"/><!-- 0 消费  1 充值  2 担保支付   3 商户充值   4 理财转入 5 理财转出  -->
+         <set name="payType"     expr="ordpayTyp"/><!-- 00 支付账户   01 网上银行     -->
+         <set name="prdname"     value="理财转入"/>
+         <set name="signmsg"     expr="signature"/>
+         <set name="PAYACNO"     expr="PAYACNO"/>
+         <do func="InsertRecord" error="IGNORE">
+            <para name="TblNam"  value="StpPayInf"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         
+         <!-- 更新状态 -->
+         <set name="INOUTSTATUS"    value="00"/>
+         <set name="PAYTIME"      expr="NOWDatetime"/>
+         <if condition="IS_EQUAL_STRING(PAYWAY,'01')">    <!--网银支付-->
+            <set name="payAmt" expr="INTOAMT"/>
+            <quote name="SendInb"/>
+            <!-- 网银支付成功以后更新状态 -->
+         </if>
+         <elseif condition="IS_EQUAL_STRING(PAYWAY,'00')">    <!--虚拟帐号支付-->
+             <!--进行虚拟账户扣款-->
+             <if condition="DOUBLECMP(CASHFROZ,1,txAmt)">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="现金账户余额不足！"/>
+                 <return/>
+             </if>
+             <!--记账所需数据-->
+             <set name="ACC_TYP"    value="01"/>               <!--现金账户-->
+             <set name="LI_ACC_TYP" expr="LI_ACC_TYP"/>        <!--理财账户-->
+             <set name="DR_CR_FLAG" value="+"/>                <!--账户余额增减标识 + 增加 - 减少-->
+             <set name="CCY"        value="CNY"/>              <!--货币类型-->
+             <set name="AMT"        expr="TXAMT"/>             <!--金额-->
+             <set name="IS_ACT"     value="Y"/>                <!--是否实时记账 Y 是 N 否-->
+             <set name="usrPar"     expr="STRCAT(CUST_ID,'/',ACC_TYP,'/','-','/',CCY,'/',AMT,'/',IS_ACT,'/')"/>  <!--用户记账参数-->
+             <set name="merPar"     expr="STRCAT(CUST_ID,'/',LI_ACC_TYP,'/','+','/',CCY,'/',AMT,'/',IS_ACT,'/')"/>         <!--商户记账参数-->
+             <set name="PARAMS"     expr="STRCAT(usrPar,',',merPar)"/>
+             
+             <set name="FROZ_BALANCE"  expr="FROZ_BALANCE"/><!--活期理财冻结金额-->
+             <!--如果活期理财多次购买 --><!-- 是否第一次购买 0 首次 1多次 -->
+             <if condition="AND(IS_EQUAL_STRING(ISFIrst,'1'),IS_EQUAL_STRING(INVESTTYPE,'2'))">
+                 <!--有冻结余额，则优先解冻活期理财冻结金额-->
+                 <if condition="DOUBLECMP(FROZ_BALANCE,6,0)">
+                     <set name="RspMsg"    value="扣虚拟账户钱，到活期理财冻结余额"/>
+                     <if condition="DOUBLECMP(FROZ_BALANCE,5,TXAMT)">
+                          <set name="FROZBALANCE06"  expr="TXAMT"/>
+                          <set name="CASHACBAL06"    value="0"/>
+                          <set name="PARAMS"        expr="usrPar"/>
+                          
+                     </if>
+                     <elseif condition="DOUBLECMP(FROZ_BALANCE,1,TXAMT)">
+                          <set name="FROZBALANCE06"  expr="FROZ_BALANCE"/>
+                          <set name="CASHACBAL06"    expr="SUBAMT(TXAMT,FROZ_BALANCE)"/>
+                          <set name="usrPar"     expr="STRCAT(CUST_ID,'/',ACC_TYP,'/','-','/',CCY,'/',AMT,'/',IS_ACT,'/')"/>  <!--用户记账参数-->
+                          <set name="merPar"     expr="STRCAT(CUST_ID,'/',LI_ACC_TYP,'/','+','/',CCY,'/',CASHACBAL06,'/',IS_ACT,'/')"/>         <!--商户记账参数-->
+                          <set name="PARAMS"     expr="STRCAT(usrPar,',',merPar)"/>
+                     </elseif>
+                     
+                 </if>
+                 <else>
+                    <set name="CASHACBAL06"    expr="TXAMT"/>
+                    <set name="RspMsg"    value="扣虚拟账户钱，到活期理财账户"/>
+                 </else>
+             </if>
+             
+             <!--记账处理-->
+             <set name="TXN_TYP"      value="3"/>      <!--用途 3 转账-->
+             <set name="prdordno"     expr="CURRENTFINANNO"/>
+             <quote name="accProcess"/>
+             <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="08043"/>
+                <set name="RspMsg"    value="转账失败"/>
+                <return/>
+             </if>
+             <!--更新支付订单表-->
+             <set name="tracetime" expr="NOWDatetime"/>
+             <set name="STATUS"    value="01"/>
+             <do func="ExecSql" error="IGNORE">
+                  <para name="SqlCmd" sql="UpdpayReg"/>
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="系统错误"/>
+             </if>
+             
+             <set name="WAITAMTdesc"  value=""/>
+             <if condition="IS_EQUAL_STRING(ISFIrst,'1')"><!-- 是否第一次购买 0 首次 1多次 -->
+                  <if condition="DOUBLECMP(FROZ_BALANCE,6,0)">
+                    <!-- 活期理财冻结余额解冻 -->
+                    <set name="PAY_AC_NO"     expr="PAYACNO"/>
+                    <set name="txAmt"         expr="STRCAT('-',FROZBALANCE06)"/>
+                    <quote name="frezzAmt"/>
+                  </if>
+                  <!-- 修改活期理财未参与分润的基金 --> 
+                  <set name="WAITAMTdesc"   expr="STRCAT(' , WAITAMT = WAITAMT','+',CASHACBAL06)" />
+                  
+             </if>
+             
+             <!-- 更新状态 -->
+             <set name="INOUTSTATUS"    value="01"/>
+             <set name="PRDSTATUS"       value="01"/>
+         </elseif>
+         <else>
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="06012"/>
+            <set name="RspMsg"    value="无此支付方式"/>   
+            <return/>
+         </else>
+         
+         <!--更新转入转出订单表-->
+         <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdordReg"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         <!--更新理财订单表-->
+         <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpFINANdordReg"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         <!--通知风控系统登记订单信息-->
+         <set name="ServiceCode" value="680517"/>
+         <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+         <set name="TCODE"       expr="RCS_PRD_NO"/>           <!--平台流水号 转账订单号-->
+         <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+         <set name="CLIENTCODE"  expr="userId"/>     <!--客户编号-->
+         <set name="CLIENTNAME"  expr="SESSIONS.USRNAME"/>
+         <set name="MOBILEPHONE" expr="SESSIONS.USRMP"/>
+         <set name="TRANTYPE"    expr="TRAN_TYPE"/>                 <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+         <set name="TAMT"        expr="TXAMT"/>
+         <set name="REGDTTIME"   expr="GETDATETIME()"/>
+         <set name="Time"        expr="SUBSTR(REGDTTIME,1,8)"/>
+         <quote name="noticRcs"/>
+         
+         <set name="TXAMT"     expr="TXAMT"/>
+         <set name="ACTDAT"    expr="FMTDATE(ActDat,0,4)"/>
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+      </process>
+   </transaction>
+   
+   <transaction code="fundTran"   desc="建立理财资金转出订单">
+      <sql name="SelAccInf"><!-- 查询客户账户信息-->
+         SELECT a.AC_STATUS,b.PAY_AC_NO PAYACNO,b.ac_type FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b 
+         WHERE b.CUST_ID=#{USERID} AND a.PAY_AC_NO=b.PAY_AC_NO  and b.ac_type=#{ac_type}
+      </sql>
+      <sql name="QryPassInf"><!-- 查询客户支付密码信息-->
+         SELECT PASSWORD FROM ARP_AC_CUST_REL WHERE PAY_AC_NO=#{PAYACNO}
+      </sql>
+      <sql name="QryRegInf"> <!-- 查询订单 -->
+        select CURRENTFINANNO,PAYWAY,INOUTSTATUS,CUST_ID,INOUTTYPE from CURRENTFINANINOUTHIS where CURRENTFINANNO=#{CURRENTFINANNO} 
+      </sql>
+      <sql name="UpdordReg"> <!-- 更新订单表 -->
+        update CURRENTFINANINOUTHIS set PAYORDNO=#{payOrdNo},INOUTSTATUS=#{INOUTSTATUS},PAYTIME=#{PAYTIME} WHERE CURRENTFINANNO=#{CURRENTFINANNO} 
+      </sql>
+      <sql name="UpdpayReg"><!-- 更新支付订单号-->
+         update stppayinf set ordstatus= #{STATUS},netrecamt=#{txAmt}  WHERE payOrdNo=#{payOrdNo}
+      </sql>
+      <process>
+         <!--检查用户登录平台是否正确-->
+         <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="用户登录平台不正确"/>
+            <return/>
+         </if>
+         <set name="CUST_ID"     expr="SESSIONS.USRID"/>
+         <set name="userId"     expr="SESSIONS.USRID"/>  
+         
+         <!--  转入 支付类型 ordpayTyp  00 虚拟帐号 01网银-->
+         <if condition="IS_EQUAL_STRING(ordpayTyp,'00')">
+            <set name="RiskpayType"  value="04"/><!-- 风控支付类型 -->
+            <set name="TRAN_TYPE"    value="6"/><!--  风控交易类型-->
+            <set name="PAYWAY"       value="00"/><!-- 转入支付类型 -->
+            <set name="ordpayTyp"   value="00"/><!-- 支付订单表支付类型 -->
+            <!--验证码验证-->
+            <!-- 验证码转化为大写 -->
+            <set name="RAND" expr="TOUPPER(RAND)"/>
+            <quote name="RAChek"/>
+            <set name="orderNo"    value=""/>
+         </if>
+         <elseif condition="IS_EQUAL_STRING(ordpayTyp,'01')">
+            <set name="RiskpayType"  value="01"/><!-- 风控支付类型 -->
+            <set name="TRAN_TYPE"    value="7"/><!--  风控交易类型-->
+            <set name="PAYWAY"       value="01"/><!-- 转入支付类型 -->
+            <set name="ordpayTyp"    value="01"/><!-- 支付订单表支付类型  -->
+            <set name="orderNo"      expr="orderNo"/>
+         </elseif>
+         
+         <set name="amt"        expr="amt"/>
+         <set name="rand"       expr="rand"/>
+         <set name="USRPWD"     expr="USRPWD"/>
+         
+         <!--验签-->
+         <set name="txnDat"     expr="TACCDT"/>
+         <set name="orderNo"    expr="orderNo"/>
+         <set name="txnAmt"     expr="amt"/>
+         <quote name="chkSign"/>
+         <!--验签-->
+
+         <!-- 转化为 分 -->
+         <set name="txAmt"       expr="AMTPOWER(txnAmt,2)"/>
+         <if condition="OR(IS_EQUAL_STRING(txAmt,''),IS_EQUAL_STRING(txAmt,'0'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="金额不能为空或者为零！"/>
+            <return/>
+         </if>
+         
+         <!-- 虚拟帐号状态验证 -->
+         <set name="ac_type" value="01"/>
+         <quote name="chkAcc"/>
+         
+         <!-- 理财帐号状态验证 -->
+         <set name="ac_type" value="06"/>
+         <quote name="chkAcc"/>
+         
+         <set name="paypwd" expr="USRPWD"/>
+         <!--支付密码检查 start-->
+         <set name="PAYACNO" expr="PAYACNO"/>
+         <quote name="chkPayPwd"/>
+         <!--支付密码检查 end-->
+         <set name="pwd"       expr="NewPwd"/>
+         
+         <!--记录用户系统主要交易实时日志-->
+         <set name="RCS_USER_CODE"       expr="userId"/><!--用户ID-->
+         <set name="RCS_PAY_TYPE"        value="用户理财资金转出"/><!--本次交易码，最好用desc-->
+         <set name="RCS_PRD_NO"          value=""/><!--订单号，这个限额是在建立订单前，所以没有订单号-->
+ 
+         <!--限额检查  start --> 
+         <set name="Amt"           expr="TXAMT"/> <!--交易金额-->
+         <set name="PAY_TYPE"      value="RiskpayType"/><!--支付方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付-->
+         <set name="TRAN_TYPE"     expr="TRAN_TYPE"/><!--交易类型 0 其他 1 充值 2消费 3撤销 4预授权完成 5预授权完成撤销 6转账(虚拟帐号间) 7提现 8退款-->
+         <set name="cust_type"     value="1"/>  <!--效验客户类型(1用户 2 商户 0 两者)-->
+         <set name="User_code"     expr="userId"/><!--用户编号-->
+         <set name="Time"          expr="NOWDatetime"/>
+         <set name="DATE"          expr="NOWDate"/>
+         <set name="ServiceCode"   value="680518"/>  
+         <quote name="chkLimAmt"/>
+         <!--限额检查   end-->
+         
+         <if condition="IS_NOEQUAL_STRING(BANKCODE,'')">
+             <set name="BANKCODE" expr="GETWORDDELIMITER(BANKCODE,'_',1)"/>
+         </if>
+         <set name="BANKCODE"       expr="BANKCODE"/>
+         
+         <set name="ActDat"        expr="NOWDatetime"/>
+         <!-- 初次建立订单 -->
+         <if condition="ISNULL(CURRENTFINANNO)">
+             <!--生成批次号-->
+             <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpTraInf','BatNo')"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+             </if>
+             <set name="batNo"           expr="STRCAT('L',SUBSTR(ActDat,2,7),KeyVal)"/>
+             <set name="CURRENTFINANNO"  expr="batNo"/>
+             <set name="CUST_ID"         expr="SESSIONS.USRID"/>
+             <set name="INOUTAMT"        expr="txAmt"/>
+             <set name="CREATEDATE"      expr="NOWDatetime"/>
+             <set name="INOUTTYPE"       value="2"/><!-- 订单类型 1：转入  2：转出 -->
+             <set name="CCYTYPE"         value="CNY"/>
+             <set name="PAYWAY"          expr="PAYWAY"/><!--00 支付账户 01 网上银行-->
+             <set name="INOUTSTATUS"     value="00"/><!--00：待付款 01：交易成功 02：交易失败-->
+             <set name="Filed0"          expr="signature"/><!-- 验签信息存放 -->
+             <set name="BANKCODE"        expr="BANKCODE"/>
+             <set name="RCS_PRD_NO"      expr="CURRENTFINANNO"/><!--订单号，这里用于生成商品订单号后开始更新，用于下面实时交易-->
+             <do func="InsertRecord"     error="IGNORE">
+                <para name="TblNam"  value="CURRENTFINANINOUTHIS" />
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="系统错误"/>
+                <return/>
+             </if>
+             
+         </if>
+         <else>
+            <set name="CURRENTFINANNO" expr="CURRENTFINANNO"/>
+            <set name="RCS_PRD_NO"      expr="CURRENTFINANNO"/><!--订单号，这里用于生成商品订单号后开始更新，用于下面实时交易-->
+            <!--  如果只是支付，则查询是否存在订单  -->
+            <do func="ReadRecord" error="IGNORE">
+                 <para name="SqlCmd" sql="QryRegInf" />
+            </do>
+            <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <return/>
+            </if>
+            <if condition="IS_NOEQUAL_STRING(INOUTSTATUS,'00')">
+                 <set name="MsgTyp"    value="E"/>
+                 <set name="RspCod"    value="02068"/>
+                 <set name="RspMsg"    value="该订单状态不能支付"/>
+                 <return/>
+            </if>
+            
+         </else>
+         <set name="RCS_PRD_NO"      expr="CURRENTFINANNO"/><!--订单号，这里用于生成商品订单号后开始更新，用于下面实时交易-->
+         
+         <!-- 更新状态 -->
+         <set name="INOUTSTATUS"    value="00"/>
+         <set name="PAYTIME"      expr="NOWDatetime"/>
+         
+         <if condition="IS_EQUAL_STRING(PAYWAY,'01')">    <!--网银支付-->
+             <set name="txAmt"           expr="TXAMT"/>
+           <set name="PAY_AC_NO"       expr="PAYACNO"/>
+             <set name="BEGIN_DATE"      expr="NOWDatetime"/>
+             <set name="CURRENTFINANNO"  expr="CURRENTFINANNO"/>
+             
+           <!--冻结用户提现金额 -->  
+           <set name="RCS_PRD_NO"      expr="CURRENTFINANNO"/><!--订单号，如果不涉及置空-->
+           <quote name="frezzAmt"/>
+           
+           <!--登记冻结信息-->
+           <set name="BIZ_CODE"        expr="CURRENTFINANNO"/>
+           <set name="FROZ_REASON"     value="理财资金转出"/>
+           <quote name="InsFrozInf"/>
+           
+           <set name="payOrdNo" value=""/>
+           <!-- 更新状态 -->
+             <set name="INOUTSTATUS"    value="03"/>
+             
+         </if>
+         <elseif condition="IS_EQUAL_STRING(PAYWAY,'00')">    <!--虚拟帐号支付-->
+               <!--进行虚拟账户扣款-->
+               <!--获取序号 登记支付订单 -->
+             <do func="GetSeqNo"  error="IGNORE">
+                <para name="TblNam" value="stpseqrec"/>
+                <para name="KeyNam" value="KeyNam"/>
+                <para name="KeyVal" expr="STRCAT('StpPayInf','PayOrdNo',GETDATE())"/>
+                <para name="SeqNam" value="KeyVal"/>
+                <para name="Len"    value="8"/>
+                <para name="Circle" value="1"/>
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09001"/>
+                <set name="RspMsg"    value="获取序号错误"/>
+                <return/>
+             </if>
+             <set name="payOrdNo"    expr="STRCAT('P',SUBSTR(ActDat,2,7),KeyVal)"/>
+             <set name="txAmt"       expr="txAmt"/>  
+             <set name="txCcy"       value="CNY"/> 
+             <set name="ordstatus"   value="00"/>
+             <set name="bankCod"     expr="BANKCODE"/> 
+             <set name="PrdOrdNo"    expr="CURRENTFINANNO"/> <!-- 支付订单中的商品订单号即为充值订单号  -->  
+             <set name="ActDat"      expr="NOWDatetime"/>
+             <set name="prdordtype"  value="5"/><!-- 0 消费  1 充值  2 担保支付   3 商户充值   4 理财转入 5 理财转出  -->
+             <set name="payType"     expr="ordpayTyp"/><!-- 00 支付账户   01 网上银行     -->
+             <set name="prdname"     value="理财转入"/>
+             <set name="signmsg"     expr="signature"/>
+             <set name="PAYACNO"     expr="PAYACNO"/>
+             <do func="InsertRecord" error="IGNORE">
+                <para name="TblNam"  value="StpPayInf"/>
+             </do>
+             <if condition="#RetCod!=0">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="系统错误"/>
+                <return/>
+             </if>
+             
+               <!--记账所需数据-->
+               <set name="ACC_TYP"    value="01"/>               <!--现金账户-->
+               <set name="LI_ACC_TYP"    value="06"/>               <!--理财账户-->
+               <set name="DR_CR_FLAG" value="+"/>                <!--账户余额增减标识 + 增加 - 减少-->
+               <set name="CCY"        value="CNY"/>              <!--货币类型-->
+               <set name="AMT"        expr="TXAMT"/>             <!--金额-->
+               <set name="IS_ACT"     value="Y"/>                <!--是否实时记账 Y 是 N 否-->
+               <set name="usrPar"     expr="STRCAT(CUST_ID,'/',LI_ACC_TYP,'/','-','/',CCY,'/',AMT,'/',IS_ACT,'/')"/>  <!--用户记账参数-->
+               <set name="merPar"     expr="STRCAT(CUST_ID,'/',ACC_TYP,'/','+','/',CCY,'/',AMT,'/',IS_ACT,'/')"/>         <!--商户记账参数-->
+               <set name="PARAMS"     expr="STRCAT(usrPar,',',merPar)"/>
+               
+               <!--记账处理-->
+               <set name="TXN_TYP"      value="3"/>      <!--用途 3 转账-->
+               <set name="prdordno"     expr="CURRENTFINANNO"/>
+               <quote name="accProcess"/>
+               <if condition="#RetCod!=0">
+                    <set name="MsgTyp"    value="E"/>
+                    <set name="RspCod"    value="08043"/>
+                    <set name="RspMsg"    value="转账失败"/>
+                    <return/>
+               </if>
+               <!--更新订单表-->
+               <set name="tracetime" expr="NOWDatetime"/>
+               <set name="STATUS"    value="01"/>
+               <do func="ExecSql" error="IGNORE">
+                    <para name="SqlCmd" sql="UpdpayReg"/>
+               </do>
+               <if condition="#RetCod!=0">
+                    <set name="MsgTyp"    value="E"/>
+                    <set name="RspCod"    value="09999"/>
+                    <set name="RspMsg"    value="系统错误"/>
+               </if>
+                <!-- 更新状态 -->
+                <set name="INOUTSTATUS"    value="02"/>
+                
+         </elseif>
+         <else>
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="06012"/>
+            <set name="RspMsg"    value="无此支付方式"/>
+            
+         </else>
+         <!--更新订单表-->
+         <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdordReg"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         
+         <!--通知风控系统登记订单信息-->
+         <set name="ServiceCode" value="680517"/>
+         <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+         <set name="TCODE"       expr="RCS_PRD_NO"/>           <!--平台流水号 转账订单号-->
+         <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+         <set name="CLIENTCODE"  expr="userId"/>     <!--客户编号-->
+         <set name="CLIENTNAME"  expr="SESSIONS.USRNAME"/>
+         <set name="MOBILEPHONE" expr="SESSIONS.USRMP"/>
+         <set name="TRANTYPE"    expr="TRAN_TYPE"/>                 <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+         <set name="TAMT"        expr="TXAMT"/>
+         <set name="REGDTTIME"   expr="GETDATETIME()"/>
+         <set name="Time"        expr="SUBSTR(REGDTTIME,1,8)"/>
+         <quote name="noticRcs"/>
+         
+         <set name="TXAMT"     expr="TXAMT"/>
+         <set name="ACTDAT"    expr="FMTDATE(ActDat,0,4)"/>
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+         
+      </process>   
+   </transaction>
+   
+   <transaction code="fundTrans"  desc="建立理财资金转出订单">
+      <sql name="SelfinprdInf"><!-- 根据需要转出的单号，查询用户理财订单信息-->
+         select u.FINANAMT,u.WAITAMT,u.PRDSTATUS,u.VERSIONID,p.INVESTTYPE,p.MOVERATE,u.CREATEDATETIME,
+         u.TOTALPROFIT from FINANCIAL_PRDINF u,FINANCIAL_RATE_SET p 
+         where u.VERSIONID=p.VERSIONID and u.ID=#{LCORDERNO}
+      </sql>
+      <sql name="Selfinamt"><!--查询活期账户余额 如果进行活期转出时进行金额比对-->
+         select p.cash_ac_bal-p.FROZ_BALANCE cash  from arp_ac_cust_rel r ,arp_ac_profile p 
+         where r.pay_ac_no=p.pay_ac_no and r.cust_id = #{USERID} and p.ac_type=#{actype}
+      </sql>
+      <sql name="SelAccInf"><!-- 查询客户账户信息-->
+         SELECT a.AC_STATUS,b.PAY_AC_NO PAYACNO,b.ac_type FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b 
+         WHERE b.CUST_ID=#{USERID} AND a.PAY_AC_NO=b.PAY_AC_NO  and b.ac_type=#{ac_type}
+      </sql>
+      <sql name="QryPassInf"><!-- 查询客户支付密码信息-->
+         SELECT PASSWORD FROM ARP_AC_CUST_REL WHERE PAY_AC_NO=#{PAYACNO}
+      </sql>
+      <sql name="QryRegInf"> <!-- 查询订单 -->
+        select CURRENTFINANNO,PAYWAY,INOUTSTATUS,CUST_ID,INOUTTYPE from CURRENTFINANINOUTHIS where CURRENTFINANNO=#{CURRENTFINANNO} 
+      </sql>
+      <sql name="UpdordReg"> <!-- 更新转入转出订单表 -->
+        update CURRENTFINANINOUTHIS set PAYORDNO=#{payOrdNo},INOUTSTATUS=#{INOUTSTATUS},PAYTIME=#{PAYTIME} WHERE CURRENTFINANNO=#{CURRENTFINANNO} 
+      </sql>
+      <sql name="UpdlcordReg"> <!-- 更新理财订单表 -->
+        update FINANCIAL_PRDINF set FINANAMT=#{FINANAMT},WAITAMT=#{WAITAMT},TOTALPROFIT=#{TOTALPROFIT} WHERE ID=#{LCORDERNO} 
+      </sql>
+      <sql name="UpdpayReg"><!-- 更新支付订单号-->
+         update stppayinf set ordstatus= #{STATUS},netrecamt=#{txAmt}  WHERE payOrdNo=#{payOrdNo}
+      </sql>
+      <sql name="SelAccInfD"><!-- 查询转入客户账户信息-->
+         SELECT a.AC_STATUS AC_STATUS_D,b.PAY_AC_NO PAYACNO_D,b.cust_id CUSTID_D FROM ARP_AC_PROFILE a,ARP_AC_CUST_REL b,stpusrinf c
+         WHERE c.CUST_LOGIN=#{TOCUSTLOGIN} AND a.PAY_AC_NO=b.PAY_AC_NO  and b.cust_id=c.cust_id and b.ac_type='01'
+      </sql>
+      <sql name="QryInverOrd"><!--查询活期的最高版本-->
+         select a.VERSIONID,a.MOVERATES 
+         from (SELECT VERSIONID,MOVERATE MOVERATES FROM FINANCIAL_RATE_SET WHERE INVESTTYPE='2' and EFFECTTYPE=#{EFFECTTYPE} order by VERSIONID desc) a 
+         where rownum &lt;=1
+      </sql>
+      <sql name="UpdIncomeReg"><!-- 更新收益表-->
+         update FINANCIAL_INCOME_HIS set PROFITSTATUS= #{INCOMESTATUS},GETPROFITTIME=#{INCOMETIME}  WHERE FF_HIS_ID=#{FF_HIS_ID}
+      </sql>
+      <process>
+         <!--需传递的参数列表：LCORDERNO，AMT，USRPWD，RAND，CURRENTFINANNO，CUROUTTYPE，TOCUSTLOGIN-->
+         <!--检查用户登录平台是否正确-->
+         <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="用户登录平台不正确"/>
+            <return/>
+         </if>
+         <set name="CUST_ID"     expr="SESSIONS.USRID"/>
+         <set name="userId"      expr="SESSIONS.USRID"/> 
+         
+         <if condition="OR(ISNULL(LCORDERNO),ISNULL(AMT),ISNULL(RAND),ISNULL(USRPWD),ISNULL(CUROUTTYPE))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01002"/>
+            <set name="RspMsg"    value="参数不完整"/>
+            <return/>
+         </if>
+         <if condition="AND(IS_NOEQUAL_STRING(CUROUTTYPE,'00'),ISNULL(TOCUSTLOGIN))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01002"/>
+            <set name="RspMsg"    value="参数不完整"/>
+            <return/>
+         </if>
+           
+         <!--验签-->
+         <set name="txnDat"     expr="TACCDT"/>
+         <set name="orderNo"    value=""/>
+         <set name="txnAmt"     expr="amt"/>
+         <quote name="chkSign"/>
+         <!--验签-->
+           
+         <set name="RiskpayType"  value="04"/><!-- 风控支付类型 -->
+         <set name="TRAN_TYPE"    value="6"/><!--  风控交易类型-->
+         <set name="PAYWAY"       value="00"/><!-- 转入支付类型 -->
+         <!--验证码验证-->
+         <set name="RAND" expr="TOUPPER(RAND)"/>
+         <quote name="RAChek"/>
+         
+         <!--检查用户理财信息，是否符合转出条件-->
+         <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd" sql="SelfinprdInf" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <!--判断理财订单状态是否可进行转出-->
+         <if condition="IS_NOEQUAL_STRING(PRDSTATUS,'01')">
+             <set name="MsgTyp"    value="E"/>
+             <set name="RspCod"    value="09001"/>
+             <set name="RspMsg"    value="理财定单状态不可进行转出"/>
+             <return/>
+         </if>
+         
+         <!-- 转化为 分 -->
+         <set name="txAmt"       expr="AMTPOWER(txnAmt,2)"/>
+         <if condition="OR(IS_EQUAL_STRING(txAmt,''),IS_EQUAL_STRING(txAmt,'0'))">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01001"/>
+            <set name="RspMsg"    value="金额不能为空或者为零！"/>
+            <return/>
+         </if>
+         <if condition="IS_EQUAL_STRING(FALG,'1')"><!--如果是定期  则执行此段逻辑-->
+             <set name="actype" value="07"/>
+             <do func="ReadRecord" error="IGNORE">
+                 <para name="SqlCmd" sql="Selfinamt" />
+             </do>
+             <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <return/>
+             </if>
+             <if condition="DOUBLECMP(txAmt,6,CASH)">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="01001"/>
+                <set name="RspMsg"    value="转出金额不能大于理财账户金额！"/>
+                <return/>
+             </if>
+             <if condition="DOUBLECMP(txAmt,6,FINANAMT)">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="01001"/>
+                <set name="RspMsg"    value="转出金额不能大于理财订单金额！"/>
+                <return/>
+             </if>
+             <set name="WAITAMT"   expr="WAITAMT"/>
+             <set name="FINANAMT"  expr="SUB(FINANAMT,txAmt)"/>
+         </if>
+         <if condition="IS_EQUAL_STRING(FLAG,'2')"><!--如果是活期转出  则执行此段逻辑-->
+             <set name="actype" value="06"/>
+             <do func="ReadRecord" error="IGNORE">
+                 <para name="SqlCmd" sql="Selfinamt" />
+             </do>
+             <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <return/>
+             </if>
+             <if condition="DOUBLECMP(txAmt,6,CASH)">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="01001"/>
+                <set name="RspMsg"    value="转出金额不能大于理财账户金额！"/>
+                <return/>
+             </if>
+             <if condition="DOUBLECMP(txAmt,2,ADD(WAITAMT,FINANAMT))">
+                <if  condition="DOUBLECMP(txAmt,2,WAITAMT)">
+                    <set name="WAITAMT"   expr="SUB(WAITAMT,TXAMT)"/>
+                    <set name="FINANAMT"  expr="FINANAMT"/>
+                </if>
+                <elseif condition="DOUBLECMP(txAmt,6,WAITAMT)">
+                    <if  condition="DOUBLECMP(WAITAMT,3,0)">
+                       <set name="FINANAMT"  expr="SUB(FINANAMT,txAmt)"/>
+                       <set name="WAITAMT"   value="0"/>
+                    </if>
+                    <else>
+                       <set name="FINANAMT"  expr="SUB(FINANAMT,SUB(TXAMT,WAITAMT))"/>
+                       <set name="WAITAMT"   value="0"/>
+                    </else>
+                </elseif>
+                
+             </if>
+             <else>
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="01001"/>
+                <set name="RspMsg"    value="转出金额不能大于理财订单金额！"/>
+                <return/>
+             </else>
+         </if>
+         <!-- 虚拟帐号状态验证 -->
+         <set name="ac_type" value="01"/>
+         <quote name="chkAcc"/>
+         
+         <set name="paypwd" expr="USRPWD"/>
+         <!--支付密码检查 start-->
+         <set name="PAYACNO" expr="PAYACNO"/>
+         <quote name="chkPayPwd"/>
+         
+         <!--记录用户系统主要交易实时日志-->
+         <set name="RCS_USER_CODE"       expr="userId"/><!--用户ID-->
+         <set name="RCS_PAY_TYPE"        value="用户理财资金转出"/><!--本次交易码，最好用desc-->
+         <set name="RCS_PRD_NO"          value=""/><!--订单号，这个限额是在建立订单前，所以没有订单号-->
+ 
+         <!--限额检查  start --> 
+         <set name="Amt"           expr="TXAMT"/> <!--交易金额-->
+         <set name="PAY_TYPE"      value="RiskpayType"/><!--支付方式 01网银、02终端、03消费卡、04虚拟账户、05快捷支付-->
+         <set name="TRAN_TYPE"     expr="TRAN_TYPE"/><!--交易类型 0 其他 1 充值 2消费 3撤销 4预授权完成 5预授权完成撤销 6转账(虚拟帐号间) 7提现 8退款-->
+         <set name="cust_type"     value="1"/>  <!--效验客户类型(1用户 2 商户 0 两者)-->
+         <set name="User_code"     expr="userId"/><!--用户编号-->
+         <set name="Time"          expr="NOWDatetime"/>
+         <set name="DATE"          expr="NOWDate"/>
+         <set name="ServiceCode"   value="680518"/>  
+         <quote name="chkLimAmt"/>
+       
+         <!--生成批次号-->
+         <do func="GetSeqNo"  error="IGNORE">
+            <para name="TblNam" value="stpseqrec"/>
+            <para name="KeyNam" value="KeyNam"/>
+            <para name="KeyVal" expr="STRCAT('CURRENTFINANINOUTHIS','BatNo')"/>
+            <para name="SeqNam" value="KeyVal"/>
+            <para name="Len"    value="8"/>
+            <para name="Circle" value="1"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09001"/>
+            <set name="RspMsg"    value="获取序号错误"/>
+            <return/>
+         </if>
+         <set name="batNo"           expr="STRCAT('L',SUBSTR(GETDATE(),2,7),KeyVal)"/>
+         <set name="CURRENTFINANNO"  expr="batNo"/>
+         <set  name="VERSIONID"       expr="VERSIONID"/>
+         <set name="CUST_ID"         expr="SESSIONS.USRID"/>
+         <set name="INOUTAMT"        expr="txAmt"/>
+         <set name="CREATEDATE"      expr="NOWDatetime"/>
+         <set name="INOUTTYPE"       value="2"/><!-- 订单类型 1：转入  2：转出 -->
+         <set name="CCYTYPE"         value="CNY"/>
+         <set name="PAYWAY"          expr="PAYWAY"/><!--00 支付账户 01 网上银行-->
+         <set name="INOUTSTATUS"     value="00"/><!--00：待付款 01：交易成功 02：交易失败-->
+         <set name="Filed0"          expr="signature"/><!-- 验签信息存放 -->
+         <set name="Filed1"          expr="ISFIrst"/><!-- 是否第一次购买 0 首次 1多次 -->
+         <set name="Filed2"          expr="LCORDERNO"/><!-- 存放购买的理财订单号 -->
+         <set name="BANKCODE"        expr="BANKCODE"/>
+         <set name="RCS_PRD_NO"      expr="CURRENTFINANNO"/>
+         <do func="InsertRecord"     error="IGNORE">
+            <para name="TblNam"  value="CURRENTFINANINOUTHIS" />
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         <delete name="Filed0"/>
+         <delete name="Filed1"/>
+         <delete name="Filed2"/>
+         <!--获取序号 -->
+         <do func="GetSeqNo"  error="IGNORE">
+            <para name="TblNam" value="stpseqrec"/>
+            <para name="KeyNam" value="KeyNam"/>
+            <para name="KeyVal" expr="STRCAT('StpPayInf','PayOrdNo',GETDATE())"/>
+            <para name="SeqNam" value="KeyVal"/>
+            <para name="Len"    value="8"/>
+            <para name="Circle" value="1"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09001"/>
+            <set name="RspMsg"    value="获取序号错误"/>
+            <return/>
+         </if>
+         <set name="payOrdNo"    expr="STRCAT('P',SUBSTR(GETDATE(),2,7),KeyVal)"/>
+         <set name="txAmt"       expr="txAmt"/>  
+         <set name="txCcy"       value="CNY"/> 
+         <set name="ordstatus"   value="00"/>
+         <set name="bankCod"     expr="BANKCODE"/> 
+         <set name="PrdOrdNo"    expr="CURRENTFINANNO"/> <!-- 支付订单中的商品订单号即为充值订单号  -->  
+         <set name="ActDat"      expr="NOWDatetime"/>
+         <set name="prdordtype"  value="5"/><!-- 0 消费  1 充值  2 担保支付   3 商户充值   4 理财转入 5 理财转出  -->
+         <set name="payType"     expr="ordpayTyp"/><!-- 00 支付账户   01 网上银行     -->
+         <set name="prdname"     value="理财转入"/>
+         <set name="signmsg"     expr="signature"/>
+         <set name="PAYACNO"     expr="PAYACNO"/>
+         <do func="InsertRecord" error="IGNORE">
+            <para name="TblNam"  value="StpPayInf"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         
+         <!-- 根据不同的业务逻辑准备不同的入账信息 -->
+         <set name="CCY"        value="CNY"/>              <!--货币类型-->
+         <set name="IS_ACT"     value="Y"/>                <!--是否实时记账 Y 是 N 否-->
+         <if condition="IS_EQUAL_STRING(INVESTTYPE,'1')"><!--定期理财-->
+            <set name="ac_type" value="07"/><!--检查转出方定期账户状态-->
+            <quote name="chkAcc"/>
+            
+            <set name="OUT_ACC_FLAG" value="07"/>    <!--借方账户类型标识-->
+            <set name="IN_ACC_FLAG"  value="01"/>    <!--贷方账户类型标识-->
+            <!--查询最新的活期理财收益率，并计算出转出部分-->
+            <set name="EFFECTTYPE"  value="0"/>
+            <do func="ReadRecord" error="IGNORE">
+                <para name="SqlCmd" sql="QryInverOrd" />
+            </do>
+            <if condition="#RetCod!=0">
+                <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="系统错误"/>
+                <return/>
+            </if>
+            
+            <set name="MOVERATES"   expr="MOVERATES"/><!--定期转出需查询最新的活期收益率，不能用订单表中的收益编号-->
+            <set name="ProfitDay"   expr="SUB(DIFFDATE(SUBSTR(CREATEDATETIME,1,8),GETDATE()),1)"/><!--计算出应活期收益的天数，掐头去尾-->
+            <set name="GETAMTBYDAY" value="0"/>
+            <if condition="INTCMP(ProfitDay,6,0)">
+               <!-- 日收益计算公式： 收益=金额 * 年化收益*(1/365) -->
+               <!--set name="GETAMTBYDAY"        expr="AMTADDDOT(DIV(DIV(MUL(txAmt,AMTPOWER(MOVERATES,2)),365),100))"/-->
+               <!--当日收益=（已确认份额的资金/10000 ）X 每万份收益-->
+               <set name="GETAMTBYDAY"        expr="FMUL(FDIV(txAmt,10000,4),MOVERATES,4)"/>
+               <set name="GETAMTBYDAY"        expr="FMUL(GETAMTBYDAY,ProfitDay,2)"/>
+               <!--四舍五入-->
+               <set name="fee"                expr="GETAMTBYDAY"/>
+               <quote name="GetInt"/>
+               <set name="GETAMTBYDAY"        expr="fee"/>
+            </if>
+            <set name="usrPar"     expr="STRCAT(CUST_ID,'/',OUT_ACC_FLAG,'/','-','/',CCY,'/',TXAMT,'/',IS_ACT,'/')"/>  <!--借方记账参数-->
+            <!--set name="plaPar"     expr="STRCAT('99999900000001','/','03','/','-','/',CCY,'/',GETAMTBYDAY,'/','N','/')"/-->   <!--平台账户（理财收益）记账参数-->
+            <set name="merPar"     expr="STRCAT(CUST_ID,'/',IN_ACC_FLAG,'/','+','/',CCY,'/',ADD(TXAMT,GETAMTBYDAY),'/',IS_ACT,'/')"/>     <!--贷方记账参数-->
+            <set name="PARAMS"     expr="STRCAT(usrPar,',',merPar)"/>
+            
+            <set name="FINANAMT"      expr="SUB(FINANAMT,TXAMT)"/><!--需更新理财订单表中用于计算收益的金额-->
+            <set name="TOTALPROFIT"   expr="ADD(TOTALPROFIT,GETAMTBYDAY)"/><!--需更新理财订单表中累计收益-->
+            
+            <!--如果收益大于0登记收益表-->
+            <if condition="DOUBLECMP(GETAMTBYDAY,6,0)">
+              <set name="REGINCOMEFLAG"   value="0"/>
+              <do func="GetSeqNoNew"  >
+                 <para name="TblNam" value="stpseqrec"/>
+                 <para name="KeyNam" value="KeyNam"/>
+                 <para name="KeyVal" expr="STRCAT('FFGETAMTHIS','SEQ_NO')"/>
+                 <para name="SeqNam" value="KeyVal"/>
+                 <para name="Len"    value="9"/>
+                 <para name="Circle" value="1"/>
+              </do>
+              <if condition="#RetCod!=0">
+                 <set name="MsgTyp"    value="E"/>
+                 <set name="RspCod"    value="09001"/>
+                 <set name="RspMsg"    value="获取序号错误"/>
+                 <do func="RollBackWork"/>
+                 <return/>
+              </if>
+              <set name="SYSTIME"            expr="NOWDatetime"/><!--系统时间 -->
+              <set name="FF_HIS_ID"          expr="STRCAT('F',SUBSTR(SYSTIME,3,6),KeyVal)"   />   <!-- 主键ID-->
+              <set name="VERSIONID"          expr="VERSIONID"/>
+              <set name="CUST_ID"            expr="CUST_ID"/>
+              <set name="PRDID"              expr="LCORDERNO"/>
+              <set name="GETPROFITAMT"       expr="GETAMTBYDAY"/>
+              <set name="PROFITTYPE"         value="00"/>
+              <set name="TRANDATETIME"       expr="NOWDatetime"/>
+              <set name="GETPROFITTIME"      value=""/>
+              <set name="PROFITSTATUS"       value="00"/>
+              <do func="InsertRecord" error="IGNORE">
+                 <para name="TblNam"  value="FINANCIAL_INCOME_HIS"/>
+              </do>
+              <if condition="#RetCod!=0">
+                 <set name="MsgTyp"    value="E"/>
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <return/>
+              </if>
+            </if>
+         </if>
+         <else>
+            <set name="ac_type" value="06"/><!--检查转出方活期账户状态-->
+            <quote name="chkAcc"/>
+            
+            <set name="OUT_ACC_FLAG" value="06"/>    <!--借方账户类型标识-->
+            <set name="IN_ACC_FLAG"  value="01"/>    <!--贷方账户类型标识-->
+            <set name="IN_ACC_C"     value=""/>      <!--贷方账户-->
+            <!--活期理财转出类型：CUROUTTYPE: 00 自己01账户, 01 他人01账户-->
+            <if condition="IS_EQUAL_STRING(CUROUTTYPE,'00')">
+                <set name="IN_ACC_C"     expr="CUST_ID"/>
+            </if>
+            <else>
+                <!--检查转入方账户状态-->
+                <do func="ReadRecord" error="IGNORE">
+                    <para name="SqlCmd" sql="SelAccInfD" />
+                </do>
+                <if condition="#RetCod!=0">
+                    <set name="RspCod"    value="09999"/>
+                    <set name="RspMsg"    value="客户账户信息不存在！"/>
+                    <return/>
+                </if>
+                <if condition="IS_NOEQUAL_STRING(AC_STATUS_D,'0')">
+                   <set name="RspCod"    value="08040"/>
+                   <set name="RspMsg"    value="客户账户状态不正常"/>
+                   <return/>
+                </if>
+                <set name="IN_ACC_C"     expr="CUSTID_D"/>
+            </else>
+            <set name="usrPar"     expr="STRCAT(CUST_ID,'/',OUT_ACC_FLAG,'/','-','/',CCY,'/',TXAMT,'/',IS_ACT,'/')"/>  <!--借方记账参数-->
+            <set name="merPar"     expr="STRCAT(IN_ACC_C,'/',IN_ACC_FLAG,'/','+','/',CCY,'/',TXAMT,'/',IS_ACT,'/')"/>     <!--贷方记账参数-->
+            <set name="PARAMS"     expr="STRCAT(usrPar,',',merPar)"/>
+            
+            <set name="TOTALPROFIT"   expr="TOTALPROFIT"/><!--需更新理财订单表中累计收益-->
+         </else>
+         
+         <!--记账处理-->
+         <set name="TXN_TYP"      value="3"/>      <!--用途 3 转账-->
+         <set name="prdordno"     expr="CURRENTFINANNO"/>
+         <quote name="accProcess"/>
+         <if condition="#RetCod!=0">
+             <set name="MsgTyp"    value="E"/>
+             <set name="RspCod"    value="08043"/>
+             <set name="RspMsg"    value="转账失败"/>
+             <return/>
+         </if>
+         
+         <!--更新理财收益表-->
+         <if condition="AND(IS_EQUAL_STRING(INVESTTYPE,'1'),IS_EQUAL_STRING(REGINCOMEFLAG,'0'))">
+            <set name="INCOMESTATUS"   value="01"/>
+            <set name="INCOMETIME"     expr="NOWDatetime"/>
+            <set name="FF_HIS_ID"      expr="FF_HIS_ID"/>
+            <do func="ExecSql" error="IGNORE">
+                 <para name="SqlCmd" sql="UpdIncomeReg"/>
+            </do>
+            <if condition="#RetCod!=0">
+                 <set name="MsgTyp"    value="E"/>
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+            </if>
+         </if>    
+         
+         <!--更新支付订单表-->
+         <set name="tracetime" expr="NOWDatetime"/>
+         <set name="STATUS"    value="01"/>
+         <do func="ExecSql" error="IGNORE">
+              <para name="SqlCmd" sql="UpdpayReg"/>
+         </do>
+         <if condition="#RetCod!=0">
+              <set name="MsgTyp"    value="E"/>
+              <set name="RspCod"    value="09999"/>
+              <set name="RspMsg"    value="系统错误"/>
+         </if>
+         
+         <set name="INOUTSTATUS"    value="01"/><!-- 更新转入转出记录表状态 -->
+         <set name="PAYTIME"        expr="NOWDatetime"/>
+         <!--更新转入转出记录订单表-->
+         <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdordReg"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         <!--更新理财订单表金额-->
+         <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd" sql="UpdlcordReg"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+         
+         <!--通知风控系统登记订单信息-->
+         <set name="ServiceCode" value="680517"/>
+         <set name="DTYPE"       value="1"/>                 <!--操作类型 1新增 2 修改-->
+         <set name="TCODE"       expr="RCS_PRD_NO"/>           <!--平台流水号 转账订单号-->
+         <set name="CTYPE"       value="1"/>                 <!--客户类型-->
+         <set name="CLIENTCODE"  expr="userId"/>     <!--客户编号-->
+         <set name="CLIENTNAME"  expr="SESSIONS.USRNAME"/>
+         <set name="MOBILEPHONE" expr="SESSIONS.USRMP"/>
+         <set name="TRANTYPE"    expr="TRAN_TYPE"/>                 <!--交易类型 0其他,1充值、2消费、3撤销、4预授权完成、5预授权完成撤销、6转账(虚拟帐号间)、7提现、8退款-->
+         <set name="TAMT"        expr="TXAMT"/>
+         <set name="REGDTTIME"   expr="GETDATETIME()"/>
+         <set name="Time"        expr="SUBSTR(REGDTTIME,1,8)"/>
+         <quote name="noticRcs"/>
+         
+         <set name="TXAMT"     expr="TXAMT"/>
+         <set name="ACTDAT"    expr="FMTDATE(ActDat,0,4)"/>
+         <set name="MsgTyp"    value="N"/>
+         <set name="RspCod"    value="00000"/>
+         <set name="RspMsg"    value="交易成功"/>
+         
+      </process>   
+   </transaction>
+   
+   <transaction code="SelFINOrderInfo"  desc="根据订单号查询用户单条理财信息">
+    <sql name="SelfinprdInf"><!-- 根据需要转出的单号，查询用户理财订单信息-->
+         select u.FINANAMT,u.PRDSTATUS,u.VERSIONID,p.INVESTTYPE,p.MOVERATE,u.CREATEDATETIME from FINANCIAL_PRDINF u,FINANCIAL_RATE_SET p where u.VERSIONID=p.VERSIONID and u.ID=#{orderNo}
+    </sql>
+    <process> 
+         <!--检查用户理财信息，是否符合转出条件-->
+         <do func="ReadRecord" error="IGNORE">
+             <para name="SqlCmd" sql="SelfinprdInf" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <set name="MsgTyp" value="N" />
+         <set name="RspCod" value="00000" />
+         <set name="RspMsg" value="交易成功" />
+    </process> 
+   </transaction>
+   
+   <transaction code="selFundInfoAll" desc="查询理财收益信息记录 ">
+        <sql name="qryFundAllInf"> <!-- 查询理财收益交易记录 -->
+           select to_char(to_date(GETPROFITTIME,'yyyymmddhh24miss'),'yyyy-mm-dd') as GETAMTDATE,
+           to_char(to_number(nvl(GETPROFITAMT,0)/100),'999,999,999,990.00') as SPLITGETAMT,
+           #{remark} remark ,b.INVESTTYPE,b.PRDNAME,PRDID as finaordno,
+           a.PROFITTYPE as PAYWAY ,a.PROFITSTATUS as INOUTSTATUS
+           from FINANCIAL_INCOME_HIS a left join  FINANCIAL_RATE_SET b on  a.versionid=b.versionid
+           where PROFITSTATUS='01'  and cust_id=#{USRID} ${orderDate} order by TRANDATETIME desc
+        </sql>
+        <sql name="qryFundinoutAllInf"> <!-- 查询理财转入、转出交易记录 -->
+           select  a.ID finaordno, c.PAYWAY,c.INOUTSTATUS,
+           to_char(to_date(PAYTIME,'yyyymmddhh24miss'),'yyyy-mm-dd HH24:MI:SS') as GETAMTDATE,
+           TO_CHAR(to_number(trim(INOUTAMT))/100,'FM9999,999,999,990.00') as SPLITGETAMT,
+           #{remark} remark,f.prdname,f.INVESTTYPE
+              from CURRENTFINANINOUTHIS c left join FINANCIAL_PRDINF a on c.Filed2=a.ID
+              left join FINANCIAL_RATE_SET f  on  a.versionid=f.versionid 
+              where c.cust_id=#{USRID} and c.INOUTTYPE=#{INOUTTYPE}  ${orderDate}  order by ${GETPAYTIME} desc
+        </sql>
+        <process>
+            <!-- 检查用户登录平台是否正确 -->
+            <if condition="IS_NOEQUAL_STRING(SysCod,'0001')">
+                <set name="MsgTyp" value="E" />
+                <set name="RspCod" value="01001" />
+                <set name="RspMsg" value="用户登录平台不正确" />
+                <return />
+            </if>
+
+            <if condition="IS_EQUAL_STRING(traType,'1')">
+                <set name="remark" value="收益"/>
+            </if>
+            <elseif condition="IS_EQUAL_STRING(traType,'2')">
+                <set name="remark" value="转入"/>
+                <set name="INOUTTYPE" value="1"/>
+            </elseif>
+            <elseif condition="IS_EQUAL_STRING(traType,'3')">
+                <set name="remark" value="转出"/>
+                <set name="INOUTTYPE" value="2"/>
+            </elseif>
+            
+            <set name="_REQUESTATTR.FORWARDURL"
+                    expr="STRCAT('html/', SESSIONS.LANGUAGE, '/finance/fundEarnings.jsp')" />
+            
+            <!-- 检查手机号是否为空 -->
+            <set name="USRID" expr="SESSIONS.USRID" />
+            <if condition="IS_EQUAL_STRING(USRID,'')">
+                <set name="MsgTyp" value="E" />
+                <set name="RspCod" value="02035" />
+                <set name="RspMsg" value="用户ID为空" />
+                <set name="RspMsg" value="请重新登录" />
+                <set name="_REQUESTATTR.FORWARDURL" value="html/', SESSIONS.LANGUAGE, '/login/login.jsp" />
+                <return />
+            </if>
+
+            <if condition="ISNULL(PageNum)">
+                <set name="PageNum" value="1" />
+            </if>
+            <if condition="ISNULL(NumPerPag)">
+                <set name="NumPerPag" value="10" />
+            </if>
+
+            <set name="Condition" value="" />
+            <set name="Fh" value="'" />
+            
+           <!-- 开始和结束时间范围 -->
+           <if condition="IS_EQUAL_STRING(STARTDATE,'')">            <!-- 如果没输入，就传送空值 -->
+               <set name="startDate" expr="CALCDATE(GETDATE(),'-','d',30)" />
+               <set name="startDate" expr="FMTDATE(startDate,0,4)"/>
+               <set name="start_date"  expr="FMTDATE(STARTDATE,4,0)" />
+           </if>
+           <else>
+               <if condition="INTCMP(STRLEN(STARTDATE),4,8)">
+                   <set name="startDate"   expr="FMTDATE(STARTDATE,4,0)" />         <!-- 开始时间 -->
+                   <set name="start_date"  expr="startDate"/>
+               </if>
+           </else>
+
+           <if condition="IS_EQUAL_STRING(ENDDATE,'')">            <!-- 如果没输入，就传送空值 -->
+               <set name="endDate"  expr="GETDATETIME('YYYYMMDD')" />
+               <set name="endDate"  expr="FMTDATE(endDate,0,4)"/>
+               <set name="end_date"  expr="FMTDATE(ENDDATE,4,0)" />
+           </if>
+           <else>
+             
+               <if condition="INTCMP(STRLEN(ENDDATE),4,8)">
+                   <set name="endDate"   expr="FMTDATE(ENDDATE,4,0)" />       <!-- 结束时间 -->
+                   <set name="end_date"  expr="endDate"/>
+               </if>
+           </else>
+            
+           <if condition="INTCMP(end_date,1,start_date)">
+               <set name="RspCod" value="08040" />
+               <set name="RspMsg" value="结束日期小于开始日期" />
+               <return />
+           </if>
+           
+            <if condition="IS_EQUAL_STRING(traType,'1')">
+              <set name="orderDate"
+                  expr="STRCAT(' and GETPROFITTIME  &gt;= ',Fh, STRCAT(start_date,'000000'),Fh,' and  GETPROFITTIME &lt;=',Fh,STRCAT(end_date,'235959'),Fh)" />
+              <do func="PagedQuery" error="ignore">
+                  <para name="PageNum" expr="PageNum" />
+                  <para name="NumPerPag" expr="NumPerPag" />
+                  <para name="Sql" sql="qryFundAllInf" />
+              </do>
+            </if>
+            <elseif condition="OR(IS_EQUAL_STRING(traType,'2'),IS_EQUAL_STRING(traType,'3'))">
+                <!-- 转入转出按照创建日志排序查询 -->
+                <set name="GETPAYTIME"  value="CREATEDATE"/>
+                <set name="orderDate"
+                    expr="STRCAT(' and PAYTIME  &gt;= ',Fh, STRCAT(start_date,'000000'),Fh,' and  PAYTIME &lt;=',Fh,STRCAT(end_date,'235959'),Fh)" />
+                <do func="PagedQuery" error="ignore">
+                    <para name="PageNum" expr="PageNum" />
+                    <para name="NumPerPag" expr="NumPerPag" />
+                    <para name="Sql" sql="qryFundinoutAllInf" />
+                </do>
+            </elseif>
+            
+            <if condition="#RetCod==2">
+                <set name="MsgTyp" value="E" />
+                <set name="RspCod" value="09999" />
+                <set name="RspMsg" value="无交易记录" />
+                <set name="TOLCNT" value="0" />
+                <set name="ALLPAGENUM" value="0" />
+                <set name="RECNUM" value="0" />
+                <set name="PAGENUM" value="0" />
+                <return />
+            </if>
+            <elseif condition="#RetCod!=0">
+                <set name="MsgTyp" value="E" />
+                <set name="RspCod" value="09999" />
+                <set name="RspMsg" value="系统错误,请稍后再试或联系客服" />
+                <return />
+            </elseif>
+
+            <set name="ALLPAGENUM" expr="DIV(TOLCNT,NUMPERPAG)" />
+            <set name="mob" expr="MOD(TOLCNT,NUMPERPAG)" />
+            <if condition="IS_NOEQUAL_STRING(MOB,'0')">
+                <set name="ALLPAGENUM" expr="ADD(ALLPAGENUM,1)" />
+            </if>
+            <if condition="INTCMP(PageNum,6,ALLPAGENUM)">
+                <set name="PageNum" expr="ALLPAGENUM" />
+            </if>
+            <if condition="INTCMP(ALLPAGENUM,6,'0')">
+                <if condition="INTCMP(PageNum,3,'0')">
+                    <set name="PageNum" value="1" />
+                </if>
+            </if>
+            <set name="MsgTyp" value="N" />
+            <set name="RspCod" value="00000" />
+            <set name="RspMsg" value="交易成功" />
+        </process>
+   </transaction>
+   
+   <transaction code="CFQRY" desc="查询活期理财流水">
+       <sql name="qryCFHis">                  
+           <!--SELECT CF_HIS_ID, 
+             TO_CHAR(to_number( INAMT)/100,'FM9999,999,999,990.00') AS  INAMT
+             ,TO_CHAR(to_number( GETAMTBYDAY)/100,'FM9999,999,999,990.00') AS GETAMTBYDAY
+             ,MOVERATE,
+             to_char(to_date(GETAMTDATE,'yyyymmdd'),'yyyy-mm-dd') AS GETAMTDATE
+             ,
+             TO_CHAR(to_number( TOTALSPITAMT)/100,'FM9999,999,999,990.00') AS TOTALSPITAMT
+             ,CUST_ID,GETAMTSTATUS from  
+                 CURRENTFINANGETAMTHIS
+             WHERE 1=1 ${CF_HIS_ID1} ${ACTDAT1} ${GETAMTSTATUS1} ${CUST_IDL}
+              ORDER BY GETAMTDATE DESC-->
+                 select c.currentfinanno currentfinanno,
+                     c.createdate createdate,
+                     c.payordno  payordno,
+                     c.cust_id cust_id,
+                     TO_CHAR(to_number( c.inoutamt)/100,'FM9999,999,999,990.00') AS  inoutamt, 
+                     c.inouttype inouttype,
+                     c.inoutstatus inoutstatus,
+                     c.payway payway,
+                     to_char(to_date(c.paytime,'yyyymmdd HH24:MI:SS'),'yyyy-mm-dd HH24:MI:SS') AS  paytime, 
+                     c.Filed2 Filed2
+               from CURRENTFINANINOUTHIS c where 1=1 ${FILED3} ${CUST_ID1} ${INOUTSTATUS1} order by createdate desc                                       
+       </sql>
+       <process>
+           <!--获取按钮权限-->
+           <do func="GetOwnButton"/>
+           <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/order/cfList.jsp"/>
+           <!--检查用户登录平台是否正确-->
+           <if condition="IS_NOEQUAL_STRING(SysCod,'1120')">
+               <set name="RspCod"               value="01001"/>
+               <set name="RspMsg"               value="用户登录平台不正确"/>
+               <return/>
+           </if>
+           <if condition="ISNULL(PageNum)">
+               <set name="PageNum"              value="1"/>
+           </if>
+           <if condition="ISNULL(CFORDERNO)">
+               <set name="FILED2"            value=""/>
+           </if>
+           <else>
+             <set name="CFORDERNO"            expr="CFORDERNO"/>
+               <set name="FILED3"            expr="STRCAT('and Filed2=\'',CFORDERNO,'\'')"/>
+           </else>
+           <if condition="ISNULL(CUST_ID)">
+               <set name="CUST_ID1"            value=""/>
+           </if>
+           <else>
+             <set name="CUST_ID"            expr="CUST_ID"/>
+               <set name="CUST_ID1"            expr="STRCAT('and CUST_ID=\'',CUST_ID,'\'')"/>
+           </else>
+            <if condition="ISNULL(INOUTSTATUS)">
+               <set name="INOUTSTATUS1"            value=""/>
+           </if>
+           <else>
+             <set name="INOUTSTATUS"            expr="INOUTSTATUS"/>
+               <set name="INOUTSTATUS1"            expr="STRCAT('and INOUTSTATUS=\'',INOUTSTATUS,'\'')"/>
+           </else>
+           <if condition="AND(ISNULL(begin_date),ISNULL(end_date))">
+               <set name="ACTDAT1"              value=""/>
+           </if>
+           <elseif condition="ISNULL(end_date)">
+               <set name="begin_date"           expr="FMTDATE(begin_date,4,0)"/>
+               <set name="ACTDAT1"              expr="STRCAT('and ACTDAT &gt;=\'',begin_date,'\'')"/>
+               <set name="begin_date"           expr="FMTDATE(begin_date,0,4)"/>
+           </elseif>
+           <elseif condition="ISNULL(begin_date)">
+               <set name="end_date"             expr="FMTDATE(end_date,4,0)"/>
+               <set name="ACTDAT1"              expr="STRCAT('and ACTDAT &lt;=\'',CALCDATE(end_date,'+','d','1'),'\'')"/>
+               <set name="end_date"             expr="FMTDATE(end_date,0,4)"/>
+           </elseif>
+           <else>
+               <set name="begin_date"           expr="FMTDATE(begin_date,4,0)"/>
+               <set name="end_date"             expr="FMTDATE(end_date,4,0)"/>
+               <set name="ACTDAT1"              expr="STRCAT('and ACTDAT &gt;=\'',begin_date,'\' and ACTDAT &lt;=\'',CALCDATE(end_date,'+','d','1'),'\'')"/>
+               <set name="begin_date"           expr="FMTDATE(begin_date,0,4)"/>
+               <set name="end_date"             expr="FMTDATE(end_date,0,4)"/>
+           </else>
+           <if condition="ISNULL(GETAMTSTATUS)">
+               <set name="GETAMTSTATUS1"           value=""/>
+           </if>
+           <else>
+               <set name="GETAMTSTATUS1"           expr="STRCAT('and GETAMTSTATUS=\'',GETAMTSTATUS,'\'')"/>
+           </else>
+           <if condition="ISNULL(CUST_ID)">
+               <set name="CUST_IDL"             value=""/>
+           </if>
+           <else>
+               <set name="CUST_IDL"             expr="STRCAT('and CUST_ID=\'',CUST_ID,'\'')"/>
+           </else>
+           
+           <!-- 查询商户提现信息 -->
+           <do func="PagedQuery" error="ignore">
+               <para name="PageNum"             expr="pagenum"/>
+               <para name="NumPerPag"           expr="NUMPERPAG"/>
+               <para name="Sql"                 sql="qryCFHis"/>
+           </do>
+           <if condition="#RetCod==2">
+               <set name="RspCod"               value="02001"/>
+               <set name="RspMsg"               value="无信息"/>
+               <return/>
+           </if>
+           <elseif condition="#RetCod!=0">
+               <set name="RspCod"               value="09999"/>
+               <set name="RspMsg"               value="系统错误"/>
+               <return/>
+           </elseif>
+           <set name="RspCod"                   value="00000"/>
+           <set name="RspMsg"                   value="交易成功"/>
+       </process>
+   </transaction>
+   
+   <transaction code="getFinNameInfo" desc="根据版本号获取理财产品信息">
+       <sql name="qryFinNameInfo">               
+          select TO_CHAR(to_number(FIXEDAMT)/100,'9999999999990.00') AS  FIXEDAMT,
+          FREQ ,decode(INVESTTYPE,'1',FIXEDRATE ,'2',MOVERATE) as FIXEDRATE
+           from FINANCIAL_RATE_SET where versionid = #{VERSIONID}                               
+       </sql>
+       <process>
+         <set name="VERSIONID"         expr="VERSIONID"/>
+         <do func="ReadRecord" >
+        <para name="SqlCmd" sql="qryFinNameInfo" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="理财产品信息不存在"/>
+         <continue/>
+      </if>
+       <set name="RspCod"                   value="00000"/>
+       <set name="RspMsg"                   value="交易成功"/>
+       </process>
+   </transaction>
+    
+   <transaction code="checkRand" desc="校验验证码">
+         <sql name="checkFinCount"><!--查看购买理财产品数量-->
+           select count(*) count from CURRENTFINANINOUTHIS where  cust_id = #{CUST_ID}  and versionid = #{PRDNAME}
+         </sql>
+         <sql name="SelFRACTIONLIMIT">   <!--查看理财产品购买限制份数-->
+          select FRACTIONLIMIT,FRACTION from FINANCIAL_RATE_SET  where versionid = #{PRDNAME}
+         </sql>
+         <sql name="checkTotalCount">   <!--查询该理财产品总共购入份数-->
+            select count(*) TotalCount from CURRENTFINANINOUTHIS where   versionid = #{PRDNAME}
+         </sql>
+         <sql name="QryInverOrd"> 
+           SELECT max(VERSIONID) PRDNAME FROM FINANCIAL_RATE_SET
+                WHERE INVESTTYPE=#{INVESTTYPE} and EFFECTTYPE=#{EFFECTTYPE} 
+         </sql>
+       <process>
+          <set name="RA"  expr="SESSIONS.SRA"/>
+          <set name="RAND" expr="TOUPPER(RAND)"/>
+          <if condition="IS_NOEQUAL_STRING(RA,RAND)">
+            <set name="RspCod"        value="02006"/>
+            <set name="RspMsg"        value="验证码输入错误"/>
+            <return/>
+          </if> 
+          <set name="cust_id"     expr="SESSIONS.CUSTNO"/>
+          <set name="EFFECTTYPE"  value="0"/>
+          <set name="INVESTTYPE"  expr="INVESTTYPE"/><!--1:定期/2:活期-->
+         <if condition="IS_EQUAL_STRING(INVESTTYPE,'2')">
+             <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="QryInverOrd" />
+             </do>
+             <if condition="#RetCod!=0">
+                 <set name="RspCod"    value="09999"/>
+                 <set name="RspMsg"    value="系统错误"/>
+                 <return/>
+             </if>
+         </if>
+          <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="checkFinCount" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <else> 
+               <set name="count"     expr="count"/>
+         </else>
+          <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="SelFRACTIONLIMIT" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <else> 
+               <set name="FRACTIONLIMIT"     expr="FRACTIONLIMIT"/>
+               <set name="FRACTION"     expr="FRACTION"/>
+         </else>
+         <if condition="IS_EQUAL_STRING(INVESTTYPE,'1')">
+           <if condition="AND(NOT(ISNULL(count)),NOT(ISNULL(FRACTIONLIMIT)))">
+               <if condition="INTCMP(count,3,FRACTIONLIMIT)">
+                 <set name="RspCod"    value="09999"/>
+                <set name="RspMsg"    value="该理财产品购买已达到限制份数，不能再次购买！"/>
+               <return/>
+                 </if>
+           </if>
+         </if>
+         <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd" sql="checkTotalCount" />
+         </do>
+         <if condition="#RetCod!=0">
+             <set name="RspCod"    value="09999"/>
+             <set name="RspMsg"    value="系统错误"/>
+             <return/>
+         </if>
+         <else> 
+               <set name="TotalCount"     expr="TotalCount"/>
+               <if condition="IS_EQUAL_STRING(INVESTTYPE,'1')">
+                 <if condition="INTCMP(FRACTION,3,TotalCount)">
+                     <set name="RspCod"    value="09999"/>
+                     <set name="RspMsg"    value="该理财产品已经售完，不能再次购买！"/>
+                     <return/>
+                 </if>
+               </if>
+         </else>
+       <set name="RspCod"                   value="00000"/>
+       <set name="RspMsg"                   value="交易成功"/>
+       </process>
+   </transaction>
+    <transaction code="getFinPayDetail" desc="获取理财支付详情信息">
+       <sql name="getFinPayDetail">               
+           select c.*,to_char(to_date(c.paytime,'yyyymmdd HH24:MI:SS'),'yyyy-mm-dd HH24:MI:SS') AS  paytime1, 
+           TO_CHAR(to_number( c.inoutamt)/100,'FM9999,999,999,990.00') AS  inoutamt1
+           from CURRENTFINANINOUTHIS c where CURRENTFINANNO = #{CURRENTFINANNO}                               
+       </sql>
+       <process>
+         <set name="CURRENTFINANNO"         expr="CURRENTFINANNO"/>
+         <set name="_REQUESTATTR.FORWARDURL"  value="/WEB-INF/html/order/finPay_detail.jsp"/>
+         <do func="ReadRecord" >
+        <para name="SqlCmd" sql="getFinPayDetail" />
+      </do>
+      <if condition="#RetCod!=0">
+         <set name="RspCod"    value="09999"/>
+         <set name="RspMsg"    value="理财支付信息不存在"/>
+         <continue/>
+      </if>
+       <set name="RspCod"                   value="00000"/>
+       <set name="RspMsg"                   value="交易成功"/>
+       </process>
+   </transaction>
+</application>  

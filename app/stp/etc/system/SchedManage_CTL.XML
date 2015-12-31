@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="UTF-8"?> 
+<application name="STP" code="100" log_level="DEBUG">
+   <!--交易日志记录配置-->
+   <include file="etc/public/STPCTL_TRC.XML"/>
+   <include file="etc/public/Order_MACRO.XML"/>
+   <before>
+      <!--打印ETF树-->
+      <do func="DumpEtf"/>
+      <if condition="NOT(ISNULL(REQIP))">
+        <set name="RspCod"            value="02001"/>
+        <set name="RspMsg"            value="请勿手工通过浏览器发起"/>
+        <return/>
+      </if>
+
+   </before>
+   <after>
+      <do func="DumpEtf"/>
+   </after>
+
+   <macro name="ReadXmlCfg">
+     <!-- 读取XML配置文件中的数据，添加到ETF树上 -->
+     <!--0 成功; -1参数错误;2 取XML配置父节点失败 -->
+     <do func="ReadXmlConfig"     error="IGNORE">
+       <para name="FILNAM"        value="etc/public/STP_CONFIG.XML"/>
+       <para name="NAME"          expr="ConfigName"/>
+     </do>
+     <if condition="#RetCod==-1">
+       <set name="RspCod"         value="08020"></set>
+       <set name="RspMsg"         value="参数错误"></set>
+       <return/>
+     </if>
+     <elseif condition="#RetCod==2">
+       <set name="RspCod"         value="08021"></set>
+       <set name="RspMsg"         value="取XML配置父节点失败"></set>
+       <return/>
+     </elseif>
+     <elseif condition="#RetCod!=0">
+       <set name="RspCod"         value="09998"></set>     
+       <set name="RspMsg"         value="系统错误"></set>
+       <return/>
+     </elseif>
+   </macro>
+   
+   
+    <transaction code="565301" desc="付款超时处理">
+      <sql name="QryTim"> <!--查询付款超时处理表 -->
+         SELECT * FROM StpPayTim WHERE TimSts='0'
+      </sql>
+      <sql name="UpdTimSts"> <!-- 更改超时状态 -->
+         UPDATE StpPayTim set TimSts='1'  WHERE TimSts='0'
+      </sql>
+      <sql name="UpdMinMill"> <!-- 更新时间 -->
+         UPDATE StpPayTim set TimSts='0'  WHERE BNKJNL=#{TpayOrdNo} AND BNKDAT=#{TpayOrdDate}
+      </sql>
+      <sql name="UpdTimTouch"> <!-- 更新定时触发表 -->
+         UPDATE StpPayTim set TimSts=#{TimSts},TimLevel=#{TimLevel},TimMill=#{TMinMill},TimCnt=#{TTimCnt}  WHERE BNKJNL=#{MpayOrdNo} AND BNKDAT=#{TpayOrdDate}
+      </sql>
+      <sql name="UpdTimStsBack"> <!-- 数据错误回滚 -->
+         UPDATE StpPayTim set TimSts='0'  WHERE TimSts='1'
+      </sql>  
+      <sql name="InsPayErr"> <!-- 转移重发次数超过100次得数据 -->
+         INSERT INTO StpPayErr SELECT payOrdNo,ActDat,ClearDat,jrnNo,OrdStatus,PrdOrdType,payType,MulType,bankCode,bankStlDate,bankJrnNo,txCcy,txAmt,accAmt,mulAmt,fee,netRecAmt,bankPayAcNo,bankPayUserNm,BankError,BackError,MerNo,PrdOrdNo,NotifyUrl,userID,PayRet,prdName,merRemark,BnkDat,BnkJnl,TimLevel,TimSts,TimCnt,TimMill,versionNo,isProxy FROM StpPayTim WHERE BNKJNL=#{TpayOrdNo} AND BNKDAT=#{TpayOrdDate}
+      </sql>
+      <sql name="DelPayTim"> <!-- 删除数据 -->
+         DELETE FROM StpPayTim WHERE BNKJNL=#{TpayOrdNo} AND BNKDAT=#{TpayOrdDate}
+      </sql>
+      <sql name="ReadTradeCode"> <!--查询付款超时处理表 -->
+         SELECT filed5 tradeCode FROM stppayinf WHERE payordno=#{payordno}
+      </sql>
+      <process>  
+         <do func="Lock">
+            <para name="RecKey"      value="565301"/>
+            <para name="AutoUnLock"  value="yes"/>
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09002"/>
+            <set name="RspMsg"    value="加锁失败"/>
+            <return/>
+         </if>
+         <do func="QueryInGroup" error="IGNORE">
+            <para name="SqlCmd" sql="QryTim" />
+            <para name="RecordName" value="MAP" />
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="01003"/>
+            <set name="RspMsg"    value="表中无符合记录或系统错误"/>
+            <return/>
+         </if>
+         <do func="ExecSql" error="IGNORE">
+            <para name="SqlCmd"  sql="UpdTimSts" />
+         </do>
+         <if condition="#RetCod!=0">
+            <set name="MsgTyp"    value="E"/>
+            <set name="RspCod"    value="09999"/>
+            <set name="RspMsg"    value="系统错误"/>
+            <return/>
+         </if>
+
+         <foreach name="MAP" iterator="#MAP">
+            <set name="MinMill"        expr="SUB(GETSECOND(),#MAP.TimMill)"/>
+            <set name="TpayOrdNo"      expr="#MAP.BNKJNL"/>
+            <set name="TpayOrdDate"    expr="#MAP.BNKDAT"/>
+            <set name="TMinMill"       expr="GETSECOND()"/>
+            <set name="TTimCnt"        expr="ADD(#MAP.TimCnt,1)"/>
+            <set name="payordno"       expr="#MAP.PAYORDNO"/>
+            <set name="#url" expr="#MAP.NotifyUrl" />                    <!-- 同步返回 URL  -->
+
+            <!--根据订单号查询订单信息-->
+            <do func="ReadRecord" error="IGNORE">
+               <para name="SqlCmd"  sql="ReadTradeCode" />
+            </do>
+            <if condition="#RetCod==2">
+                <set name="MsgTyp"    value="E"/>
+                <set name="RspCod"    value="01003"/>
+                <set name="RspMsg"    value="表中无符合记录"/>
+                <return/>
+            </if>
+            <elseif condition="#RetCod!=0">
+               <set name="MsgTyp"    value="E"/>
+               <set name="RspCod"    value="09999"/>
+               <set name="RspMsg"    value="系统错误"/>
+               <return/>
+            </elseif>
+
+            <!--取重发次数参数配置-->
+            <set name="ConfigName"   value="ReSendCfg"/>
+            <quote name="ReadXmlCfg"/>
+      
+            <if condition="INTCMP(#MAP.TimCnt,6,ReNotifyNo)">
+                <do func="ExecSql"     error="IGNORE">
+                  <para name="SqlCmd"  sql="InsPayErr"/>
+                </do>
+                <if condition="#RetCod==2">
+                  <set name="MsgTyp"    value="N"/>
+                  <set name="RspCod"    value="00000"/>
+                </if>
+                <elseif condition="#RetCod!=0">
+                  <set name="RspCod"    value="09999"></set>
+                  <set name="RspMsg"    value="系统错误"></set>
+                  <return/>
+                </elseif>
+                <do func="ExecSql"     error="IGNORE">
+                  <para name="SqlCmd"  sql="DelPayTim"/>
+                </do>
+                <if condition="#RetCod!=0">
+                  <set name="RspCod"    value="09999"></set>
+                  <set name="RspMsg"    value="系统错误"></set>
+                  <return/>
+                </if>
+            </if>
+            <elseif condition="INTCMP(#MAP.TimCnt,6,3)">
+               <if condition="INTCMP(MinMill,6,600)">
+                  <!-- 调起超时处理交易 -->
+                  <quote name="GetChannel"/>
+               </if>
+               <else>
+                  <do func="ExecSql">
+                     <para name="SqlCmd"  sql="UpdMinMill" />
+                  </do>
+                  <if condition="#RetCod!=0">
+                     <set name="MsgTyp"    value="E"/>
+                     <set name="RspCod"    value="09999"/>
+                     <set name="RspMsg"    value="系统错误"/>
+                     <return/>
+                  </if>
+               </else>
+            </elseif>
+            <else>
+               <quote name="GetChannel"/>
+            </else>
+         </foreach>
+      </process>
+   </transaction>
+   
+   
+   
+   
+   <transaction code="999989"   desc="担保支付定时扣款">
+      <sql name="queryAllPrdinf"><!--查询商品订单信息-->   
+        select PrdOrdNo,CUST_ID,OrdStatus,ordAmt,payOrdNo,filed2,orderTime from stpprdinf where prdOrdType='2' and OrdStatus='12'
+      </sql>
+      <sql name="queryPayinf"><!--查询商品订单信息-->
+        select ordAmt,nvl(rfTotalAmt,0) rfTotalAmt,OrdStatus,prdName,merNo,bizType,payOrdNo,PrdOrdNo,MERREMARK,prdOrdType,NotifyUrl,CUST_ID 
+          from stpprdinf where payOrdNo=#{payOrdNo} 
+      </sql> 
+      <sql name="SelPayInf"> 
+        select OrdStatus,txAmt,CUST_ID,payType,payAcNo,FEE from stppayinf where PayOrdNo=#{PayOrdNo}
+      </sql>
+      <sql name="queryCustNo"><!--查询商户账户信息-->
+       select PAY_AC_NO,CUST_ID,AC_TYPE,PASSWORD from ARP_AC_CUST_REL where CUST_ID=#{CUST_ID}
+      </sql>
+      <sql name="SelAccBal"><!-- 查询客户账户余额信息-->
+         SELECT CASH_AC_BAL,FROZ_BALANCE FROM ARP_AC_PROFILE WHERE PAY_AC_NO=#{PAYACNO}
+      </sql>
+      <sql name="UpdPay"> <!-- 更新支付订单表 -->
+         payOrdNo=#{payOrdNo}
+      </sql>
+      <sql name="UpdPrd"> <!-- 更新商品订单表 -->
+         prdOrdNo=#{prdOrdNo}
+      </sql>
+      <sql name="QryOrderInfo"><!-- 查询订单信息-->
+         SELECT p.payOrdNo,p.Ordstatus,p.prdordno,p.merno,p.versionid,p.biztype,TO_CHAR(to_number(p.ORDAMT)/100,'FM9999,999,999,990.00') as ORDERAMT,
+                p.acdate,p.notifyurl,m.CODE_TYPE_ID,m.md5_secret_code_id 
+           FROM stpprdinf p,stpmerinf m
+          WHERE p.merno=m.cust_id  AND p.merno=#{merNo}  AND p.prdordno=#{PrdOrdNo}
+      </sql>
+      <process>
+          
+          <do func="QueryInGroup" error="IGNORE">
+             <para name="SqlCmd"     sql="queryAllPrdinf"/>
+             <para name="RecordName" value="GRP"/>
+          </do>
+          <if condition="#RetCod==2">
+             <set name="repDesc"     value="无担保支付订单"/>
+             <return />           
+          </if>
+          <elseif condition="#RetCod==-1">
+            <set name="repDesc"      value="系统错误"/>
+            <return/>
+          </elseif>
+          <elseif condition="#RetCod!=0">
+            <set name="repDesc"      value="系统错误"/>
+            <return/>
+          </elseif>
+          <set name="currentTime_first" expr="GETDATETIME()"/><!--获得当前时间-->
+          <set name="currentTime"       expr="STRTOLONG(currentTime_first)"/>        <!--获得当前时间整数-->
+          
+          <foreach name="GRP" iterator="#tmp">
+             <if condition="IS_EQUAL_STRING(#tmp.ORDSTATUS,'12')">
+                 <set name="ordTime_first" expr="STRTOLONG(#tmp.orderTime)"/>        <!--获得当前订单时间-->
+                 <set name="ordTime"       expr="STRTOLONG(ordTime_first)"/>
+             </if> 
+             <else>
+                <continue/>
+             </else>
+             <set name="TIMEPAY"             expr="STRTOINT(TIMEPAY)"/>
+             <do func="CalcMin" error="IGNORE" >
+               <para name="nowDate"          expr="ordTime"/>
+               <para name="symbol"           value="+"/>
+               <para name="second"           expr="STRTOINT(TIMEPAY)*24*60*60*1000"/><!--当前时间加默认的时间-->
+             </do>
+             <if condition="#RetCod==-1">
+               <set name="RSPMSG"            value="计算时间失败"/>
+               <continue/>
+             </if>
+             <set name="ordTime"            expr="AFTERDATE"/><!--延迟时间-->
+             <set name="resultNum"          expr="SUB(currentTime,ordTime)"/>
+             <set name="payOrdNo"           expr="#tmp.payOrdNo"/>
+             <if condition="INTCMP(STRCMP(resultNum,'0'),5,0)"><!--当前日期大于订单日期-->
+                <do func="ReadRecord" error="IGNORE">
+                  <para name="SqlCmd" sql="queryPayinf" />
+                </do>
+                <if condition="#RetCod!=0">
+                  <set name="RspCod"    value="09999"/>
+                  <set name="RspMsg"    value="商户订单不存在"/>
+                  <continue/>
+                </if>
+                <if condition="AND(IS_NOEQUAL_STRING(OrdStatus,'05'),IS_NOEQUAL_STRING(OrdStatus,'12'),IS_NOEQUAL_STRING(OrdStatus,'13'),IS_NOEQUAL_STRING(OrdStatus,'15'),IS_NOEQUAL_STRING(OrdStatus,'16'))">
+                  <set name="RspCod"    value="01003"/>
+                  <set name="RspMsg"    value="订单状态不正确"/>
+                  <continue/>
+                </if>
+                
+                <do func="ReadRecord" error="IGNORE">
+                  <para name="SqlCmd" sql="SelPayInf" />
+                </do>
+                <if condition="#RetCod!=0">
+                   <set name="RspCod"    value="08001"/>
+                   <set name="RspMsg"    value="支付订单不存在"/>
+                   <continue/>
+                </if>
+                
+                <do func="ReadRecord" error="IGNORE">
+                  <para name="SqlCmd" sql="queryCustNo" />
+                </do>
+                <if condition="#RetCod!=0">
+                   <set name="RspCod"    value="07009"/>
+                   <set name="RspMsg"    value="客户账户不存在"/>
+                   <continue/>
+                </if>
+                <!--扣除中间账户的金额-->
+                <if condition="OR(IS_EQUAL_STRING(payType,'00'),IS_EQUAL_STRING(payType,'01'),IS_EQUAL_STRING(payType,'03'),IS_EQUAL_STRING(payType,'04'))">   
+                   <!--进行虚拟账户扣款-->
+                   <set name="MER_ACC_TYP"  value="02"/>           <!-- 商户结算账户 -->
+                   <set name="payacno"      expr="payAcNo"/>  
+                   <set name="txAmtSub"     expr="SUB(txAmt,rfTotalAmt)" />         <!--支付金额减去累计退款--> 
+                   <set name="pltMidPar"    expr="STRCAT('99999900000001','/','04','/','-','/','CNY','/',txAmtSub,'/','N','/')"/>   <!--平台担保账户记账参数-->
+                   <if condition="OR(IS_EQUAL_STRING(FEE,'0'),ISNULL(FEE))">       <!--无手续费--> 
+                     <set name="merPar"     expr="STRCAT(MERNO,'/',MER_ACC_TYP,'/','+','/','CNY','/',txAmtSub,'/','Y','/')"/>       <!--商户记账参数-->
+                     <set name="PARAMS"     expr="STRCAT(pltMidPar,',',merPar)"/>
+                   </if>
+                   <else>                                                          <!--有手续费-->    
+                     <set name="merPar"     expr="STRCAT(MERNO,'/',MER_ACC_TYP,'/','+','/','CNY','/',SUB(txAmtSub-fee),'/','Y','/')"/>         <!--商户记账参数-->
+                     <set name="feePar"     expr="STRCAT('99999900000001','/','03','/','+','/',CCY,'/',fee,'/','N','/')"/>        <!--平台账户（手续费）记账参数-->
+                     <set name="PARAMS"     expr="STRCAT(pltMidPar,',',merPar,',',feePar)"/>
+                   </else>
+                   
+                   <if condition="DOUBLECMP(txAmtSub,2,fee)">
+                      <set name="RspCod"    value="07016"/>
+                      <set name="RspMsg"    value="金额小于手续费"/>
+                      <continue/>
+                   </if>
+                
+                   <!--记账处理-->
+                   <set name="TXN_TYP"         value="2"/>                 <!--用途  消费-->
+                   <quote name="accProcess"/>
+                   <if condition="#RetCod!=0">
+                      <set name="Status"       value="2"/>
+                      <set name="ClearDat"     expr="GETDATE()"/>          <!--清算日期-->
+                      <delete name="actdat"/>
+                      <quote name="UpdPay"/>
+                      <set name="acDate"       expr="GETDATE()"/>          <!--清算日期-->  
+                      <set name="acTime"       expr="GETDATETIME('HHMISS')"/>  <!--清算时间-->
+                      <quote name="UpdPrd"/>
+                      <continue/>
+                   </if>
+                   
+                   <set name="netRecAmt"      expr="SUB(TXAMT,FEE)"/>                                                
+                   <set name="txnComAmt"      expr="FEE"/>  
+                   <set name="acDate"         expr="GETDATE()"/>
+                   <set name="acTime"         expr="GETDATETIME('HHMISS')"/>
+                   <set name="ClearDat"       expr="GETDATE()"/>
+                   
+                   <!--更新支付订单表-->
+                   <set name="OrdStatus"    value="01"/>
+                   <quote name="UpdPay"/>
+                   
+                   <set name="ordStatus"    value="01"/> 
+                   <set name="Status"       value="1"/> 
+                   <!--更新商品订单表--> 
+                   <quote name="UpdPrd"/>
+                   
+                </if>
+             </if>
+          </foreach>
+             
+      </process>
+   </transaction>
+  
+</application>
+
+

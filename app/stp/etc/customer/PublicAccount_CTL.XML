@@ -1045,6 +1045,7 @@
               <return/>
             </else> -->
             <set name="CUST_TYPE" value="1"/>
+            <set name="SOURCE" value="00"/>
           </if>
           <elseif condition="IS_EQUAL_STRING(CUST_TYPE,'0')">
             <set name="PAY_AC_NO" value="9999999999999999"/>
@@ -1052,6 +1053,7 @@
           <elseif condition="IS_EQUAL_STRING(CUST_TYPE,'2')">
             <set name="PAY_AC_NO" value="8888888888888888"/>
             <set name="CUST_TYPE" value="1"/>
+            <set name="SOURCE" value="00"/>
           </elseif>
           <else>
               <set name="RspCod"               value="01004"/>
